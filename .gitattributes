@@ -1,0 +1,2 @@
+app/libs/sherpa-onnx.aar
+*.aar filter=lfs diff=lfs merge=lfs -text

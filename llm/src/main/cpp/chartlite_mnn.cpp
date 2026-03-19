@@ -88,8 +88,12 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     const char *modelPath = env->GetStringUTFChars(jModelPath, nullptr);
     LOGi("initGenerateModel (MNN): %s", modelPath);
 
-    // MNN expects path to the directory containing llm_config.json
-    g_llm = Llm::createLLM(std::string(modelPath));
+    // MNN expects path to the directory containing llm_config.json, with trailing /
+    std::string configDir(modelPath);
+    if (!configDir.empty() && configDir.back() != '/') {
+        configDir += '/';
+    }
+    g_llm = Llm::createLLM(configDir);
     env->ReleaseStringUTFChars(jModelPath, modelPath);
 
     if (!g_llm) {

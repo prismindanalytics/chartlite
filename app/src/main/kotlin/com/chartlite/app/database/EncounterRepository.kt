@@ -97,7 +97,8 @@ class EncounterRepository(
     }
 
     fun toStructuredEncounter(entity: EncounterEntity): StructuredEncounter {
-        val encounterTimeMillis = entity.effectiveEncounterTimeMillis() ?: 0L
+        val encounterTimeMillis = entity.effectiveEncounterTimeMillis()
+            ?: System.currentTimeMillis()
         return StructuredEncounter(
             id = entity.id,
             patientId = entity.patientId,

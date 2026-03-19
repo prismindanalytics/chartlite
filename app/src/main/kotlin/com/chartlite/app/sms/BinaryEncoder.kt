@@ -64,6 +64,7 @@ object BinaryEncoder {
         // Bytes 1-2: Encounter date (days since 2024-01-01)
         val encounterDate = encounter.timestamp.atZone(ZoneOffset.UTC).toLocalDate()
         val daysSinceEpoch = ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
+            .coerceIn(0, 65535)  // Guard: negative days (timestamp=0 → 1970) wraps to ~2149
         buffer.putShort(daysSinceEpoch.toShort())
 
         // Bytes 3-5: Provider (12 bits) + Facility (12 bits)
@@ -281,6 +282,7 @@ object BinaryEncoder {
         // Bytes 1-5: date + provider/facility (same as v1/v2)
         val encounterDate = encounter.timestamp.atZone(ZoneOffset.UTC).toLocalDate()
         val daysSinceEpoch = ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
+            .coerceIn(0, 65535)
         buffer.putShort(daysSinceEpoch.toShort())
 
         val providerHash = encounter.providerId.hashCode() and 0xFFF
@@ -522,6 +524,7 @@ object BinaryEncoder {
         // Bytes 1-2: Encounter date
         val encounterDate = encounter.timestamp.atZone(ZoneOffset.UTC).toLocalDate()
         val daysSinceEpoch = java.time.temporal.ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
+            .coerceIn(0, 65535)
         buffer.putShort(daysSinceEpoch.toShort())
 
         // Bytes 3-5: Provider + Facility hash
@@ -671,6 +674,7 @@ object BinaryEncoder {
         // Bytes 1-2: Encounter date (days since 2024-01-01, uint16)
         val encounterDate = encounter.timestamp.atZone(ZoneOffset.UTC).toLocalDate()
         val daysSinceEpoch = ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
+            .coerceIn(0, 65535)  // Guard: negative days (timestamp=0 → 1970) wraps to ~2149
         buffer.putShort(daysSinceEpoch.toShort())
 
         // Bytes 3-5: Provider hash (12b) + Facility hash (12b)

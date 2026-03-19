@@ -77,9 +77,19 @@ class VisionExtractor(
             val gson = Gson()
             val obj = gson.fromJson(jsonStr, JsonObject::class.java)
 
-            val contentType = obj.get("content_type")?.asString ?: "other"
+            // Fuzzy field lookup — small models produce typos like "categoriess", "mediications"
+            fun JsonObject.fuzzy(vararg candidates: String) =
+                candidates.firstNotNullOfOrNull { key ->
+                    // Exact match first, then prefix match (handles typos like extra letters)
+                    this.get(key) ?: this.keySet().firstOrNull { k ->
+                        k.startsWith(key.take(4)) || key.startsWith(k.take(4))
+                    }?.let { this.get(it) }
+                }
 
-            val vitals = obj.getAsJsonArray("vitals")?.mapNotNull { elem ->
+            val contentType = (obj.fuzzy("content_type", "category", "categories", "type")?.asString ?: "other")
+                .replace(Regex("s+$"), "") // strip trailing 's' from typos
+
+            val vitals = (obj.getAsJsonArray("vitals") ?: obj.getAsJsonArray("vital"))?.mapNotNull { elem ->
                 val o = elem.asJsonObject
                 val name = o.get("name")?.asString ?: return@mapNotNull null
                 val value = o.get("value")?.asString ?: return@mapNotNull null
@@ -87,7 +97,7 @@ class VisionExtractor(
                 VitalReading(name, value, unit)
             } ?: emptyList()
 
-            val investigations = obj.getAsJsonArray("investigations")?.mapNotNull { elem ->
+            val investigations = (obj.getAsJsonArray("investigations") ?: obj.getAsJsonArray("investigation"))?.mapNotNull { elem ->
                 val o = elem.asJsonObject
                 val test = o.get("test")?.asString ?: return@mapNotNull null
                 val result = o.get("result")?.asString ?: return@mapNotNull null
@@ -100,7 +110,7 @@ class VisionExtractor(
                 RdtResult(testType, result, r.get("details")?.asString)
             }
 
-            val medications = obj.getAsJsonArray("medications")?.mapNotNull { elem ->
+            val medications = (obj.getAsJsonArray("medications") ?: obj.getAsJsonArray("mediications") ?: obj.getAsJsonArray("medication"))?.mapNotNull { elem ->
                 val o = elem.asJsonObject
                 val name = o.get("name")?.asString ?: return@mapNotNull null
                 MedicationInfo(name, o.get("dose")?.asString, o.get("form")?.asString, o.get("expiry")?.asString)

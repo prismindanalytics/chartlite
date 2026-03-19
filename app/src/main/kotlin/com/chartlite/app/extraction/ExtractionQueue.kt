@@ -28,7 +28,9 @@ class ExtractionQueue(
     private val orchestrator: ExtractionOrchestrator,
     private val repository: ExtractionQueueRepository,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    private val cancelCurrentProcessing: () -> Unit = {}
+    private val cancelCurrentProcessing: () -> Unit = {},
+    /** Optional: process pending clinical photos during batch. Returns merged encounter. */
+    var photoProcessor: (suspend (patientId: String, encounter: StructuredEncounter) -> StructuredEncounter)? = null
 ) {
     private val workerScope = CoroutineScope(
         scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job])
@@ -508,14 +510,25 @@ class ExtractionQueue(
             facilityId = item.facilityId
         )
 
+        // Process any pending clinical photos for this patient
+        var mergedEncounter = result.encounter
+        photoProcessor?.let { processor ->
+            try {
+                _processingStep.value = ProcessingStep.EXTRACTING
+                mergedEncounter = processor(item.patientId, mergedEncounter)
+            } catch (e: Exception) {
+                Log.w(TAG, "Photo processing failed for ${item.patientId.take(4)}***: ${e.message}")
+            }
+        }
+
         _processingStep.value = ProcessingStep.SAVING
         // Set freeTextNote to the draft note (document of record), keep original transcript
         // Generate SMS summary if LLM didn't produce one
-        val smsSummary = result.encounter.smsSummary
-            ?: buildAlgorithmicSmsSummary(result.encounter)
+        val smsSummary = mergedEncounter.smsSummary
+            ?: buildAlgorithmicSmsSummary(mergedEncounter)
         val enrichedResult = ExtractionOrchestrator.ExtractionResult(
-            encounter = result.encounter.copy(
-                freeTextNote = noteResult?.note ?: result.encounter.freeTextNote,
+            encounter = mergedEncounter.copy(
+                freeTextNote = noteResult?.note ?: mergedEncounter.freeTextNote,
                 transcript = item.transcript,  // Preserve original transcript
                 smsSummary = smsSummary
             ),

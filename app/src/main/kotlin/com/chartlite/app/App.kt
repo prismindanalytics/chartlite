@@ -36,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class App : Application() {
@@ -382,6 +383,26 @@ class App : Application() {
             appScope,
             { llmModelManagerBacking?.cancelInference() }
         )
+
+        // Wire up photo processing for batch mode: analyze pending photos during batch
+        val visionExtractor = VisionExtractor(llmModelManager, promptBuilder)
+        val photoDao = database.clinicalPhotoDao()
+        extractionQueue.photoProcessor = { patientId, encounter ->
+            val pendingPhotos = photoDao.getByPatientAndType(patientId, "pending").first()
+            var merged = encounter
+            for (photo in pendingPhotos) {
+                try {
+                    val result = visionExtractor.extract(photo.filePath)
+                    if (result != null) {
+                        merged = EncounterMerger.mergeVisionResult(merged, result)
+                        photoDao.insert(photo.copy(contentType = result.contentType, extractedJson = result.rawJson))
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Vision failed for photo ${photo.id}: ${e.message}")
+                }
+            }
+            merged
+        }
 
         return ExtractionServices(
             vectorStore = vectorStore,

@@ -68,13 +68,14 @@ class QwenExtractionStrategy(
                 return@withContext null
             }
 
-            // Build prompt with thinking suppressed (pre-closed <think> block)
-            val prompt = promptBuilder.buildRagPrompt(preparedTranscript.text)
+            // Use structured system/user pair — MNN applies native chat template
+            // with proper special token IDs (not raw text <|im_start|> tags)
+            val (systemPrompt, userMessage) = promptBuilder.extractionSystemAndUser(preparedTranscript.text)
 
             val maxOutputTokens = modelManager.recommendedOutputTokens()
             Log.d(
                 TAG,
-                "Running Qwen inference (prompt: ${prompt.length} chars, ~${prompt.length / 4} tokens est., " +
+                "Running Qwen inference (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, " +
                     "transcript=${transcript.length}->${preparedTranscript.preparedChars}, " +
                     "compacted=${preparedTranscript.compacted}, " +
                     "filler_removed=${preparedTranscript.fillerSegmentsRemoved}, " +
@@ -83,7 +84,8 @@ class QwenExtractionStrategy(
             )
 
             val responseText = runWithEmptyResponseRetry(
-                prompt = prompt,
+                systemPrompt = systemPrompt,
+                userMessage = userMessage,
                 maxOutputTokens = maxOutputTokens
             )
 
@@ -420,17 +422,18 @@ class QwenExtractionStrategy(
                 return@withContext null
             }
 
-            // Use compact prompt (fewer sections) for 0.8B model — it pads all 9 sections
+            // Use structured system/user pair — MNN applies native chat template
             val compact = modelManager.activeTier() == LlmModelManager.ModelTier.SMALL
-            val prompt = promptBuilder.buildOnDeviceNoteChatPrompt(prepared.text, compact = compact)
+            val (systemPrompt, userMessage) = promptBuilder.noteSystemAndUser(prepared.text, compact = compact)
             val maxOutputTokens = modelManager.recommendedOutputTokens()
             // Higher repeat penalty on small model to suppress cross-section repetition
             val config = if (compact) COMPACT_NOTE_GENERATION_CONFIG else NOTE_GENERATION_CONFIG
 
-            Log.d(TAG, "Running Qwen note generation (prompt: ${prompt.length} chars, compact=$compact)")
+            Log.d(TAG, "Running Qwen note generation (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, compact=$compact)")
 
-            val responseText = modelManager.runInference(
-                prompt = prompt,
+            val responseText = modelManager.runChatInference(
+                systemPrompt = systemPrompt,
+                userMessage = userMessage,
                 maxTokens = maxOutputTokens,
                 config = config
             )
@@ -463,11 +466,13 @@ class QwenExtractionStrategy(
     }
 
     private suspend fun runWithEmptyResponseRetry(
-        prompt: String,
+        systemPrompt: String,
+        userMessage: String,
         maxOutputTokens: Int
     ): String? {
-        val primary = modelManager.runInference(
-            prompt = prompt,
+        val primary = modelManager.runChatInference(
+            systemPrompt = systemPrompt,
+            userMessage = userMessage,
             maxTokens = maxOutputTokens,
             config = PRIMARY_GENERATION_CONFIG
         )
@@ -475,8 +480,11 @@ class QwenExtractionStrategy(
 
         Log.w(TAG, "Primary Qwen attempt returned empty; retrying with JSON prefix priming")
 
-        val retry = modelManager.runInference(
-            prompt = buildPrimedRetryPrompt(prompt),
+        // For retry, append JSON prefix hint to user message
+        val primedUserMessage = "$userMessage\n\nRespond with JSON starting with: {"
+        val retry = modelManager.runChatInference(
+            systemPrompt = systemPrompt,
+            userMessage = primedUserMessage,
             maxTokens = maxOutputTokens,
             config = EMPTY_RESPONSE_RETRY_CONFIG
         )

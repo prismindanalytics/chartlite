@@ -167,18 +167,61 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerate(JNIEnv *env, jobject, jstring 
 
     g_cancel_generation.store(false);
 
-    // Use custom streambuf that checks cancellation flag
     CancelCheckBuf buf;
     std::ostream os(&buf);
 
     LOGi("Generating response for prompt (%zu chars)...", promptStr.size());
 
-    // Tokenize the pre-formatted prompt ourselves, then call response(vector<int>)
-    // to skip MNN's internal chat template application.
-    // Our prompt is already fully formatted with <|im_start|> tags by ExtractionPromptBuilder.
-    auto input_ids = g_llm->tokenizer_encode(promptStr);
-    LOGi("Tokenized: %zu tokens", input_ids.size());
-    g_llm->response(input_ids, &os, nullptr, g_max_tokens);
+    // Pass as plain user content — MNN applies the chat template internally
+    g_llm->response(promptStr, &os, nullptr, g_max_tokens);
+
+    const auto *ctx = g_llm->getContext();
+    if (ctx) {
+        LOGi("Generated: prompt=%d tokens, decode=%d tokens, prefill=%.1fms, decode=%.1fms",
+             ctx->prompt_len, ctx->gen_seq_len,
+             ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
+    }
+
+    if (g_cancel_generation.load()) {
+        LOGw("Generation was cancelled");
+    }
+
+    if (buf.result.empty()) return nullptr;
+    return env->NewStringUTF(buf.result.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
+    JNIEnv *env, jobject,
+    jstring jSystemPrompt, jstring jUserMessage
+) {
+    if (!g_llm) {
+        LOGe("nativeGenerateChat: model not loaded");
+        return nullptr;
+    }
+
+    const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
+
+    ChatMessages messages = {
+        {"system", std::string(sys)},
+        {"user",   std::string(usr)},
+    };
+
+    env->ReleaseStringUTFChars(jSystemPrompt, sys);
+    env->ReleaseStringUTFChars(jUserMessage, usr);
+
+    g_cancel_generation.store(false);
+
+    CancelCheckBuf buf;
+    std::ostream os(&buf);
+
+    LOGi("GenerateChat: system=%zu chars, user=%zu chars",
+         messages[0].second.size(), messages[1].second.size());
+
+    // response(ChatMessages) applies the model's native chat template
+    // with proper special token handling, then generates
+    g_llm->response(messages, &os, nullptr, g_max_tokens);
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {

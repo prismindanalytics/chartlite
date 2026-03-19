@@ -54,6 +54,15 @@ object LlamaBridge {
     }
 
     /**
+     * Generate a response using structured system/user messages.
+     * MNN applies the model's native chat template with proper special token handling.
+     */
+    fun generateChat(systemPrompt: String, userMessage: String): String? {
+        check(initialized) { "LlamaBridge.initialize() not called" }
+        return nativeGenerateChat(systemPrompt, userMessage)
+    }
+
+    /**
      * Apply the model's native chat template with thinking control.
      * Returns a fully formatted prompt string, or null if the model isn't loaded.
      *
@@ -86,6 +95,7 @@ object LlamaBridge {
     )
     private external fun nativeGenerate(prompt: String): String?
     private external fun nativeGenerateJson(prompt: String, jsonSchema: String): String?
+    private external fun nativeGenerateChat(systemPrompt: String, userMessage: String): String?
     private external fun nativeApplyChatTemplate(
         systemPrompt: String, userMessage: String, enableThinking: Boolean
     ): String?

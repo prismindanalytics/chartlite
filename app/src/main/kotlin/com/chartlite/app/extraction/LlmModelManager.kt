@@ -381,6 +381,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
+     * Run chat-based inference with structured system/user messages.
+     * MNN applies the model's native chat template with proper special token IDs.
+     * This avoids the tokenization issue where manually-written <|im_start|> tags
+     * are treated as regular text instead of special tokens.
+     */
+    suspend fun runChatInference(
+        systemPrompt: String,
+        userMessage: String,
+        maxTokens: Int = recommendedOutputTokens(),
+        config: GenerationConfig = GenerationConfig()
+    ): String? = executeInference("generateChat", maxTokens, config) {
+        LlamaBridge.generateChat(systemPrompt, userMessage)
+    }
+
+    /**
      * Run JSON schema-constrained inference.
      * The model is forced to output valid JSON matching the provided schema,
      * eliminating parse failures from free-text generation.

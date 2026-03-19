@@ -758,18 +758,18 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             dirName = "qwen35-0.8b-mnn",
             filename = "qwen35-0.8b-int4-mnn.zip",
             modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn.zip",
-            sha256 = "5780c9f0912679ae8f271dae7cc15690bf803dfefd9e94d14bfd105100bc7b44",
-            sizeMb = 314,
-            description = "Fast inference via MNN, fits devices with 2+ GB RAM"
+            sha256 = "2667046bc560c5fc3e38b28d2b91a14d6b659b9d5e02db76adb5ec02fe18fe8e",
+            sizeMb = 452,
+            description = "Fast inference + vision via MNN, fits devices with 2+ GB RAM"
         ),
         LARGE(
             label = "Qwen 3.5 2B",
             dirName = "qwen35-2b-mnn",
             filename = "qwen35-2b-int4-mnn.zip",
             modelUrl = "https://huggingface.co/prismindanalytics/chartlite-models/resolve/main/qwen35-2b-int4-mnn.zip",
-            sha256 = "33fababfee22cbef73f41f902cf47f606247c3d650773099498d92ad4eaf9867",
-            sizeMb = 823,
-            description = "Higher accuracy via MNN, needs 4+ GB RAM"
+            sha256 = "344f169dcb38b3fc6f2b67e8ed9ffdbb9906edf85d87fb1228aae195348de29a",
+            sizeMb = 1205,
+            description = "Higher accuracy + vision via MNN, needs 4+ GB RAM"
         );
 
         /** Non-technical display name for simplified UI (e.g., setup wizard). */

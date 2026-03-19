@@ -470,8 +470,10 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     ): String? {
         autoUnloadJob?.cancel()
         return try {
-            if (!modelLoaded) loadModel()
+            // Set inferring BEFORE loadModel() to prevent onTrimMemory from
+            // unloading mid-load on 3GB devices under memory pressure.
             inferring = true
+            if (!modelLoaded) loadModel()
 
             val result = CompletableDeferred<String?>()
             val generationJob = scope.launch {
@@ -547,9 +549,23 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     override fun onTrimMemory(level: Int) {
         @Suppress("DEPRECATION")
         val threshold = ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+        // Check inferring flag atomically: only unload if no inference is running.
+        // The inferring flag is set before inferenceMutex is acquired (line 474),
+        // so checking it here prevents the race where onTrimMemory fires between
+        // loadModel() and inferring=true.
         if (level >= threshold && modelLoaded && !inferring) {
-            Log.w(TAG, "System low on memory (level=$level), unloading model")
-            unloadModel()
+            // Try to acquire inferenceMutex to ensure no inference is in-progress.
+            // If locked, an inference is running — skip unload to avoid SIGSEGV.
+            if (inferenceMutex.tryLock()) {
+                try {
+                    Log.w(TAG, "System low on memory (level=$level), unloading model")
+                    unloadModel()
+                } finally {
+                    inferenceMutex.unlock()
+                }
+            } else {
+                Log.w(TAG, "System low on memory but inference is active, deferring unload")
+            }
         }
     }
 

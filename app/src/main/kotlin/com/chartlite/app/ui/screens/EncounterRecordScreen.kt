@@ -185,7 +185,7 @@ fun EncounterRecordScreen(
         transcript = trimmed
         isProcessing = true
         extractionError = null
-        asr.unloadOfflineModelIfIdle()
+        asr.unloadOfflineModelAndWait()
 
         try {
             val queueId = app.extractionQueue.enqueue(
@@ -237,7 +237,9 @@ fun EncounterRecordScreen(
         transcript = trimmed
         isGeneratingNote = true
         extractionError = null
-        asr.unloadOfflineModelIfIdle()
+        // Synchronously release ONNX ASR model and wait for memory to be freed
+        // before loading LLM. On 3GB devices, both can't coexist in memory.
+        asr.unloadOfflineModelAndWait()
 
         try {
             val noteResult = app.extractionQueue.generateNoteFromTranscript(trimmed)
@@ -1752,6 +1754,8 @@ fun EncounterRecordScreen(
                     // Immediate mode: run vision extraction now
                     isScanProcessing = true
                     scope.launch {
+                        // Release ASR model first — on 3GB devices, ASR + vision can't coexist
+                        asr.unloadOfflineModelAndWait()
                         val result = withContext(Dispatchers.Default) {
                             visionExtractor.extract(filePath)
                         }

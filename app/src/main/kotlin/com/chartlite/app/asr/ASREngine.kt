@@ -407,6 +407,20 @@ class ASREngine(private val context: Context) {
         }
     }
 
+    /**
+     * Synchronously release the ONNX model and wait for memory to be freed.
+     * Must be called from a coroutine context. Use this before loading the LLM
+     * to avoid OOM on low-RAM (3GB) devices where both models can't coexist.
+     */
+    suspend fun unloadOfflineModelAndWait() {
+        if (!sherpaPipeline.isLoaded.value) return
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            sherpaPipeline.release()
+        }
+        // Give the GC a nudge to reclaim native memory before LLM loads
+        System.gc()
+    }
+
     fun getCurrentLanguage(): String = currentLanguage
 
     fun cancelListening(releaseOnnxAfterCancel: Boolean = false) {

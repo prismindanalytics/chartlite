@@ -157,8 +157,9 @@ class ExtractionPromptBuilder(
 
     /** User prompt for vision extraction — the image is passed separately via JNI. */
     fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Extract clinical data from this image as a JSON object matching this schema:")
+        appendLine("Look at this clinical image. First read ALL text printed on the device or document. Then extract the data as JSON matching this schema:")
         if (additionalContext.isNotBlank()) {
+            appendLine()
             appendLine(additionalContext)
         }
         appendLine()
@@ -238,27 +239,26 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You are a clinical image data extractor. You MUST respond with ONLY a JSON object. No text before or after the JSON.
+You are a clinical image data extractor. Respond with ONLY a JSON object.
 
-Extract visible clinical data from the image. Set content_type to one of: lab_report, rdt_result, vital_device, medication_package, referral_letter, other
+CRITICAL RULES:
+1. READ ALL TEXT on the device/document FIRST. The printed label tells you what the test is.
+2. For RDT cassettes: the brand name and test name are printed on the device. Read them. Do NOT guess the test type — use what is written.
+3. For bands: C = control line, T = test line. Two visible lines (C and T both present) = POSITIVE. Only C line = NEGATIVE. No C line = INVALID.
+4. Only include fields relevant to what you see. Omit empty arrays and null objects.
 
-For RDT cassettes: report test_type (malaria/hiv/pregnancy/other), result (positive/negative/invalid), band details.
-For vital devices: read exact numbers from display.
-For lab reports: test name, value, unit, reference range.
-For medications: drug name, strength, form, expiry.
-
-IMPORTANT: Output ONLY the JSON object. Start your response with { and end with }. No other text.
+Output ONLY the JSON object. Start with { and end with }.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
 {
-  "content_type": "lab_report|rdt_result|vital_device|medication_package|referral_letter|other",
-  "vitals": [{"name": "...", "value": "...", "unit": "..."}],
-  "investigations": [{"test": "...", "result": "...", "reference_range": "..."}],
-  "rdt": {"test_type": "malaria|hiv|pregnancy|other", "result": "positive|negative|invalid", "details": "..."},
-  "medications": [{"name": "...", "dose": "...", "form": "...", "expiry": "..."}],
-  "referral": {"from_facility": "...", "diagnosis": "...", "reason": "...", "urgency": "..."},
-  "raw_text": "any visible text not captured above"
+  "content_type": "rdt_result or lab_report or vital_device or medication_package or referral_letter or other",
+  "vitals": [{"name": "temperature", "value": "36.7", "unit": "C"}],
+  "investigations": [{"test": "WBC", "result": "5.2", "reference_range": "4.0-11.0"}],
+  "rdt": {"test_type": "THE TEST NAME PRINTED ON DEVICE e.g. hiv or malaria or pregnancy", "result": "positive or negative or invalid", "details": "band pattern or other details", "device": "brand name from label"},
+  "medications": [{"name": "Amoxicillin", "dose": "500mg", "form": "capsule", "expiry": "2026-01"}],
+  "referral": {"from_facility": "facility name", "diagnosis": "...", "reason": "...", "urgency": "routine or urgent or emergency"},
+  "raw_text": "any other visible text not captured above"
 }
         """.trimIndent()
     }

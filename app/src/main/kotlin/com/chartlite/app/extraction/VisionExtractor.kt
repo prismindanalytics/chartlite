@@ -86,7 +86,9 @@ class VisionExtractor(
                     }?.let { this.get(it) }
                 }
 
-            val contentType = (obj.fuzzy("content_type", "category", "categories", "type")?.asString ?: "other")
+            val rawContentType = obj.fuzzy("content_type", "category", "categories", "type")?.asString
+            // Infer content type if not explicitly provided (simple JSON format)
+            val contentType = (rawContentType ?: if (obj.has("test") || obj.has("result")) "rdt_result" else "other")
                 .replace(Regex("s+$"), "") // strip trailing 's' from typos
 
             val vitals = (obj.getAsJsonArray("vitals") ?: obj.getAsJsonArray("vital"))?.mapNotNull { elem ->
@@ -111,6 +113,14 @@ class VisionExtractor(
                 // Discard if model dumped schema junk into details
                 val details = rawDetails?.takeIf { it.length < 200 && !it.contains("content_type") }
                 RdtResult(testType, result, details)
+            } ?: run {
+                // Simple format: top-level "test" and "result" keys (no nested "rdt" object)
+                val testName = obj.get("test")?.asString
+                val testResult = obj.get("result")?.asString
+                val lines = obj.get("lines")?.asString
+                if (testName != null && testResult != null) {
+                    RdtResult(testName, testResult, lines)
+                } else null
             }
 
             val medications = (obj.getAsJsonArray("medications") ?: obj.getAsJsonArray("mediications") ?: obj.getAsJsonArray("medication"))?.mapNotNull { elem ->
@@ -175,15 +185,20 @@ class VisionExtractor(
                 lower.contains("pregnan") || lower.contains("hcg") -> "pregnancy"
                 else -> "other"
             }
-            // Use regex to match "result is X" or "X result" patterns, avoiding echoed question text
+            // Determine result from model's description of bands/lines
             val result = when {
-                lower.contains("no c line") || lower.contains("no control line") -> "invalid"
-                Regex("result[:\\s]+negative|is negative|negative result|non-reactive|nonreactive").containsMatchIn(lower) ||
+                lower.contains("no c line") || lower.contains("no control") -> "invalid"
+                // Explicit positive/negative statements (but not from surrounding paper text)
+                Regex("result[:\\s]+(is )?negative|test is negative|non-reactive|nonreactive").containsMatchIn(lower) ||
                     lower.contains("only c line") || lower.contains("only the c") || lower.contains("c line only") ||
-                    lower.contains("one line visible") || lower.contains("only one line") -> "negative"
-                Regex("result[:\\s]+positive|is positive|positive result|\\breactive\\b").containsMatchIn(lower) ||
+                    lower.contains("only one line") || lower.contains("one colored line") ||
+                    Regex("no.{0,20}(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE).containsMatchIn(lower) ||
+                    lower.contains("no line next to t") || lower.contains("no colored line next to t") -> "negative"
+                Regex("result[:\\s]+(is )?positive|test is positive|\\breactive\\b").containsMatchIn(lower) ||
                     lower.contains("c and t") || lower.contains("both lines") ||
-                    lower.contains("two lines visible") || lower.contains("t line visible") -> "positive"
+                    lower.contains("two colored line") || lower.contains("2 colored line") ||
+                    Regex("(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE).containsMatchIn(lower) ||
+                    lower.contains("line next to t") || lower.contains("colored line next to t") -> "positive"
                 else -> "unknown"
             }
             // Extract device/brand if mentioned

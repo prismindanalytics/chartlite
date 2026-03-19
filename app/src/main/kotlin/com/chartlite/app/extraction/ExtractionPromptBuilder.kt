@@ -157,7 +157,7 @@ class ExtractionPromptBuilder(
 
     /** User prompt for vision extraction — the image is passed separately via JNI. */
     fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Look at this image:")
+        appendLine("Read this clinical image.")
         if (additionalContext.isNotBlank()) {
             appendLine()
             appendLine(additionalContext)
@@ -239,12 +239,10 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-Read the image. Be brief. One short sentence per line.
+Read the image. Respond with ONLY a short JSON object. No other text.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-What text is on the device or document?
-What clinical data can you read from it?
-If it is a test cassette, look at the bands only to decide positive or negative. Ignore surrounding papers.""".trimIndent()
+Respond with JSON only: {"text":"all text on device","test":"test name","result":"positive or negative","lines":"which lines visible"}""".trimIndent()
     }
 }

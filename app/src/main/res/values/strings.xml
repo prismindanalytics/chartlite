@@ -447,7 +447,7 @@
     <string name="setup_download_model_format">Download %1$s</string>
     <string name="setup_downloading_size">Downloading: %1$s MB</string>
     <string name="setup_model_ready_format">%1$s ready</string>
-    <string name="setup_import_gguf">Import GGUF</string>
+    <string name="setup_import_gguf">Import Model</string>
     <string name="setup_complete_setup">Complete Setup</string>
     <string name="setup_offline_models_warning">Offline models not yet downloaded</string>
     <string name="setup_offline_asr_needed">ASR model needed for offline voice. </string>

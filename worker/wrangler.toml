@@ -26,9 +26,7 @@ new_sqlite_classes = ["DeviceAuthState"]
 
 [[kv_namespaces]]
 binding = "ENROLLMENT_CODES"
-id = "PLACEHOLDER_ENROLLMENT_CODES_KV_ID"
-# Create with: npx wrangler kv namespace create ENROLLMENT_CODES
-# Then replace the id above with the actual namespace ID
+id = "13996500262345578e1e5ba35cac5f69"
 
 [vars]
 ENVIRONMENT = "production"

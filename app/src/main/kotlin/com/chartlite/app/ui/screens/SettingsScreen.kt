@@ -295,7 +295,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch(Dispatchers.IO) {
             val message = try {
-                val tmpModel = java.io.File.createTempFile("llm_model_", ".gguf", context.cacheDir)
+                val tmpModel = java.io.File.createTempFile("llm_model_", ".zip", context.cacheDir)
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     tmpModel.outputStream().use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Unable to read selected model file")

@@ -21,20 +21,18 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipInputStream
 
 /**
- * Manages downloading and loading of GGUF LLM models for on-device inference
- * via llama.cpp built from source (ARM64 + x86_64, automatic mmap).
+ * Manages downloading and loading of MNN-LLM models for on-device inference.
+ * MNN-LLM provides 2-8x faster inference than llama.cpp on ARM Android devices.
  *
  * Hardware-aware tier selection:
- * - <4GB RAM: Qwen 3.5 0.8B Q4_K_M (~560MB) — fits Galaxy A03/A04
- * - >=4GB RAM: Qwen 3.5 2B Q4_K_M (~1.5GB) — better accuracy
+ * - <4GB RAM: Qwen 3.5 0.8B INT4 (~390MB) — fits Galaxy A03/A04
+ * - >=4GB RAM: Qwen 3.5 2B INT4 (~1.0GB) — better accuracy
  *
- * The 4GB threshold ensures ~2.5GB free for OS+apps after loading the 1.5GB model
- * via mmap. The old 3GB threshold left <1.5GB which caused frequent OOM on 3GB devices.
- *
- * Qwen 3.5 uses hybrid Gated DeltaNet + attention architecture, supported
- * by llama.cpp b8253+.
+ * MNN models are stored as directories (llm.mnn, llm.mnn.weight, llm_config.json,
+ * tokenizer.txt, config.json) downloaded as zip archives and extracted on device.
  *
  * Models stored in context.noBackupFilesDir/llm_models/ (excluded from auto-backup).
  */
@@ -118,12 +116,16 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     /** Active tier: user override if set, otherwise hardware-recommended. */
     fun activeTier(): ModelTier = overrideTier ?: recommendedTier()
 
-    val modelFile: File get() {
-        val tier = activeTier()
-        return File(modelsDir, tier.filename)
-    }
+    /** Directory containing MNN model files for the active tier. */
+    val modelDir: File get() = File(modelsDir, activeTier().dirName)
 
-    fun isModelDownloaded(): Boolean = modelFile.exists() && modelFile.length() > 0
+    /** Legacy accessor for callers that expect a single file path (returns model directory). */
+    val modelFile: File get() = modelDir
+
+    fun isModelDownloaded(): Boolean {
+        val dir = modelDir
+        return dir.exists() && File(dir, "llm_config.json").exists()
+    }
 
     fun isNativeAvailable(): Boolean {
         nativeAvailable?.let { return it }
@@ -156,7 +158,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         return downloaded && native && trusted
     }
 
-    fun modelSizeBytes(): Long = if (modelFile.exists()) modelFile.length() else 0
+    fun modelSizeBytes(): Long {
+        val dir = modelDir
+        if (!dir.exists()) return 0
+        return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
 
     private data class MemoryBudget(
         val availableRamBytes: Long,
@@ -263,7 +269,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
      * Uses [loadMutex] to prevent concurrent double-loading and to
      * coordinate with [unloadModel] / [onTrimMemory].
      *
-     * llama.cpp JNI bridge loading:
+     * MNN-LLM JNI bridge loading:
      * - Takes a file path string (no ContentResolver/FileProvider/FD dance)
      * - Returns Boolean on failure (no SIGSEGV)
      * - Handles mmap automatically
@@ -278,7 +284,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             if (modelLoaded) return
 
             withContext(Dispatchers.IO) {
-                val modelSizeBytes = modelFile.length()
+                val dir = modelDir
                 val budget = currentMemoryBudget(forInference = true)
                 if (budget.availableRamBytes < budget.requiredRamBytes) {
                     Log.w(TAG, "Insufficient system memory to load LLM: " +
@@ -289,20 +295,19 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     throw IllegalStateException("Not enough free memory for on-device note processing")
                 }
 
-                // Validate GGUF header before handing to native code.
-                if (!isValidGguf(modelFile)) {
-                    Log.e(TAG, "Model file has invalid GGUF header: ${modelFile.name}")
-                    throw IllegalStateException("Invalid GGUF model file — re-download may be needed")
+                // Validate MNN model directory has required files
+                val configFile = File(dir, "llm_config.json")
+                if (!configFile.exists()) {
+                    Log.e(TAG, "Model directory missing llm_config.json: ${dir.absolutePath}")
+                    throw IllegalStateException("Invalid MNN model — re-download may be needed")
                 }
-                verifyInstalledModelFile(modelFile, activeTier())
 
-                Log.d(TAG, "Loading model via llama.cpp: ${modelFile.name} " +
-                    "(${modelSizeBytes / 1024 / 1024}MB, mmap=auto)")
+                Log.d(TAG, "Loading model via MNN-LLM: ${dir.name}")
 
-                // llama.cpp: simple file-path loading, returns false on failure (no SIGSEGV)
-                val success = LlamaBridge.initGenerateModel(modelFile.absolutePath)
+                // MNN: pass directory path containing llm_config.json, llm.mnn, llm.mnn.weight, tokenizer.txt
+                val success = LlamaBridge.initGenerateModel(dir.absolutePath)
                 if (!success) {
-                    throw IllegalStateException("LlamaBridge.initGenerateModel failed for ${modelFile.name}")
+                    throw IllegalStateException("MNN model load failed for ${dir.name}")
                 }
 
                 // Keep the on-device generation budget conservative so structured
@@ -310,28 +315,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 applyGenerationParams(recommendedOutputTokens())
 
                 modelLoaded = true
-                Log.d(TAG, "Model loaded: ${modelFile.name}")
+                Log.d(TAG, "Model loaded: ${dir.name}")
             }
-        }
-    }
-
-    /**
-     * Validate GGUF magic header (bytes: 47 47 55 46 = "GGUF").
-     * Extra safety layer — llama.cpp handles corrupt files gracefully (returns false),
-     * but this gives us a clear error message before attempting native load.
-     */
-    private fun isValidGguf(file: File): Boolean {
-        if (!file.exists() || file.length() < 4) return false
-        return try {
-            RandomAccessFile(file, "r").use { raf ->
-                val header = ByteArray(4)
-                if (raf.read(header) != 4) return false
-                header[0] == 0x47.toByte() && header[1] == 0x47.toByte() &&
-                    header[2] == 0x55.toByte() && header[3] == 0x46.toByte()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to read GGUF header", e)
-            false
         }
     }
 
@@ -570,10 +555,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     return@launch
                 }
 
-                if (!tmpFile.renameTo(modelFile)) {
-                    tmpFile.copyTo(modelFile, overwrite = true)
-                    tmpFile.delete()
-                }
+                // Extract zip to model directory
+                val destDir = modelDir
+                destDir.mkdirs()
+                extractZip(tmpFile, destDir)
+                tmpFile.delete()
                 clearVerifiedModelCache()
                 _state.value = ModelState.Ready
 
@@ -594,8 +580,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
-     * Import a local GGUF model file (USB/SD sideload).
-     * Copies into the active tier slot and marks the model ready.
+     * Import a local MNN model zip (USB/SD sideload).
+     * Extracts into the active tier directory and marks the model ready.
      */
     fun importModelFile(sourceFile: File, expectedSha256: String): Boolean {
         if (!isSupportedAbi()) {
@@ -626,24 +612,37 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 return false
             }
 
-            if (!isValidGguf(sourceFile)) {
-                _state.value = ModelState.Error("Invalid GGUF model file")
-                return false
-            }
-
             downloadJob?.cancel()
             activeCall?.cancel()
             unloadModel()
 
-            val destination = modelFile
-            sourceFile.copyTo(destination, overwrite = true)
+            val destDir = modelDir
+            destDir.mkdirs()
+            extractZip(sourceFile, destDir)
             clearVerifiedModelCache()
-            File(modelsDir, "${activeTier().filename}.tmp").delete()
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
             _state.value = ModelState.Error("Model import failed: ${e.message}")
             false
+        }
+    }
+
+    /** Extract a zip archive to the given directory. */
+    private fun extractZip(zipFile: File, destDir: File) {
+        ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) {
+                    val outFile = File(destDir, entry.name)
+                    outFile.parentFile?.mkdirs()
+                    FileOutputStream(outFile).use { fos ->
+                        zis.copyTo(fos)
+                    }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
         }
     }
 
@@ -658,7 +657,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     fun deleteModel() {
         cancelDownload()
         unloadModel()
-        modelsDir.listFiles()?.forEach { it.delete() }
+        modelsDir.deleteRecursively()
+        modelsDir.mkdirs()
         clearVerifiedModelCache()
         _state.value = ModelState.NotDownloaded
     }
@@ -685,10 +685,10 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
-     * Scan external storage directories (microSD, USB OTG) for a sideloaded GGUF model.
+     * Scan external storage directories (microSD, USB OTG) for a sideloaded MNN model zip.
      *
      * For LMIC zero-connectivity deployments, models can be pre-loaded onto a microSD card.
-     * Place the model at: `<sdcard>/Android/data/com.chartlite.app/files/chartlite/<filename>.gguf`
+     * Place the zip at: `<sdcard>/Android/data/com.chartlite.app/files/chartlite/<filename>.zip`
      *
      * Uses scoped storage ([Context.getExternalFilesDirs]) — no extra permissions needed.
      */
@@ -713,6 +713,9 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     enum class ModelTier(
         val label: String,
+        /** Directory name under llm_models/ for extracted model files. */
+        val dirName: String,
+        /** Zip archive filename for download/sideload. */
         val filename: String,
         val modelUrl: String,
         val sha256: String,
@@ -721,19 +724,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     ) {
         SMALL(
             label = "Qwen 3.5 0.8B",
-            filename = "Qwen3.5-0.8B-Q4_K_M.gguf",
-            modelUrl = "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
-            sha256 = "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
-            sizeMb = 533,
-            description = "Fast inference, fits devices with 2+ GB RAM"
+            dirName = "qwen35-0.8b-mnn",
+            filename = "qwen35-0.8b-int4-mnn.zip",
+            modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn.zip",
+            sha256 = "10208cd89cc3ecf6e7fa212735eff37a3fe21499322fe6bf0f9067c82496c17f",
+            sizeMb = 314,
+            description = "Fast inference via MNN, fits devices with 2+ GB RAM"
         ),
         LARGE(
             label = "Qwen 3.5 2B",
-            filename = "Qwen3.5-2B-Q4_K_M.gguf",
-            modelUrl = "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf",
-            sha256 = "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
-            sizeMb = 1280,
-            description = "Higher accuracy, needs 4+ GB RAM"
+            dirName = "qwen35-2b-mnn",
+            filename = "qwen35-2b-int4-mnn.zip",
+            modelUrl = "https://huggingface.co/prismindanalytics/chartlite-models/resolve/main/qwen35-2b-int4-mnn.zip",
+            sha256 = "", // TODO: convert and upload 2B model
+            sizeMb = 1000,
+            description = "Higher accuracy via MNN, needs 4+ GB RAM"
         );
 
         /** Non-technical display name for simplified UI (e.g., setup wizard). */

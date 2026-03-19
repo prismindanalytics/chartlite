@@ -18,10 +18,6 @@ android {
                 arguments += listOf(
                     "-DCMAKE_BUILD_TYPE=Release",
                     "-DBUILD_SHARED_LIBS=ON",
-                    "-DLLAMA_BUILD_COMMON=ON",
-                    "-DGGML_OPENSSL=OFF",
-                    "-DGGML_NATIVE=OFF",
-                    "-DGGML_LLAMAFILE=OFF",
                 )
             }
         }

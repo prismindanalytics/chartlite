@@ -488,8 +488,8 @@ class ASRSLMHardeningTest {
     }
 
     // ── P1-6: SLM context scaling verified by C++ code (no unit test possible) ──
-    // Verified by code review: chartlite_llm.cpp uses llama_model_n_params()
-    // to set n_ctx=8192 for <1.5B models vs n_ctx=4096 for larger.
+    // Verified by code review: chartlite_mnn.cpp configures thread count and
+    // context size based on available RAM via MNN's set_config() JSON API.
 
     // ── P1-7: Gemini Nano always returns unavailable ──
     // Verified by code review: isAvailable() always sets cachedAvailability=false.

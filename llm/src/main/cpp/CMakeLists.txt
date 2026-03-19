@@ -1,49 +1,51 @@
 cmake_minimum_required(VERSION 3.22.1)
-project("chartlite-llm" VERSION 1.0.0 LANGUAGES C CXX)
+project("chartlite-llm" VERSION 2.0.0 LANGUAGES C CXX)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED true)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED true)
 
-# ABI-specific flags
+# MNN source tree (git submodule at external/MNN)
+set(MNN_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../external/MNN")
+
+# MNN build flags for LLM on mobile
+set(MNN_BUILD_LLM ON CACHE BOOL "" FORCE)
+set(MNN_LOW_MEMORY ON CACHE BOOL "" FORCE)
+set(MNN_CPU_WEIGHT_DEQUANT_GEMM ON CACHE BOOL "" FORCE)
+set(MNN_SUPPORT_TRANSFORMER_FUSE ON CACHE BOOL "" FORCE)
+set(MNN_SEP_BUILD OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_DEMO OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_TEST OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_QUANTOOLS OFF CACHE BOOL "" FORCE)
+set(MNN_BUILD_CONVERTER OFF CACHE BOOL "" FORCE)
+set(MNN_USE_LOGCAT ON CACHE BOOL "" FORCE)
+
+# ABI-specific optimizations
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    set(GGML_OPENMP ON CACHE BOOL "" FORCE)
-    # Explicit NEON/FP16 — baseline ARMv8-A always has NEON but the compiler
-    # may not emit optimal sequences without the flag. We intentionally omit
-    # +dotprod since not all A55 cores support it (e.g. some Unisoc T603 SKUs).
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+fp16")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+fp16")
-elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
-    set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
-elseif(ANDROID_ABI STREQUAL "x86_64")
-    set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+    set(MNN_ARM82 ON CACHE BOOL "" FORCE)
+    set(MNN_OPENCL ON CACHE BOOL "" FORCE)
 endif()
 
-# llama.cpp source tree (git submodule at external/llama.cpp)
-set(LLAMA_SRC "${CMAKE_CURRENT_LIST_DIR}/../../../../external/llama.cpp")
+# Android 15+ 16KB page size support
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
-# Build llama.cpp as a subdirectory
-set(LLAMA_BUILD_COMMON ON CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
-add_subdirectory(${LLAMA_SRC} build-llama EXCLUDE_FROM_ALL)
+# Build MNN from source
+add_subdirectory(${MNN_ROOT} ${CMAKE_BINARY_DIR}/mnn EXCLUDE_FROM_ALL)
 
 # Our JNI bridge
 add_library(${CMAKE_PROJECT_NAME} SHARED
-    chartlite_llm.cpp
+    chartlite_mnn.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    ${LLAMA_SRC}/include
-    ${LLAMA_SRC}/common
-    ${LLAMA_SRC}/ggml/include
+    ${MNN_ROOT}/include
+    ${MNN_ROOT}/transformers/llm/engine/include
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
-    llama
-    common
+    MNN
+    llm
     android
     log
 )

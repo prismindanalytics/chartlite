@@ -4,8 +4,8 @@ import android.content.Context
 import android.util.Log
 
 /**
- * JNI bridge to llama.cpp built from source.
- * Provides the same API surface as the former Llamatik LlamaBridge.
+ * JNI bridge to MNN-LLM for on-device Qwen inference.
+ * Loads libchartlite-llm.so which wraps MNN's Llm C++ API.
  */
 object LlamaBridge {
 
@@ -24,7 +24,7 @@ object LlamaBridge {
             System.loadLibrary("chartlite-llm")
             nativeInit()
             initialized = true
-            Log.i(TAG, "llama.cpp backend initialized")
+            Log.i(TAG, "MNN-LLM backend initialized")
         }
     }
 

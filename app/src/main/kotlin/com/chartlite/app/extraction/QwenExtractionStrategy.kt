@@ -6,7 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Extraction strategy using Qwen 3.5 (0.8B or 2B) via llama.cpp on-device.
+ * Extraction strategy using Qwen 3.5 (0.8B or 2B) via MNN-LLM on-device.
  *
  * Uses the shared benchmark JSON prompt used by the cloud extractor.
  *

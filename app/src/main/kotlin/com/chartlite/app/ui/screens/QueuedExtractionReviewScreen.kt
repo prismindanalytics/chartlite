@@ -69,6 +69,19 @@ fun QueuedExtractionReviewScreen(
     val scope = rememberCoroutineScope()
     val queueState by app.extractionQueue.state.collectAsState()
 
+    // ── SMS permission — request once so encounter save can send natively ──
+    val smsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { /* granted state not needed — SMSSender checks at send time */ }
+    LaunchedEffect(Unit) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.SEND_SMS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            smsPermissionLauncher.launch(android.Manifest.permission.SEND_SMS)
+        }
+    }
+
     var item by remember { mutableStateOf<ExtractionQueueRepository.QueueItem?>(null) }
     var patientName by remember { mutableStateOf<String?>(null) }
     var isSaving by remember { mutableStateOf(false) }

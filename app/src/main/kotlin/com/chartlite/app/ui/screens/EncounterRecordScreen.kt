@@ -117,6 +117,22 @@ fun EncounterRecordScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
 
+    // ── SMS permission — request once so encounter save can send natively ──
+    var hasSmsPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS)
+                == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasSmsPermission = granted }
+    LaunchedEffect(Unit) {
+        if (!hasSmsPermission) {
+            smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+        }
+    }
+
     // ── Patient history context (allergies, meds, chronic conditions from prior visits) ──
     var patientContext by remember { mutableStateOf<com.chartlite.app.model.PatientContext?>(null) }
     LaunchedEffect(patientId) {
@@ -345,11 +361,14 @@ fun EncounterRecordScreen(
 
     suspend fun finalizeAmbientRecording() {
         extractionError = null
+        // Show loading spinner immediately — cloud ASR finalization can take several seconds
+        isGeneratingNote = true
         val result = asr.stopListeningAndAwait()
         transcript = result.text
         durationMs = 0L
 
         if (transcript.isBlank()) {
+            isGeneratingNote = false
             extractionError = result.error ?: "No speech detected. Try again or type manually."
             showManualInput = true
             return
@@ -357,6 +376,7 @@ fun EncounterRecordScreen(
 
         try {
             if (isBatchProcessing) {
+                isGeneratingNote = false
                 queueTranscriptForBatch(transcript)
                 return
             }

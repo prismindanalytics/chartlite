@@ -214,6 +214,30 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     fun hasRuntimeHeadroom(forInference: Boolean = true): Boolean {
         if (!isModelDownloaded() || !isSupportedAbi()) return false
+
+        // If the model is already loaded in memory, we only need burst headroom
+        // for the next inference — the expensive model loading is already done.
+        // This prevents the second extraction step from falling back to Regex
+        // on 3GB devices where the loaded model itself consumes the "available" RAM.
+        if (modelLoaded && forInference) {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(memInfo)
+            val burst = when (activeTier()) {
+                ModelTier.SMALL -> when {
+                    deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 128L * 1024 * 1024
+                    else -> 256L * 1024 * 1024
+                }
+                ModelTier.LARGE -> 512L * 1024 * 1024
+            }
+            val hasHeadroom = memInfo.availMem >= burst
+            if (!hasHeadroom) {
+                Log.w(TAG, "Model loaded but insufficient burst headroom: " +
+                    "available=${memInfo.availMem / 1024 / 1024}MB, need=${burst / 1024 / 1024}MB burst")
+            }
+            return hasHeadroom
+        }
+
         val budget = currentMemoryBudget(forInference)
         val hasHeadroom = budget.availableRamBytes >= budget.requiredRamBytes
         if (!hasHeadroom) {

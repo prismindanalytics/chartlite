@@ -57,8 +57,25 @@ fun SMSDecryptScreen(
     val app = context.applicationContext as App
     val scope = rememberCoroutineScope()
 
-    // Load pending SMS from receiver store
-    val pendingSMS = remember {
+    // ── RECEIVE_SMS permission — required for SMSReceiver to get incoming SMS ──
+    var hasReceiveSmsPermission by remember {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECEIVE_SMS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val receiveSmsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted -> hasReceiveSmsPermission = granted }
+    LaunchedEffect(Unit) {
+        if (!hasReceiveSmsPermission) {
+            receiveSmsPermissionLauncher.launch(android.Manifest.permission.RECEIVE_SMS)
+        }
+    }
+
+    // Load pending SMS from receiver store (re-read after permission granted)
+    val pendingSMS = remember(hasReceiveSmsPermission) {
         loadPendingSMS(context)
     }
 

@@ -79,8 +79,10 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
                 } else {
                     result
                 }
-            } else {
+            } else if (hasPermission()) {
                 sendViaNative(phoneNumber, smsContent)
+            } else {
+                SendResult(SMSStatus.FAILED, "SMS permission not granted and Twilio not configured")
             }
         } catch (e: Exception) {
             SendResult(SMSStatus.FAILED, e.message)

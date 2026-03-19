@@ -1,7 +1,10 @@
 package com.chartlite.llm
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
+import java.nio.ByteBuffer
 
 /**
  * JNI bridge to MNN-LLM for on-device Qwen inference.
@@ -85,7 +88,38 @@ object LlamaBridge {
      */
     fun generateVision(systemPrompt: String, userMessage: String, imagePath: String): String? {
         check(initialized) { "LlamaBridge.initialize() not called" }
-        return nativeGenerateVision(systemPrompt, userMessage, imagePath)
+
+        // Load image and convert to RGB byte array — MNN's native imread doesn't work on Android
+        val bitmap = BitmapFactory.decodeFile(imagePath) ?: run {
+            Log.e(TAG, "Failed to decode image: $imagePath")
+            return null
+        }
+
+        // Scale down large images to save memory (vision encoder typically uses 448x448 or similar)
+        val maxDim = 960
+        val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+            val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
+            val w = (bitmap.width * scale).toInt()
+            val h = (bitmap.height * scale).toInt()
+            Bitmap.createScaledBitmap(bitmap, w, h, true).also { bitmap.recycle() }
+        } else bitmap
+
+        // Extract RGB bytes (no alpha)
+        val w = scaled.width
+        val h = scaled.height
+        val rgbBytes = ByteArray(w * h * 3)
+        val pixels = IntArray(w * h)
+        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (i in pixels.indices) {
+            val px = pixels[i]
+            rgbBytes[i * 3] = (px shr 16 and 0xFF).toByte()     // R
+            rgbBytes[i * 3 + 1] = (px shr 8 and 0xFF).toByte()  // G
+            rgbBytes[i * 3 + 2] = (px and 0xFF).toByte()         // B
+        }
+        scaled.recycle()
+
+        Log.i(TAG, "Vision image loaded: ${w}x${h} (${rgbBytes.size} bytes)")
+        return nativeGenerateVision(systemPrompt, userMessage, rgbBytes, w, h)
     }
 
     fun cancelGeneration() {
@@ -111,7 +145,7 @@ object LlamaBridge {
         systemPrompt: String, userMessage: String, enableThinking: Boolean
     ): String?
     private external fun nativeGenerateVision(
-        systemPrompt: String, userMessage: String, imagePath: String
+        systemPrompt: String, userMessage: String, rgbData: ByteArray, width: Int, height: Int
     ): String?
     private external fun nativeCancelGeneration()
     private external fun nativeShutdown()

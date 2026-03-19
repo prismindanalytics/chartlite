@@ -7,6 +7,8 @@
 #include <unistd.h>
 
 #include <llm/llm.hpp>
+#include <MNN/expr/Expr.hpp>
+#include <MNN/expr/NeuralNetWorkOp.hpp>
 
 #define TAG "ChartLiteLLM"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -252,7 +254,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateJson(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     JNIEnv *env, jobject,
-    jstring jSystemPrompt, jstring jUserMessage, jstring jImagePath
+    jstring jSystemPrompt, jstring jUserMessage, jbyteArray jRgbData, jint width, jint height
 ) {
     if (!g_llm) {
         LOGe("nativeGenerateVision: model not loaded");
@@ -261,26 +263,41 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
 
     const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
     const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
-    const char *img = env->GetStringUTFChars(jImagePath, nullptr);
 
-    // Build MultimodalPrompt with image file path.
-    // MNN's tokenizer_encode(MultimodalPrompt) detects <img>...</img> tags
-    // and routes to visionProcess() which loads the image via imread().
+    // Convert RGB byte array to MNN VARP tensor [1, height, width, 3] UINT8
+    jsize dataLen = env->GetArrayLength(jRgbData);
+    jbyte *rgbBytes = env->GetByteArrayElements(jRgbData, nullptr);
+
+    LOGi("GenerateVision: system=%zu chars, user=%zu chars, image=%dx%d (%d bytes)",
+         strlen(sys), strlen(usr), (int)width, (int)height, (int)dataLen);
+
+    // Create MNN VARP from raw RGB data
+    auto imageVar = MNN::Express::_Input({1, (int)height, (int)width, 3}, MNN::Express::NHWC, halide_type_of<uint8_t>());
+    auto imagePtr = imageVar->writeMap<uint8_t>();
+    memcpy(imagePtr, rgbBytes, dataLen);
+    imageVar->unMap();
+
+    env->ReleaseByteArrayElements(jRgbData, rgbBytes, JNI_ABORT);
+
+    // Build MultimodalPrompt with image data in the images map
     MultimodalPrompt mp;
     std::ostringstream prompt;
     prompt << "<|im_start|>system\n" << sys << "<|im_end|>\n"
            << "<|im_start|>user\n"
-           << "<img>" << img << "</img>\n"
+           << "<img>clinical_photo</img>\n"
            << usr << "<|im_end|>\n"
            << "<|im_start|>assistant\n";
     mp.prompt_template = prompt.str();
 
-    LOGi("GenerateVision: system=%zu chars, user=%zu chars, image=%s",
-         strlen(sys), strlen(usr), img);
+    // Put the image VARP into the images map with the placeholder key
+    PromptImagePart imgPart;
+    imgPart.image_data = imageVar;
+    imgPart.width = (int)width;
+    imgPart.height = (int)height;
+    mp.images["clinical_photo"] = imgPart;
 
     env->ReleaseStringUTFChars(jSystemPrompt, sys);
     env->ReleaseStringUTFChars(jUserMessage, usr);
-    env->ReleaseStringUTFChars(jImagePath, img);
 
     g_cancel_generation.store(false);
 

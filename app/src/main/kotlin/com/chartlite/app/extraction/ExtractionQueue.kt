@@ -248,6 +248,7 @@ class ExtractionQueue(
      * Used for referrals and emergencies where the clinician needs structured data now.
      */
     private suspend fun processUrgent(entry: QueuedTranscript) {
+        _state.value = QueueState.PROCESSING
         try {
             val result = processEntry(
                 repository.getItem(entry.id)
@@ -260,6 +261,9 @@ class ExtractionQueue(
         } catch (e: Exception) {
             Log.e(TAG, "Urgent processing failed for patient ${entry.patientId.take(4)}***", e)
             repository.markFailed(entry.id, e.message)
+        } finally {
+            _state.value = QueueState.IDLE
+            _processingStep.value = ProcessingStep.IDLE
         }
     }
 

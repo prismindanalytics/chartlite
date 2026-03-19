@@ -1212,4 +1212,10 @@
     <string name="content_desc_import_vocab">Import vocabulary</string>
     <string name="content_desc_sim">SIM</string>
     <string name="content_desc_confirm">Confirm</string>
+
+    <!-- Camera scan -->
+    <string name="scan_analyzing">Analyzing…</string>
+    <string name="scan_button_label">Scan Lab / RDT / Vitals</string>
+    <string name="content_desc_scan">Scan clinical document</string>
+    <string name="scan_result_prefix">Scanned: %1$s</string>
 </resources>

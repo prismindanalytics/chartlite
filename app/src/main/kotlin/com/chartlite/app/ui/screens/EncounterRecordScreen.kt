@@ -912,15 +912,15 @@ fun EncounterRecordScreen(
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Analyzing...")
+                                Text(stringResource(R.string.scan_analyzing))
                             } else {
                                 Icon(
                                     Icons.Default.CameraAlt,
-                                    contentDescription = "Scan clinical document",
+                                    contentDescription = stringResource(R.string.content_desc_scan),
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Scan Lab / RDT / Vitals")
+                                Text(stringResource(R.string.scan_button_label))
                             }
                         }
                         lastScanType?.let { type ->

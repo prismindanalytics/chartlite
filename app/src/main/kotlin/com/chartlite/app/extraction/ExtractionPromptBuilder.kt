@@ -239,15 +239,38 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You read clinical images. Reply with JSON only.
+You are a clinical data extractor for medical images.
+Auto-detect the content type and extract structured data.
+
+Content types:
+- lab_report: CBC, chemistry, urinalysis results
+- rdt_cassette: Malaria RDT, HIV RDT, pregnancy test (positive/negative/invalid)
+- vital_device: BP monitor, pulse oximeter, thermometer, glucometer readings
+- medication_package: Drug name, strength, manufacturer, expiry
+- referral_letter: Referring facility, diagnosis, reason, urgency
+
+Rules:
+- Extract ONLY what is visible. Do NOT infer.
+- Use exact numbers from device displays.
+- For RDT cassettes: determine result from colored lines on the cassette ONLY. Ignore text on surrounding papers.
+- Set content_type field.
+- Output valid JSON only.
         """.trimIndent()
 
-        // Small model (0.8B): one-shot example so model generates in same format
+        // Small model (0.8B): schema with "..." placeholders — model fills in real values
         private val VISION_PROMPT_SMALL = """
-Example for a pregnancy test photo:
-{"type":"rdt","text":"hCG One Step Pregnancy Test, C T, S","name":"pregnancy test kit"}
+<schema>
+{
+  "content_type": "lab_report|rdt_cassette|vital_device|medication_package|referral_letter|unknown",
+  "vitals": [{"name": "...", "value": "...", "unit": "..."}],
+  "investigations": [{"test": "...", "result": "..."}],
+  "medications": [{"name": "...", "dose": "...", "manufacturer": "...", "expiry": "..."}],
+  "referral": {"from_facility": "...", "diagnosis": "...", "reason": "...", "urgency": "..."},
+  "raw_text": "any visible text not captured above"
+}
+</schema>
 
-Now describe THIS image the same way:""".trimIndent()
+JSON:""".trimIndent()
 
         // Large model (2B+): classify + OCR + interpret results as structured JSON
         private val VISION_PROMPT_LARGE = """

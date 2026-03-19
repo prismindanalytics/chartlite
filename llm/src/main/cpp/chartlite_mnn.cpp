@@ -147,6 +147,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeUpdateGenerateParams(
     JNIEnv *, jobject,
     jfloat temperature, jint maxTokens, jfloat topP, jint topK, jfloat repeatPenalty
 ) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     g_temperature    = temperature;
     g_max_tokens     = maxTokens;
     g_top_p          = topP;
@@ -157,25 +158,21 @@ Java_com_chartlite_llm_LlamaBridge_nativeUpdateGenerateParams(
          g_temperature, g_max_tokens, g_top_p, g_top_k, g_repeat_penalty);
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_chartlite_llm_LlamaBridge_nativeGenerate(JNIEnv *env, jobject, jstring jPrompt) {
+// Internal generate without mutex — called by locked entry points
+static jstring generate_internal_jni(JNIEnv *env, jstring jPrompt) {
     if (!g_llm) {
-        LOGe("nativeGenerate: model not loaded");
+        LOGe("generate_internal_jni: model not loaded");
         return nullptr;
     }
-
     const char *prompt = env->GetStringUTFChars(jPrompt, nullptr);
+    if (!prompt) return nullptr;
     std::string promptStr(prompt);
     env->ReleaseStringUTFChars(jPrompt, prompt);
 
     g_cancel_generation.store(false);
-
     CancelCheckBuf buf;
     std::ostream os(&buf);
-
     LOGi("Generating response for prompt (%zu chars)...", promptStr.size());
-
-    // Pass as plain user content — MNN applies the chat template internally
     g_llm->response(promptStr, &os, nullptr, g_max_tokens);
 
     const auto *ctx = g_llm->getContext();
@@ -184,13 +181,15 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerate(JNIEnv *env, jobject, jstring 
              ctx->prompt_len, ctx->gen_seq_len,
              ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
     }
-
-    if (g_cancel_generation.load()) {
-        LOGw("Generation was cancelled");
-    }
-
+    if (g_cancel_generation.load()) LOGw("Generation was cancelled");
     if (buf.result.empty()) return nullptr;
     return env->NewStringUTF(buf.result.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_chartlite_llm_LlamaBridge_nativeGenerate(JNIEnv *env, jobject, jstring jPrompt) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return generate_internal_jni(env, jPrompt);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -198,6 +197,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
     JNIEnv *env, jobject,
     jstring jSystemPrompt, jstring jUserMessage
 ) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_llm) {
         LOGe("nativeGenerateChat: model not loaded");
         return nullptr;
@@ -243,12 +243,11 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeGenerateJson(
-    JNIEnv *env, jobject thiz, jstring jPrompt, jstring /* jJsonSchema */
+    JNIEnv *env, jobject, jstring jPrompt, jstring /* jJsonSchema */
 ) {
-    // MNN doesn't support grammar-constrained generation.
-    // Fall through to standard generation — the prompt instructs JSON output.
+    std::lock_guard<std::mutex> lock(g_mutex);
     LOGw("nativeGenerateJson: grammar not supported in MNN, using standard generation");
-    return Java_com_chartlite_llm_LlamaBridge_nativeGenerate(env, thiz, jPrompt);
+    return generate_internal_jni(env, jPrompt);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -256,6 +255,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     JNIEnv *env, jobject,
     jstring jSystemPrompt, jstring jUserMessage, jbyteArray jRgbData, jint width, jint height
 ) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_llm) {
         LOGe("nativeGenerateVision: model not loaded");
         return nullptr;
@@ -333,6 +333,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeApplyChatTemplate(
     JNIEnv *env, jobject,
     jstring jSystemPrompt, jstring jUserMessage, jboolean /* enableThinking */
 ) {
+    std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_llm) {
         LOGe("applyChatTemplate: model not loaded");
         return nullptr;

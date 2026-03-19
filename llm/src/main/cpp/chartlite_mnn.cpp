@@ -173,8 +173,12 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerate(JNIEnv *env, jobject, jstring 
 
     LOGi("Generating response for prompt (%zu chars)...", promptStr.size());
 
-    // MNN's response() writes generated text to the ostream
-    g_llm->response(promptStr, &os, nullptr, g_max_tokens);
+    // Tokenize the pre-formatted prompt ourselves, then call response(vector<int>)
+    // to skip MNN's internal chat template application.
+    // Our prompt is already fully formatted with <|im_start|> tags by ExtractionPromptBuilder.
+    auto input_ids = g_llm->tokenizer_encode(promptStr);
+    LOGi("Tokenized: %zu tokens", input_ids.size());
+    g_llm->response(input_ids, &os, nullptr, g_max_tokens);
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {

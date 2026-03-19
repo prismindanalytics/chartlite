@@ -2,6 +2,7 @@ package com.chartlite.app.ui.components
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +32,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -57,6 +60,28 @@ fun ClinicalCameraCapture(
     ) { granted ->
         hasCameraPermission = granted
         if (!granted) onDismiss()
+    }
+
+    // Gallery picker — copies selected image to outputDir and returns path
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isAnalyzing = true
+            try {
+                outputDir.mkdirs()
+                val destFile = File(outputDir, "${UUID.randomUUID()}.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                onImageCaptured(destFile.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "Gallery import failed", e)
+                isAnalyzing = false
+            }
+        }
     }
 
     // Request permission on first composition if not already granted
@@ -137,40 +162,68 @@ fun ClinicalCameraCapture(
             )
         }
 
-        // Capture button — bottom center
-        Box(
+        // Bottom bar: gallery button + capture button
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 48.dp)
-                .size(80.dp)
-                .border(4.dp, Color.White, CircleShape)
-                .padding(6.dp)
-                .clip(CircleShape)
-                .background(Color.White)
-                .clickable(enabled = !isAnalyzing) {
-                    isAnalyzing = true
-                    outputDir.mkdirs()
-                    val photoFile = File(outputDir, "${UUID.randomUUID()}.jpg")
-                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-                    imageCapture.takePicture(
-                        outputOptions,
-                        cameraExecutor,
-                        object : ImageCapture.OnImageSavedCallback {
-                            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                                onImageCaptured(photoFile.absolutePath)
-                            }
-
-                            override fun onError(exception: ImageCaptureException) {
-                                Log.e(TAG, "Capture failed", exception)
-                                isAnalyzing = false
-                            }
-                        }
-                    )
-                },
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(bottom = 48.dp, start = 32.dp, end = 32.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Empty — solid white circle acts as the shutter button
+            // Gallery picker button — bottom-left
+            IconButton(
+                onClick = { galleryLauncher.launch("image/*") },
+                enabled = !isAnalyzing,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhotoLibrary,
+                    contentDescription = "Pick from gallery",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            // Capture button — center
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .border(4.dp, Color.White, CircleShape)
+                    .padding(6.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .clickable(enabled = !isAnalyzing) {
+                        isAnalyzing = true
+                        outputDir.mkdirs()
+                        val photoFile = File(outputDir, "${UUID.randomUUID()}.jpg")
+                        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+                        imageCapture.takePicture(
+                            outputOptions,
+                            cameraExecutor,
+                            object : ImageCapture.OnImageSavedCallback {
+                                override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                                    onImageCaptured(photoFile.absolutePath)
+                                }
+
+                                override fun onError(exception: ImageCaptureException) {
+                                    Log.e(TAG, "Capture failed", exception)
+                                    isAnalyzing = false
+                                }
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // Empty — solid white circle acts as the shutter button
+            }
+
+            // Spacer to balance the row (same size as gallery button)
+            Spacer(modifier = Modifier.size(56.dp))
         }
 
         // Analyzing overlay

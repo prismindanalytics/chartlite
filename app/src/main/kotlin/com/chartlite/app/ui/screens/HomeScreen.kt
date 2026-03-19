@@ -2,9 +2,7 @@ package com.chartlite.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -377,21 +375,28 @@ fun HomeScreen(
                             }
                             add(ActionItem(Icons.Default.LocalHospital, stringResource(R.string.facilities), onFacilityDirectory))
                         }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            secondaryActions.forEach { item ->
-                                CompactActionItem(
-                                    icon = item.icon,
-                                    label = item.label,
-                                    modifier = Modifier.width(72.dp),
-                                    badgeCount = item.badge,
-                                    onClick = item.onClick
-                                )
+                        // ── Wrap grid so all actions are visible ──
+                        val columns = 5
+                        secondaryActions.chunked(columns).forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowItems.forEach { item ->
+                                    CompactActionItem(
+                                        icon = item.icon,
+                                        label = item.label,
+                                        modifier = Modifier.weight(1f),
+                                        badgeCount = item.badge,
+                                        onClick = item.onClick
+                                    )
+                                }
+                                // Fill empty slots to keep alignment
+                                repeat(columns - rowItems.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
                             }
+                            if (rowItems.size == columns) Spacer(Modifier.height(8.dp))
                         }
                     }
                 }

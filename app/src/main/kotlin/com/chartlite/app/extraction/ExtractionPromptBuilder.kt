@@ -153,7 +153,8 @@ class ExtractionPromptBuilder(
     // ── Vision Prompts (camera scan → auto-extract) ──
 
     /** System prompt for vision-based clinical image extraction. */
-    fun visionSystemPrompt(): String = VISION_SYSTEM_PROMPT
+    fun visionSystemPrompt(isLargeModel: Boolean = false): String =
+        if (isLargeModel) "Read the image. Respond with ONLY a JSON object." else VISION_SYSTEM_PROMPT
 
     /** User prompt for vision extraction — the image is passed separately via JNI.
      *  @param isLargeModel true for 2B+ models that can interpret results, false for 0.8B OCR-only
@@ -242,12 +243,17 @@ Rules:
 Read the image briefly.
         """.trimIndent()
 
-        // Small model (0.8B): classify + OCR only
+        // Small model (0.8B): classify + OCR — clinician interprets
         private val VISION_PROMPT_SMALL = """
-What is this item? Read all text on it.""".trimIndent()
+What type of clinical item is this? Read all text and numbers you can see on it.""".trimIndent()
 
-        // Large model (2B+): full clinical interpretation
+        // Large model (2B+): classify + OCR + interpret as JSON
         private val VISION_PROMPT_LARGE = """
-What is this item? Read all text. If it is a test cassette, how many colored lines are in the result window and what is the result?""".trimIndent()
+Read this clinical image. Respond with ONLY JSON.
+If test cassette: {"type":"rdt","test":"name","result":"positive or negative","lines":"which colored lines visible"}
+If vital device: {"type":"vitals","readings":[{"name":"...","value":"...","unit":"..."}]}
+If medication: {"type":"medication","name":"...","dose":"...","form":"...","expiry":"..."}
+If lab report: {"type":"lab","tests":[{"name":"...","value":"...","unit":"...","range":"..."}]}
+Otherwise: {"type":"other","text":"all visible text"}""".trimIndent()
     }
 }

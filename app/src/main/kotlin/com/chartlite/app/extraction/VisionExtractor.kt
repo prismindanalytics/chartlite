@@ -176,12 +176,20 @@ class VisionExtractor(
                 else -> "other"
             }
             val result = when {
-                lower.contains("positive") || lower.contains("reactive") -> "positive"
-                lower.contains("negative") || lower.contains("non-reactive") || lower.contains("nonreactive") -> "negative"
-                lower.contains("invalid") -> "invalid"
+                lower.contains("invalid") || (lower.contains("no c") || lower.contains("no control")) -> "invalid"
+                lower.contains("negative") || lower.contains("non-reactive") || lower.contains("nonreactive") ||
+                    lower.contains("only c line") || lower.contains("only the c") || lower.contains("c line only") ||
+                    lower.contains("one line") || lower.contains("1 line") -> "negative"
+                lower.contains("positive") || lower.contains("reactive") ||
+                    lower.contains("c and t") || lower.contains("both lines") ||
+                    lower.contains("two lines") || lower.contains("2 lines") ||
+                    lower.contains("t line visible") || lower.contains("t line is visible") -> "positive"
                 else -> "unknown"
             }
-            RdtResult(testType, result, text.take(200))
+            // Extract device/brand if mentioned
+            val deviceMatch = Regex("(?i)(binaxnow|sd bioline|first response|determine|uni-gold|oraquick|sure check|accutest)", RegexOption.IGNORE_CASE).find(text)
+            val details = deviceMatch?.value?.let { "Device: $it" }
+            RdtResult(testType, result, details)
         } else null
 
         return VisionResult(

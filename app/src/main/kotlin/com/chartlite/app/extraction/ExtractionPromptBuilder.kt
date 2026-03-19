@@ -157,7 +157,7 @@ class ExtractionPromptBuilder(
 
     /** User prompt for vision extraction — the image is passed separately via JNI. */
     fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Look at this clinical image. First read ALL text printed on the device or document. Then extract the data as JSON matching this schema:")
+        appendLine("Look at this clinical image carefully and answer these questions:")
         if (additionalContext.isNotBlank()) {
             appendLine()
             appendLine(additionalContext)
@@ -239,27 +239,15 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You are a clinical image data extractor. Respond with ONLY a JSON object.
-
-CRITICAL RULES:
-1. READ ALL TEXT on the device/document FIRST. The printed label tells you what the test is.
-2. For RDT cassettes: the brand name and test name are printed on the device. Read them. Do NOT guess the test type — use what is written.
-3. For RDT bands: read the line labels printed on the device. Report ONLY the labels you can actually see printed, and which lines are visible. C line must be present for a valid test.
-4. Only include fields relevant to what you see. Omit empty arrays and null objects.
-
-Output ONLY the JSON object. Start with { and end with }.
+You read clinical photos. Answer the questions briefly and accurately.
+For RDT test cassettes: determine positive/negative from the BANDS on the cassette, not from text on surrounding papers.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-{
-  "content_type": "rdt_result or lab_report or vital_device or medication_package or referral_letter or other",
-  "vitals": [{"name": "temperature", "value": "36.7", "unit": "C"}],
-  "investigations": [{"test": "WBC", "result": "5.2", "reference_range": "4.0-11.0"}],
-  "rdt": {"test_type": "hiv or malaria or pregnancy or other", "result": "positive or negative or invalid", "details": "visible bands", "device": "brand name"},
-  "medications": [{"name": "Amoxicillin", "dose": "500mg", "form": "capsule", "expiry": "2026-01"}],
-  "referral": {"from_facility": "facility name", "diagnosis": "...", "reason": "...", "urgency": "routine or urgent or emergency"},
-  "raw_text": "any other visible text not captured above"
-}
-        """.trimIndent()
+1. What type of clinical item is this? (test cassette, lab report, vital sign device, medication, referral letter, or other)
+2. What text is printed on the device or document?
+3. If this is a test cassette: what test is it? Is the result positive, negative, or invalid? Which lines are visible?
+4. If this shows vital signs: what are the readings?
+5. If this is a medication: what is the drug name, dose, and expiry?""".trimIndent()
     }
 }

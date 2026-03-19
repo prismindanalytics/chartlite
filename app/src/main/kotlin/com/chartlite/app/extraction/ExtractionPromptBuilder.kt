@@ -244,7 +244,7 @@ You are a clinical image data extractor. Respond with ONLY a JSON object.
 CRITICAL RULES:
 1. READ ALL TEXT on the device/document FIRST. The printed label tells you what the test is.
 2. For RDT cassettes: the brand name and test name are printed on the device. Read them. Do NOT guess the test type — use what is written.
-3. For bands: C = control line, T = test line. Two visible lines (C and T both present) = POSITIVE. Only C line = NEGATIVE. No C line = INVALID.
+3. For RDT bands: C = control. Any test line (T, T1, T2, Pf, Pan, etc.) that is visible = reactive for that marker. Report which lines are visible and what each means based on the reference diagram or labels on the device. C line must be present for a valid test.
 4. Only include fields relevant to what you see. Omit empty arrays and null objects.
 
 Output ONLY the JSON object. Start with { and end with }.
@@ -255,7 +255,7 @@ Output ONLY the JSON object. Start with { and end with }.
   "content_type": "rdt_result or lab_report or vital_device or medication_package or referral_letter or other",
   "vitals": [{"name": "temperature", "value": "36.7", "unit": "C"}],
   "investigations": [{"test": "WBC", "result": "5.2", "reference_range": "4.0-11.0"}],
-  "rdt": {"test_type": "THE TEST NAME PRINTED ON DEVICE e.g. hiv or malaria or pregnancy", "result": "positive or negative or invalid", "details": "band pattern or other details", "device": "brand name from label"},
+  "rdt": {"test_type": "THE TEST NAME PRINTED ON DEVICE e.g. hiv or malaria or pregnancy", "result": "positive or negative or invalid", "details": "which bands are visible e.g. C+T1 visible (P.f.) T2 absent", "device": "brand name from label"},
   "medications": [{"name": "Amoxicillin", "dose": "500mg", "form": "capsule", "expiry": "2026-01"}],
   "referral": {"from_facility": "facility name", "diagnosis": "...", "reason": "...", "urgency": "routine or urgent or emergency"},
   "raw_text": "any other visible text not captured above"

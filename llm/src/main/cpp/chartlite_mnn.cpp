@@ -113,11 +113,12 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
         total_ram_gb = (double)page_count * (double)page_size / (1024.0 * 1024.0 * 1024.0);
     }
 
-    // Set thread count and backend via config
+    // Set thread count, backend, and disable thinking (saves tokens for actual output)
     std::ostringstream config;
     config << "{"
            << "\"thread_num\":" << n_threads << ","
-           << "\"backend\":\"cpu\""
+           << "\"backend\":\"cpu\","
+           << "\"jinja\":{\"context\":{\"enable_thinking\":false}}"
            << "}";
     g_llm->set_config(config.str());
 

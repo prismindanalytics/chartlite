@@ -1660,11 +1660,40 @@ fun EncounterRecordScreen(
                             )
                         }
                     }
+                    // Referral info
+                    result.referral?.let { ref ->
+                        if (result.contentType == "rdt_result") {
+                            // For RDT, model may put brand/device info here
+                            ref.fromFacility?.let { Text("Device: $it", style = MaterialTheme.typography.bodyMedium) }
+                            ref.diagnosis?.let { Text("Diagnosis: $it", style = MaterialTheme.typography.bodyMedium) }
+                            ref.urgency?.let { Text("Urgency: $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                        } else {
+                            ref.fromFacility?.let { Text("From: $it", style = MaterialTheme.typography.bodyLarge) }
+                            ref.diagnosis?.let { Text("Diagnosis: $it", style = MaterialTheme.typography.bodyLarge) }
+                            ref.reason?.let { Text("Reason: $it", style = MaterialTheme.typography.bodyMedium) }
+                            ref.urgency?.let {
+                                Text(
+                                    "Urgency: $it",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (it.lowercase().contains("urgent")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                     // Raw text fallback
-                    if (result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty() && result.medications.isEmpty()) {
+                    if (result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty() && result.medications.isEmpty() && result.referral == null) {
                         result.rawText?.let {
                             Text(it.take(300), style = MaterialTheme.typography.bodyMedium)
                         }
+                    }
+                    // Raw text supplement — show additional context if available alongside structured data
+                    if (result.rawText != null && (result.rdt != null || result.vitals.isNotEmpty() || result.investigations.isNotEmpty())) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Additional: ${result.rawText.take(150)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -1677,35 +1706,48 @@ fun EncounterRecordScreen(
             outputDir = photoDir,
             onImageCaptured = { filePath ->
                 showCamera = false
-                isScanProcessing = true
-                scope.launch {
-                    val result = withContext(Dispatchers.Default) {
-                        visionExtractor.extract(filePath)
-                    }
-                    isScanProcessing = false
-                    if (result != null) {
-                        lastScanType = result.contentType
-                        lastScanResult = result
-                        // Save photo record to database
+                if (isBatchProcessing) {
+                    // Batch mode: save photo only, skip vision LLM to avoid model load
+                    scope.launch {
                         val photoEntity = ClinicalPhotoEntity(
                             id = java.util.UUID.randomUUID().toString(),
                             encounterId = visitId ?: patientId,
                             patientId = patientId,
-                            contentType = result.contentType,
+                            contentType = "pending",
                             filePath = filePath,
-                            extractedJson = result.rawJson
+                            extractedJson = null
                         )
                         app.database.clinicalPhotoDao().insert(photoEntity)
-                        // Merge vision results into current extracted encounter
-                        extractedEncounter?.let { existing ->
-                            extractedEncounter = EncounterMerger.mergeVisionResult(existing, result)
+                        Toast.makeText(context, "Photo saved — will analyze during batch processing", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    // Immediate mode: run vision extraction now
+                    isScanProcessing = true
+                    scope.launch {
+                        val result = withContext(Dispatchers.Default) {
+                            visionExtractor.extract(filePath)
                         }
-                        // Show result to clinician
-                        showScanResult = true
-                    } else {
-                        Toast.makeText(context, "Could not extract data from image", Toast.LENGTH_SHORT).show()
-                        // Delete photo if extraction failed
-                        java.io.File(filePath).delete()
+                        isScanProcessing = false
+                        if (result != null) {
+                            lastScanType = result.contentType
+                            lastScanResult = result
+                            val photoEntity = ClinicalPhotoEntity(
+                                id = java.util.UUID.randomUUID().toString(),
+                                encounterId = visitId ?: patientId,
+                                patientId = patientId,
+                                contentType = result.contentType,
+                                filePath = filePath,
+                                extractedJson = result.rawJson
+                            )
+                            app.database.clinicalPhotoDao().insert(photoEntity)
+                            extractedEncounter?.let { existing ->
+                                extractedEncounter = EncounterMerger.mergeVisionResult(existing, result)
+                            }
+                            showScanResult = true
+                        } else {
+                            Toast.makeText(context, "Could not extract data from image", Toast.LENGTH_SHORT).show()
+                            java.io.File(filePath).delete()
+                        }
                     }
                 }
             },

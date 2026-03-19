@@ -155,15 +155,15 @@ class ExtractionPromptBuilder(
     /** System prompt for vision-based clinical image extraction. */
     fun visionSystemPrompt(): String = VISION_SYSTEM_PROMPT
 
-    /** User prompt for vision extraction — the image is passed separately via JNI. */
-    fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Read this clinical image.")
+    /** User prompt for vision extraction — the image is passed separately via JNI.
+     *  @param isLargeModel true for 2B+ models that can interpret results, false for 0.8B OCR-only
+     */
+    fun visionUserPrompt(isLargeModel: Boolean = false, additionalContext: String = ""): String = buildString {
         if (additionalContext.isNotBlank()) {
-            appendLine()
             appendLine(additionalContext)
+            appendLine()
         }
-        appendLine()
-        appendLine(VISION_JSON_SCHEMA)
+        appendLine(if (isLargeModel) VISION_PROMPT_LARGE else VISION_PROMPT_SMALL)
     }
 
     companion object {
@@ -239,10 +239,15 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-Describe what you see briefly.
+Read the image briefly.
         """.trimIndent()
 
-        private val VISION_JSON_SCHEMA = """
-What is this? What text do you see? Describe any lines, numbers, or colors.""".trimIndent()
+        // Small model (0.8B): classify + OCR only
+        private val VISION_PROMPT_SMALL = """
+What is this item? Read all text on it.""".trimIndent()
+
+        // Large model (2B+): full clinical interpretation
+        private val VISION_PROMPT_LARGE = """
+What is this item? Read all text. If it is a test cassette, how many colored lines are in the result window and what is the result?""".trimIndent()
     }
 }

@@ -31,8 +31,9 @@ class VisionExtractor(
     )
 
     suspend fun extract(imagePath: String, additionalContext: String = ""): VisionResult? {
+        val isLargeModel = modelManager.activeTier() == LlmModelManager.ModelTier.LARGE
         val system = promptBuilder.visionSystemPrompt()
-        val user = promptBuilder.visionUserPrompt(additionalContext)
+        val user = promptBuilder.visionUserPrompt(isLargeModel = isLargeModel, additionalContext = additionalContext)
 
         Log.d(TAG, "Running vision extraction on: $imagePath")
 

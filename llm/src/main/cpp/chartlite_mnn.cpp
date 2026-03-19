@@ -261,15 +261,24 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
         return nullptr;
     }
 
-    const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
-    const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
+    // Extract JNI strings early to avoid leaks if later calls fail
+    const char *sysRaw = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    if (!sysRaw) return nullptr;
+    std::string sysStr(sysRaw);
+    env->ReleaseStringUTFChars(jSystemPrompt, sysRaw);
+
+    const char *usrRaw = env->GetStringUTFChars(jUserMessage, nullptr);
+    if (!usrRaw) return nullptr;
+    std::string usrStr(usrRaw);
+    env->ReleaseStringUTFChars(jUserMessage, usrRaw);
 
     // Convert RGB byte array to MNN VARP tensor [1, height, width, 3] UINT8
     jsize dataLen = env->GetArrayLength(jRgbData);
     jbyte *rgbBytes = env->GetByteArrayElements(jRgbData, nullptr);
+    if (!rgbBytes) return nullptr;
 
     LOGi("GenerateVision: system=%zu chars, user=%zu chars, image=%dx%d (%d bytes)",
-         strlen(sys), strlen(usr), (int)width, (int)height, (int)dataLen);
+         sysStr.size(), usrStr.size(), (int)width, (int)height, (int)dataLen);
 
     // Create MNN VARP from raw RGB data
     auto imageVar = MNN::Express::_Input({1, (int)height, (int)width, 3}, MNN::Express::NHWC, halide_type_of<uint8_t>());
@@ -282,10 +291,10 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     // Build MultimodalPrompt with image data in the images map
     MultimodalPrompt mp;
     std::ostringstream prompt;
-    prompt << "<|im_start|>system\n" << sys << "<|im_end|>\n"
+    prompt << "<|im_start|>system\n" << sysStr << "<|im_end|>\n"
            << "<|im_start|>user\n"
            << "<img>clinical_photo</img>\n"
-           << usr << "<|im_end|>\n"
+           << usrStr << "<|im_end|>\n"
            << "<|im_start|>assistant\n";
     mp.prompt_template = prompt.str();
 
@@ -295,9 +304,6 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     imgPart.width = (int)width;
     imgPart.height = (int)height;
     mp.images["clinical_photo"] = imgPart;
-
-    env->ReleaseStringUTFChars(jSystemPrompt, sys);
-    env->ReleaseStringUTFChars(jUserMessage, usr);
 
     g_cancel_generation.store(false);
 

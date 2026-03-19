@@ -130,6 +130,7 @@ object LlamaBridge {
     fun shutdown() {
         if (!initialized) return
         nativeShutdown()
+        initialized = false
     }
 
     // JNI native methods

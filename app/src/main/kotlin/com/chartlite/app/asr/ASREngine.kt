@@ -408,6 +408,16 @@ class ASREngine(private val context: Context) {
     }
 
     /**
+     * Synchronously release the offline ASR model, but only when the engine is idle.
+     * Use this before starting LLM work from non-recording screens to avoid overlapping
+     * ASR teardown with native LLM model load on low-RAM devices.
+     */
+    suspend fun unloadOfflineModelIfIdleAndWait() {
+        if (_isListening.value || _isPreparing.value || !sherpaPipeline.isLoaded.value) return
+        unloadOfflineModelAndWait()
+    }
+
+    /**
      * Synchronously release the ONNX model and wait for memory to be freed.
      * Must be called from a coroutine context. Use this before loading the LLM
      * to avoid OOM on low-RAM (3GB) devices where both models can't coexist.

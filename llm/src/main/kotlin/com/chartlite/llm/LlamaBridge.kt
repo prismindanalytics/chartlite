@@ -129,8 +129,9 @@ object LlamaBridge {
 
     fun shutdown() {
         if (!initialized) return
+        // Unload the current model, but keep the bridge initialized so the next
+        // on-device inference can reload without re-entering native bootstrap.
         nativeShutdown()
-        initialized = false
     }
 
     // JNI native methods

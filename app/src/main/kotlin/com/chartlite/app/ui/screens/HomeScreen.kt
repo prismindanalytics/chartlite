@@ -463,8 +463,10 @@ fun HomeScreen(
                                 } else {
                                     Button(
                                         onClick = {
-                                            app.asr.unloadOfflineModelIfIdle()
-                                            app.extractionQueue.processBatch()
+                                            scope.launch {
+                                                app.asr.unloadOfflineModelIfIdleAndWait()
+                                                app.extractionQueue.processBatch()
+                                            }
                                         },
                                         enabled = queuedCount > 0,
                                         modifier = Modifier.height(36.dp),

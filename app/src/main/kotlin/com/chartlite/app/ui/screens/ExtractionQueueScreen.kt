@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +48,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import androidx.compose.ui.res.stringResource
 import com.chartlite.app.R
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +63,7 @@ fun ExtractionQueueScreen(
     val processedCount by app.extractionQueue.processedCount.collectAsState()
     val currentStep by app.extractionQueue.processingStep.collectAsState()
     val patientNames = remember { mutableStateMapOf<String, String>() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(items) {
         items.map { it.patientId }.distinct().forEach { patientId ->
@@ -147,8 +150,10 @@ fun ExtractionQueueScreen(
                         } else {
                             Button(
                                 onClick = {
-                                    app.asr.unloadOfflineModelIfIdle()
-                                    app.extractionQueue.processBatch()
+                                    scope.launch {
+                                        app.asr.unloadOfflineModelIfIdleAndWait()
+                                        app.extractionQueue.processBatch()
+                                    }
                                 },
                                 enabled = queuedItems.isNotEmpty()
                             ) {

@@ -262,7 +262,7 @@ fun QueuedExtractionReviewScreen(
                                     actionError = null
                                     scope.launch {
                                         try {
-                                            app.asr.unloadOfflineModelIfIdle()
+                                            app.asr.unloadOfflineModelIfIdleAndWait()
                                             app.extractionQueue.processItem(queueId)
                                             reloadQueueItem()
                                         } catch (e: Exception) {

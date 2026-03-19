@@ -368,7 +368,9 @@ fun EncounterRecordScreen(
         // the heavy stopListeningAndAwait() call blocks (especially cloud ASR).
         isGeneratingNote = true
         kotlinx.coroutines.yield()
-        val result = asr.stopListeningAndAwait()
+        // Don't release ONNX here — generateDraftNote() calls unloadOfflineModelAndWait()
+        // which does a synchronous release. Double-releasing wastes time and can race.
+        val result = asr.stopListeningAndAwait(releaseOnnxAfterStop = false)
         transcript = result.text
         durationMs = 0L
 

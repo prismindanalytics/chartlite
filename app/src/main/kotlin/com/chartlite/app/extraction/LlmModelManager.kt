@@ -196,7 +196,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             0L
         } else when (activeTier()) {
             ModelTier.SMALL -> when {
-                isUltraLowRam -> 128L * 1024 * 1024    // 128MB — ctx=2048, batch=64
+                isUltraLowRam -> 192L * 1024 * 1024    // 192MB — ctx=2048, batch=64; MNN peak alloc needs extra margin
                 isLowRamDevice -> 256L * 1024 * 1024
                 else -> 256L * 1024 * 1024
             }
@@ -225,7 +225,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             am.getMemoryInfo(memInfo)
             val burst = when (activeTier()) {
                 ModelTier.SMALL -> when {
-                    deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 128L * 1024 * 1024
+                    deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 192L * 1024 * 1024
                     else -> 256L * 1024 * 1024
                 }
                 ModelTier.LARGE -> 512L * 1024 * 1024
@@ -572,7 +572,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     override fun onConfigurationChanged(newConfig: Configuration) {}
     @Deprecated("Deprecated in ComponentCallbacks", replaceWith = ReplaceWith("onTrimMemory"))
     override fun onLowMemory() {
-        if (!inferring) unloadModel()
+        if (!inferring && modelLoaded) {
+            if (inferenceMutex.tryLock()) {
+                try { unloadModel() } finally { inferenceMutex.unlock() }
+            }
+        }
     }
 
     // ── Download ──

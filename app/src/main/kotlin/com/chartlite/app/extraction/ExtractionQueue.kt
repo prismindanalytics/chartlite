@@ -29,6 +29,8 @@ class ExtractionQueue(
     private val repository: ExtractionQueueRepository,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val cancelCurrentProcessing: () -> Unit = {},
+    /** Optional callback to unload LLM model after batch cancel or between batch items on constrained devices. */
+    var unloadLlm: (() -> Unit)? = null,
     /** Optional: process pending clinical photos during batch. Returns merged encounter. */
     var photoProcessor: (suspend (patientId: String, encounter: StructuredEncounter) -> StructuredEncounter)? = null
 ) {
@@ -214,6 +216,16 @@ class ExtractionQueue(
                         processEntry(entry, skipNoteGeneration = true)
                         processed++
                         _processedCount.value = processed
+
+                        // On constrained devices (≤6GB), unload LLM every 3 items to
+                        // let the system reclaim memory. Prevents gradual OOM from
+                        // MNN KV-cache fragmentation across many sequential inferences.
+                        if (processed % BATCH_UNLOAD_INTERVAL == 0 && pending.size > processed) {
+                            Log.d(TAG, "Batch checkpoint: unloading LLM after $processed items to reclaim memory")
+                            unloadLlm?.invoke()
+                            System.gc()
+                            delay(500) // Brief pause for memory reclamation
+                        }
                     } catch (e: CancellationException) {
                         repository.retry(entry.id)
                         throw e
@@ -239,6 +251,9 @@ class ExtractionQueue(
     fun cancelBatch() {
         cancelCurrentProcessing()
         batchJob?.cancel()
+        // Unload LLM immediately so subsequent recording doesn't OOM
+        // (cancelled batch leaves model loaded, next ASR load competes for RAM)
+        unloadLlm?.invoke()
     }
 
     // ── Urgent (immediate) processing ───────────────────────────────────
@@ -554,6 +569,8 @@ class ExtractionQueue(
         private const val TAG = "ExtractionQueue"
         /** Maximum number of cached note results before eviction. */
         private const val MAX_NOTE_RESULTS = 100
+        /** Unload LLM every N batch items to prevent OOM from KV-cache fragmentation. */
+        private const val BATCH_UNLOAD_INTERVAL = 3
         /** Max bytes for SMS free-text in BinaryEncoder V4. */
         private const val SMS_SUMMARY_MAX = 19
 

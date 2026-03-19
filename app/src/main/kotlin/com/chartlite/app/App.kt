@@ -381,7 +381,8 @@ class App : Application() {
             extractionOrchestrator,
             extractionQueueRepository,
             appScope,
-            { llmModelManagerBacking?.cancelInference() }
+            cancelCurrentProcessing = { llmModelManagerBacking?.cancelInference() },
+            unloadLlm = { llmModelManagerBacking?.unloadModel() }
         )
 
         // Wire up photo processing for batch mode: analyze pending photos during batch
@@ -430,7 +431,13 @@ class App : Application() {
             // If ASR is actively loading or listening, wait until it's idle —
             // concurrent model loads cause OOM on constrained devices.
             if (isLowRam) {
+                val maxWaitMs = 30_000L
+                val waitStart = System.currentTimeMillis()
                 while (asr.isPreparing.value || asr.isListening.value) {
+                    if (System.currentTimeMillis() - waitStart > maxWaitMs) {
+                        Log.w(TAG, "ASR idle wait timed out after ${maxWaitMs / 1000}s — proceeding with extraction warmup")
+                        break
+                    }
                     delay(2_000L)
                 }
             }

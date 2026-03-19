@@ -35,6 +35,7 @@ import com.chartlite.app.ui.components.BatchProcessingStatusCard
 import com.chartlite.app.ui.theme.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -61,6 +62,7 @@ fun FacilityDashboardScreen(
     val context = LocalContext.current
     val app = context.applicationContext as App
     val gson = remember { Gson() }
+    val scope = rememberCoroutineScope()
 
     var encounters by remember { mutableStateOf<List<EncounterEntity>>(emptyList()) }
     var patientCount by remember { mutableIntStateOf(0) }
@@ -391,8 +393,10 @@ fun FacilityDashboardScreen(
                                     }
                                 } else {
                                     Button(onClick = {
-                                        app.asr.unloadOfflineModelIfIdle()
-                                        app.extractionQueue.processBatch()
+                                        scope.launch {
+                                            app.asr.unloadOfflineModelIfIdleAndWait()
+                                            app.extractionQueue.processBatch()
+                                        }
                                     }) {
                                         Icon(Icons.Default.PlayArrow, contentDescription = stringResource(R.string.process_queue),
                                             modifier = Modifier.size(18.dp))

@@ -527,16 +527,16 @@ class SherpaASRPipeline {
         recognizerDestroyed.set(false)
         isRunning = true
 
-        // Block briefly to ensure consumer is actually executing before audio recording starts.
+        // Wait briefly to ensure consumer is actually executing before audio recording starts.
         // CompletableDeferred.complete() is called as the first action inside the consumer loop.
-        try {
-            kotlinx.coroutines.runBlocking {
-                kotlinx.coroutines.withTimeout(2000) {
-                    consumerReady.await()
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Inference consumer startup wait timed out: ${e.message}")
+        // Uses Thread.sleep polling instead of runBlocking to avoid blocking the main thread
+        // coroutine dispatcher on 3GB devices (where runBlocking can freeze UI for 2-5s).
+        val waitDeadline = System.currentTimeMillis() + 2000
+        while (!consumerReady.isCompleted && System.currentTimeMillis() < waitDeadline) {
+            Thread.sleep(10)
+        }
+        if (!consumerReady.isCompleted) {
+            Log.w(TAG, "Inference consumer startup wait timed out after 2s")
         }
     }
 
@@ -684,10 +684,15 @@ class SherpaASRPipeline {
         isRunning = false
         recognizerDestroyed.set(true) // Prevent new JNI calls from in-flight coroutines
 
-        // Cancel inference consumer and scope
+        // Cancel inference consumer and scope — this interrupts the channel loop
         inferenceConsumerJob?.cancel()
         inferenceConsumerJob = null
         inferenceSupervisor.cancel()
+
+        // Drain any pending items from the channel so inFlightInference counter can settle
+        while (inferenceChannel.tryReceive().isSuccess) {
+            inFlightInference.decrementAndGet()
+        }
 
         // Wait for in-flight coroutines that started before recognizerDestroyed was set.
         // JNI calls (rec.decode) are not cooperatively cancellable, so we must wait.
@@ -699,10 +704,16 @@ class SherpaASRPipeline {
         clearBuffer()
 
         if (inFlightInference.get() > 0) {
-            // SAFETY: Do NOT free the recognizer — in-flight coroutines still hold a reference.
-            // Leak it intentionally to avoid SIGSEGV. The GC will eventually collect it.
-            Log.e(TAG, "release() timed out with ${inFlightInference.get()} in-flight coroutines — " +
-                "leaking recognizer to avoid native crash")
+            // Force the counter to zero — the scope is cancelled, no more consumers exist.
+            // This prevents a stuck counter from leaking the recognizer on next release().
+            val stale = inFlightInference.getAndSet(0)
+            Log.e(TAG, "release() timed out with $stale in-flight refs — " +
+                "scope cancelled, forcing counter reset and releasing recognizer")
+            // With the scope fully cancelled, no coroutine can call into the recognizer.
+            // It's safe to release even with stale counter, since the consumer is dead.
+            try { recognizer?.release() } catch (e: Exception) {
+                Log.w(TAG, "Error releasing recognizer after timeout: ${e.message}")
+            }
             recognizer = null
         } else {
             try { recognizer?.release() } catch (e: Exception) { Log.w(TAG, "Error releasing recognizer: ${e.message}") }

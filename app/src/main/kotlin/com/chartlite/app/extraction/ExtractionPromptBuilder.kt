@@ -242,10 +242,12 @@ Rules:
 You read clinical images. Reply with JSON only.
         """.trimIndent()
 
-        // Small model (0.8B): empty-value JSON so model fills in, not copies
+        // Small model (0.8B): one-shot example so model generates in same format
         private val VISION_PROMPT_SMALL = """
-{"type":"","text":"","name":""}
-Fill: type=rdt/vitals/medication/lab/other, text=all text on item, name=item name""".trimIndent()
+Example for a pregnancy test photo:
+{"type":"rdt","text":"hCG One Step Pregnancy Test, C T, S","name":"pregnancy test kit"}
+
+Now describe THIS image the same way:""".trimIndent()
 
         // Large model (2B+): classify + OCR + interpret results as structured JSON
         private val VISION_PROMPT_LARGE = """

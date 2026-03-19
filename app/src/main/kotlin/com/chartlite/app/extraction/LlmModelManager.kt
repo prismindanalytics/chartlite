@@ -751,8 +751,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             dirName = "qwen35-2b-mnn",
             filename = "qwen35-2b-int4-mnn.zip",
             modelUrl = "https://huggingface.co/prismindanalytics/chartlite-models/resolve/main/qwen35-2b-int4-mnn.zip",
-            sha256 = "", // TODO: convert and upload 2B model
-            sizeMb = 1000,
+            sha256 = "33fababfee22cbef73f41f902cf47f606247c3d650773099498d92ad4eaf9867",
+            sizeMb = 823,
             description = "Higher accuracy via MNN, needs 4+ GB RAM"
         );
 

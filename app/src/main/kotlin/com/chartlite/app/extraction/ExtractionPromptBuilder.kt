@@ -239,19 +239,19 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-Read the image. Respond with ONLY JSON.
+You are a clinical image reader. Respond with ONLY valid JSON, no other text.
         """.trimIndent()
 
-        // Small model (0.8B): classify + OCR only — clinician interprets results
+        // Small model (0.8B): classify + OCR, no interpretation
+        // Uses enums (not placeholders) so model picks values instead of copying
         private val VISION_PROMPT_SMALL = """
-{"type":"rdt or vitals or medication or lab or other","text":"all text you see"}""".trimIndent()
+Read all text on the item. Output JSON:
+{"content_type":"rdt_result|lab_report|vital_device|medication_package|referral_letter|other","raw_text":"COPY ALL TEXT YOU READ FROM THE IMAGE HERE","item_name":"WHAT SPECIFIC ITEM IS THIS"}""".trimIndent()
 
-        // Large model (2B+): classify + OCR + interpret results
+        // Large model (2B+): classify + OCR + interpret results as structured JSON
         private val VISION_PROMPT_LARGE = """
-If test cassette: {"type":"rdt","test":"name","result":"positive or negative","lines":"which colored lines visible"}
-If vital device: {"type":"vitals","readings":[{"name":"...","value":"...","unit":"..."}]}
-If medication: {"type":"medication","name":"...","dose":"...","form":"...","expiry":"..."}
-If lab report: {"type":"lab","tests":[{"name":"...","value":"...","unit":"...","range":"..."}]}
-Otherwise: {"type":"other","text":"all visible text"}""".trimIndent()
+Read and interpret the clinical image. Output JSON with these fields:
+{"content_type":"rdt_result|lab_report|vital_device|medication_package|referral_letter|other","raw_text":"ALL TEXT VISIBLE ON THE ITEM","item_name":"SPECIFIC ITEM NAME","rdt":{"test_type":"HIV|malaria|pregnancy|hepatitis|syphilis|other","result":"positive|negative|invalid","bands":"DESCRIBE WHICH COLORED LINES ARE VISIBLE ON THE CASSETTE - DETERMINE RESULT FROM BANDS ONLY NOT SURROUNDING TEXT"},"vitals":[{"name":"READING NAME","value":"NUMBER","unit":"UNIT"}],"medications":[{"name":"DRUG NAME","dose":"DOSE","expiry":"DATE"}],"investigations":[{"test":"TEST NAME","result":"RESULT","unit":"UNIT"}]}
+Include only relevant sections. For RDT: determine result from colored lines on the cassette only, ignore text on surrounding papers.""".trimIndent()
     }
 }

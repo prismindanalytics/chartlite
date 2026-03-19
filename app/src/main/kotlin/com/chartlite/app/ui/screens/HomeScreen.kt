@@ -868,7 +868,7 @@ private fun EmptyState(
                 modifier = Modifier.size(22.dp), tint = BrandGreen)
         }
         Spacer(Modifier.width(14.dp))
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,

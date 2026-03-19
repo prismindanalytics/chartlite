@@ -239,14 +239,13 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You are a clinical image reader. Respond with ONLY valid JSON, no other text.
+You read clinical images. Reply with JSON only.
         """.trimIndent()
 
-        // Small model (0.8B): classify + OCR, no interpretation
-        // Uses enums (not placeholders) so model picks values instead of copying
+        // Small model (0.8B): empty-value JSON so model fills in, not copies
         private val VISION_PROMPT_SMALL = """
-Read all text on the item. Output JSON:
-{"content_type":"rdt_result|lab_report|vital_device|medication_package|referral_letter|other","raw_text":"COPY ALL TEXT YOU READ FROM THE IMAGE HERE","item_name":"WHAT SPECIFIC ITEM IS THIS"}""".trimIndent()
+{"type":"","text":"","name":""}
+Fill: type=rdt/vitals/medication/lab/other, text=all text on item, name=item name""".trimIndent()
 
         // Large model (2B+): classify + OCR + interpret results as structured JSON
         private val VISION_PROMPT_LARGE = """

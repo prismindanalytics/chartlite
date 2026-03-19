@@ -21,6 +21,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chartlite.app.ui.theme.BrandGreen
@@ -45,7 +46,7 @@ fun PatientIdDisplay(
         BoxWithConstraints {
             // Auto-downsize on narrow screens to prevent wrapping
             val effectiveSize = when {
-                size == PatientIdSize.LARGE && maxWidth < 320.dp -> PatientIdSize.MEDIUM
+                size == PatientIdSize.LARGE && maxWidth <= 360.dp -> PatientIdSize.MEDIUM
                 else -> size
             }
             val horizontalPad = when (effectiveSize) {
@@ -94,7 +95,8 @@ fun PatientIdDisplay(
                             PatientIdSize.SMALL -> 1.sp
                         },
                         textAlign = TextAlign.Center,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

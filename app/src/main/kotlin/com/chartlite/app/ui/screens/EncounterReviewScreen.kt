@@ -169,7 +169,7 @@ fun EncounterReviewScreen(
                         }
                     }
                 )
-                1 -> ClaimPreviewTab(enc, diagnoses, medications, vitals, context)
+                1 -> ClaimPreviewTab(enc, diagnoses, medications, vitals, context, patientName)
                 2 -> SOAPNoteTab(enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
                     examFindings, investigations, planItems, socialHistory, suggestedDiagnoses)
             }
@@ -712,7 +712,8 @@ private fun ClaimPreviewTab(
     diagnoses: List<Diagnosis>,
     medications: List<Medication>,
     vitals: VitalSigns?,
-    context: Context
+    context: Context,
+    patientName: String
 ) {
     val claim837pCopiedMsg = stringResource(R.string.claim_837p_copied)
     val claimCopiedMsg = stringResource(R.string.claim_copied)
@@ -945,7 +946,7 @@ private fun ClaimPreviewTab(
             val payload = remember {
                 IntegrationPayloads.build837PClaim(
                     enc = enc, claim = claim, diagnoses = diagnoses,
-                    patientName = enc.patientId, providerName = "Dr. " + enc.providerId.take(8)
+                    patientName = patientName, providerName = "Dr. " + enc.providerId.take(8)
                 )
             }
             AlertDialog(

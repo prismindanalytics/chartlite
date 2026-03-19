@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -54,6 +55,7 @@ fun ClinicalCameraCapture(
         )
     }
     var isAnalyzing by remember { mutableStateOf(false) }
+    var cameraError by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -76,6 +78,7 @@ fun ClinicalCameraCapture(
                         input.copyTo(output)
                     }
                 }
+                isAnalyzing = false
                 onImageCaptured(destFile.absolutePath)
             } catch (e: Exception) {
                 Log.e(TAG, "Gallery import failed", e)
@@ -92,7 +95,7 @@ fun ClinicalCameraCapture(
     }
 
     if (!hasCameraPermission) {
-        // Show nothing while waiting for permission result
+        // Permission denied or not yet granted — dismiss camera overlay
         return
     }
 
@@ -136,6 +139,7 @@ fun ClinicalCameraCapture(
                         )
                     } catch (e: Exception) {
                         Log.e(TAG, "Camera bind failed", e)
+                        cameraError = true
                     }
                 }, ContextCompat.getMainExecutor(ctx))
 
@@ -207,6 +211,7 @@ fun ClinicalCameraCapture(
                             cameraExecutor,
                             object : ImageCapture.OnImageSavedCallback {
                                 override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                                    isAnalyzing = false
                                     onImageCaptured(photoFile.absolutePath)
                                 }
 
@@ -224,6 +229,26 @@ fun ClinicalCameraCapture(
 
             // Spacer to balance the row (same size as gallery button)
             Spacer(modifier = Modifier.size(56.dp))
+        }
+
+        // Camera error overlay — auto-dismisses after 2 seconds
+        if (cameraError) {
+            LaunchedEffect(Unit) {
+                delay(2000)
+                onDismiss()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Camera unavailable",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
         }
 
         // Analyzing overlay

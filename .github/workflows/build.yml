@@ -39,6 +39,10 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          # Allow MNN submodule's flatbuffers sample gradle-wrapper.jar
+          allow-snapshot-wrappers: true
+          validate-wrappers: false
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest

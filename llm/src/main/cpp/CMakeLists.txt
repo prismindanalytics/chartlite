@@ -22,6 +22,10 @@ set(MNN_BUILD_QUANTOOLS OFF CACHE BOOL "" FORCE)
 set(MNN_BUILD_CONVERTER OFF CACHE BOOL "" FORCE)
 set(MNN_USE_LOGCAT ON CACHE BOOL "" FORCE)
 
+# Vision support — enables MNN::CV::imread + vision encoder in omni.cpp
+set(MNN_BUILD_OPENCV ON CACHE BOOL "" FORCE)
+set(MNN_IMGCODECS ON CACHE BOOL "" FORCE)
+
 # ABI-specific optimizations
 if(ANDROID_ABI STREQUAL "arm64-v8a")
     set(MNN_ARM82 ON CACHE BOOL "" FORCE)
@@ -46,6 +50,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
     MNN
+    MNNOpenCV
     llm
     android
     log

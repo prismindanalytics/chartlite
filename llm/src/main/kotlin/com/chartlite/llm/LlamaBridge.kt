@@ -77,6 +77,17 @@ object LlamaBridge {
         return nativeApplyChatTemplate(systemPrompt, userMessage, enableThinking)
     }
 
+    /**
+     * Generate a response from a clinical image using the vision-language model.
+     * The model auto-detects content type (lab report, RDT, vitals, medication, referral).
+     *
+     * @param imagePath absolute path to a JPEG/PNG file on device storage
+     */
+    fun generateVision(systemPrompt: String, userMessage: String, imagePath: String): String? {
+        check(initialized) { "LlamaBridge.initialize() not called" }
+        return nativeGenerateVision(systemPrompt, userMessage, imagePath)
+    }
+
     fun cancelGeneration() {
         if (!initialized) return
         nativeCancelGeneration()
@@ -98,6 +109,9 @@ object LlamaBridge {
     private external fun nativeGenerateChat(systemPrompt: String, userMessage: String): String?
     private external fun nativeApplyChatTemplate(
         systemPrompt: String, userMessage: String, enableThinking: Boolean
+    ): String?
+    private external fun nativeGenerateVision(
+        systemPrompt: String, userMessage: String, imagePath: String
     ): String?
     private external fun nativeCancelGeneration()
     private external fun nativeShutdown()

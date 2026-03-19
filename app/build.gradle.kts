@@ -113,6 +113,12 @@ dependencies {
     // On-device LLM inference (Qwen via llama.cpp built from source)
     implementation(project(":llm"))
 
+    // CameraX (clinical camera capture)
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+
     // QR Code (join code generation + scanning)
     implementation(libs.zxing.embedded)
 

@@ -150,6 +150,23 @@ class ExtractionPromptBuilder(
         }
     }
 
+    // ── Vision Prompts (camera scan → auto-extract) ──
+
+    /** System prompt for vision-based clinical image extraction. */
+    fun visionSystemPrompt(): String = VISION_SYSTEM_PROMPT
+
+    /** User prompt for vision extraction — the image is passed separately via JNI. */
+    fun visionUserPrompt(additionalContext: String = ""): String = buildString {
+        appendLine("Look at this clinical image and extract all visible data as JSON.")
+        if (additionalContext.isNotBlank()) {
+            appendLine(additionalContext)
+        }
+        appendLine()
+        appendLine(VISION_JSON_SCHEMA)
+        appendLine()
+        append("JSON:")
+    }
+
     companion object {
         private const val ON_DEVICE_ASSISTANT_PREFIX = "{"
         private val BENCHMARK_SYSTEM_PROMPT = """
@@ -219,6 +236,34 @@ Rules:
   "social_history": ["factor 1"],
   "plan": ["action 1", "action 2"],
   "sms_summary": "≤19 char abbrev"
+}
+        """.trimIndent()
+
+        private val VISION_SYSTEM_PROMPT = """
+You are a clinical data extractor for medical images.
+Identify what the image shows and extract all visible clinical data as JSON.
+
+Content types: lab_report, rdt_result, vital_device, medication_package, referral_letter, other
+
+Rules:
+- Extract ONLY what is visible. Do NOT infer or guess values.
+- For RDT cassettes (malaria, HIV, pregnancy): report test type, result (positive/negative/invalid), and visible band pattern.
+- For vital devices (BP monitor, pulse oximeter, thermometer, glucometer): read exact numbers from the display.
+- For lab reports: extract test name, value, unit, and reference range if visible.
+- For medications: drug name, strength, form, manufacturer, expiry date.
+- For referral letters: referring facility, diagnosis, reason, urgency.
+- Output valid JSON only. No explanation text.
+        """.trimIndent()
+
+        private val VISION_JSON_SCHEMA = """
+{
+  "content_type": "lab_report|rdt_result|vital_device|medication_package|referral_letter|other",
+  "vitals": [{"name": "...", "value": "...", "unit": "..."}],
+  "investigations": [{"test": "...", "result": "...", "reference_range": "..."}],
+  "rdt": {"test_type": "malaria|hiv|pregnancy|other", "result": "positive|negative|invalid", "details": "..."},
+  "medications": [{"name": "...", "dose": "...", "form": "...", "expiry": "..."}],
+  "referral": {"from_facility": "...", "diagnosis": "...", "reason": "...", "urgency": "..."},
+  "raw_text": "any visible text not captured above"
 }
         """.trimIndent()
     }

@@ -105,6 +105,9 @@ class App : Application() {
     val extractionQueueRepository: ExtractionQueueRepository
         get() = getOrCreateExtractionServices().extractionQueueRepository
 
+    val promptBuilder: ExtractionPromptBuilder
+        get() = getOrCreateExtractionServices().promptBuilder
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "App.onCreate() starting")
@@ -385,7 +388,8 @@ class App : Application() {
             clinicalExtractor = clinicalExtractor,
             extractionOrchestrator = extractionOrchestrator,
             extractionQueue = extractionQueue,
-            extractionQueueRepository = extractionQueueRepository
+            extractionQueueRepository = extractionQueueRepository,
+            promptBuilder = promptBuilder
         )
     }
 
@@ -432,7 +436,8 @@ class App : Application() {
         val clinicalExtractor: ClinicalExtractor,
         val extractionOrchestrator: ExtractionOrchestrator,
         val extractionQueue: ExtractionQueue,
-        val extractionQueueRepository: ExtractionQueueRepository
+        val extractionQueueRepository: ExtractionQueueRepository,
+        val promptBuilder: ExtractionPromptBuilder
     ) {
         fun close() {
             extractionQueue.close()

@@ -249,6 +249,62 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateJson(
     return Java_com_chartlite_llm_LlamaBridge_nativeGenerate(env, thiz, jPrompt);
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
+    JNIEnv *env, jobject,
+    jstring jSystemPrompt, jstring jUserMessage, jstring jImagePath
+) {
+    if (!g_llm) {
+        LOGe("nativeGenerateVision: model not loaded");
+        return nullptr;
+    }
+
+    const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
+    const char *img = env->GetStringUTFChars(jImagePath, nullptr);
+
+    // Build MultimodalPrompt with image file path.
+    // MNN's tokenizer_encode(MultimodalPrompt) detects <img>...</img> tags
+    // and routes to visionProcess() which loads the image via imread().
+    MultimodalPrompt mp;
+    std::ostringstream prompt;
+    prompt << "<|im_start|>system\n" << sys << "<|im_end|>\n"
+           << "<|im_start|>user\n"
+           << "<img>" << img << "</img>\n"
+           << usr << "<|im_end|>\n"
+           << "<|im_start|>assistant\n";
+    mp.prompt_template = prompt.str();
+
+    LOGi("GenerateVision: system=%zu chars, user=%zu chars, image=%s",
+         strlen(sys), strlen(usr), img);
+
+    env->ReleaseStringUTFChars(jSystemPrompt, sys);
+    env->ReleaseStringUTFChars(jUserMessage, usr);
+    env->ReleaseStringUTFChars(jImagePath, img);
+
+    g_cancel_generation.store(false);
+
+    CancelCheckBuf buf;
+    std::ostream os(&buf);
+
+    g_llm->response(mp, &os, nullptr, g_max_tokens);
+
+    const auto *ctx = g_llm->getContext();
+    if (ctx) {
+        LOGi("Vision generated: prompt=%d tokens, decode=%d tokens, prefill=%.1fms, decode=%.1fms, vision=%.1fms",
+             ctx->prompt_len, ctx->gen_seq_len,
+             ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0,
+             ctx->vision_us / 1000.0);
+    }
+
+    if (g_cancel_generation.load()) {
+        LOGw("Vision generation was cancelled");
+    }
+
+    if (buf.result.empty()) return nullptr;
+    return env->NewStringUTF(buf.result.c_str());
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeCancelGeneration(JNIEnv *, jobject) {
     g_cancel_generation.store(true);

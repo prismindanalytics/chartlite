@@ -396,6 +396,22 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
+     * Run vision inference on a clinical image.
+     * The vision-language model auto-detects content type and extracts structured data.
+     *
+     * @param imagePath absolute path to JPEG/PNG on device storage
+     */
+    suspend fun runVisionInference(
+        systemPrompt: String,
+        userMessage: String,
+        imagePath: String,
+        maxTokens: Int = recommendedOutputTokens(),
+        config: GenerationConfig = GenerationConfig()
+    ): String? = executeInference("generateVision", maxTokens, config) {
+        LlamaBridge.generateVision(systemPrompt, userMessage, imagePath)
+    }
+
+    /**
      * Run JSON schema-constrained inference.
      * The model is forced to output valid JSON matching the provided schema,
      * eliminating parse failures from free-text generation.

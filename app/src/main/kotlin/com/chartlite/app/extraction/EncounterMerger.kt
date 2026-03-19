@@ -1,6 +1,7 @@
 package com.chartlite.app.extraction
 
 import com.chartlite.app.model.Investigation
+import com.chartlite.app.model.Medication
 import com.chartlite.app.model.StructuredEncounter
 import com.chartlite.app.model.VitalSigns
 
@@ -118,6 +119,77 @@ object EncounterMerger {
         for (inv in base) { byTest[inv.test.lowercase()] = inv }
         for (inv in snippet) { byTest[inv.test.lowercase()] = inv }
         return byTest.values.toList()
+    }
+
+    /**
+     * Merge vision extraction results into an existing encounter.
+     * Vision values fill null fields but don't overwrite voice-dictated values.
+     * Investigations and medications are appended and deduplicated.
+     */
+    fun mergeVisionResult(
+        existing: StructuredEncounter,
+        vision: VisionExtractor.VisionResult
+    ): StructuredEncounter {
+        // Convert vision vitals to VitalSigns
+        val visionVitals = visionVitalsToModel(vision.vitals)
+
+        // Convert vision investigations (labs + RDT)
+        val visionInvestigations = vision.investigations.map {
+            Investigation(test = it.test, result = it.result)
+        }.toMutableList()
+        // Add RDT as an investigation if present
+        vision.rdt?.let { rdt ->
+            visionInvestigations.add(
+                Investigation(
+                    test = "${rdt.testType.replaceFirstChar { c -> c.uppercase() }} RDT",
+                    result = rdt.result.replaceFirstChar { c -> c.uppercase() }
+                )
+            )
+        }
+
+        // Convert vision medications
+        val visionMeds = vision.medications.map {
+            Medication(
+                formularyCode = "",
+                name = it.name,
+                dose = it.dose?.toFloatOrNull(),
+                unit = it.form
+            )
+        }
+
+        return existing.copy(
+            vitals = mergeVitals(existing.vitals, visionVitals),
+            investigations = mergeInvestigations(existing.investigations, visionInvestigations),
+            medications = mergeMedications(existing.medications, visionMeds)
+        )
+    }
+
+    private fun visionVitalsToModel(readings: List<VisionExtractor.VitalReading>): VitalSigns? {
+        if (readings.isEmpty()) return null
+        var bp_sys: Int? = null; var bp_dia: Int? = null
+        var temp: Float? = null; var pulse: Int? = null
+        var spo2: Int? = null; var rr: Int? = null
+        var weight: Float? = null; var height: Float? = null
+
+        for (r in readings) {
+            val name = r.name.lowercase()
+            when {
+                "systolic" in name || ("bp" in name && "dia" !in name) -> bp_sys = r.value.toIntOrNull()
+                "diastolic" in name || "dia" in name -> bp_dia = r.value.toIntOrNull()
+                "temp" in name -> temp = r.value.toFloatOrNull()
+                "pulse" in name || "heart" in name || "hr" in name -> pulse = r.value.toIntOrNull()
+                "spo2" in name || "oxygen" in name || "sat" in name -> spo2 = r.value.toIntOrNull()
+                "respiratory" in name || "rr" in name -> rr = r.value.toIntOrNull()
+                "weight" in name -> weight = r.value.toFloatOrNull()
+                "height" in name -> height = r.value.toFloatOrNull()
+            }
+        }
+        return VitalSigns(
+            systolicBP = bp_sys, diastolicBP = bp_dia,
+            temperature = temp, pulse = pulse,
+            weight = weight, height = height,
+            respiratoryRate = rr, oxygenSaturation = spo2
+        )
     }
 
     /**

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -49,6 +50,9 @@ import com.chartlite.app.model.Referral
 import com.chartlite.app.model.StructuredEncounter
 import com.chartlite.app.model.VitalSigns
 import com.chartlite.app.model.normalizedOrNull
+import com.chartlite.app.extraction.VisionExtractor
+import com.chartlite.app.database.entity.ClinicalPhotoEntity
+import com.chartlite.app.ui.components.ClinicalCameraCapture
 import com.chartlite.app.ui.components.MarkdownText
 import com.chartlite.app.ui.components.RecordButton
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +80,17 @@ fun EncounterRecordScreen(
     }
     var isBatchProcessing by remember { mutableStateOf(app.appConfig.noteProcessingMode == "batch") }
     val isConstrainedDevice = remember { app.llmModelManager.isConstrainedDevice() }
+
+    // ── Camera scan state ──
+    var showCamera by remember { mutableStateOf(false) }
+    var isScanProcessing by remember { mutableStateOf(false) }
+    var lastScanType by remember { mutableStateOf<String?>(null) }
+    val visionExtractor = remember {
+        VisionExtractor(app.llmModelManager, app.promptBuilder)
+    }
+    val photoDir = remember {
+        java.io.File(context.filesDir, "encounter_photos/$patientId").also { it.mkdirs() }
+    }
 
     // ── Hold-to-dictate state ──
     var isHolding by remember { mutableStateOf(false) }
@@ -881,6 +896,41 @@ fun EncounterRecordScreen(
                         }
                     }
 
+                    // ── Camera scan button ──
+                    if (!isRecording && app.llmModelManager.isModelDownloaded()) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = { showCamera = true },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            enabled = !isScanProcessing
+                        ) {
+                            if (isScanProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Analyzing...")
+                            } else {
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "Scan clinical document",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("Scan Lab / RDT / Vitals")
+                            }
+                        }
+                        lastScanType?.let { type ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Scanned: ${type.replace('_', ' ')}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     // Live transcript while recording
                     LiveTranscriptCard(isRecording, liveTranscript)
 
@@ -1544,6 +1594,50 @@ fun EncounterRecordScreen(
                 }
             }
         }
+    }
+
+    // ── Camera scan overlay ──
+    if (showCamera) {
+        ClinicalCameraCapture(
+            outputDir = photoDir,
+            onImageCaptured = { filePath ->
+                showCamera = false
+                isScanProcessing = true
+                scope.launch {
+                    val result = withContext(Dispatchers.Default) {
+                        visionExtractor.extract(filePath)
+                    }
+                    isScanProcessing = false
+                    if (result != null) {
+                        lastScanType = result.contentType
+                        // Save photo record to database
+                        val photoEntity = ClinicalPhotoEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            encounterId = visitId ?: patientId,
+                            patientId = patientId,
+                            contentType = result.contentType,
+                            filePath = filePath,
+                            extractedJson = result.rawJson
+                        )
+                        app.database.clinicalPhotoDao().insert(photoEntity)
+                        // Merge vision results into current extracted encounter
+                        extractedEncounter?.let { existing ->
+                            extractedEncounter = EncounterMerger.mergeVisionResult(existing, result)
+                        }
+                        Toast.makeText(
+                            context,
+                            "Scanned: ${result.contentType.replace('_', ' ')}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(context, "Could not extract data from image", Toast.LENGTH_SHORT).show()
+                        // Delete photo if extraction failed
+                        java.io.File(filePath).delete()
+                    }
+                }
+            },
+            onDismiss = { showCamera = false }
+        )
     }
 }
 

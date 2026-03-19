@@ -391,6 +391,28 @@ object MigrationHelper {
      * v14 → v15: Add immunizations + smsSummary columns to encounters table.
      * These were previously in-memory only (StructuredEncounter) and lost on save.
      */
+    /**
+     * v15 → v16: Add clinical photos table for image capture and OCR extraction.
+     */
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS clinical_photos (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    encounterId TEXT NOT NULL,
+                    patientId TEXT NOT NULL,
+                    contentType TEXT NOT NULL,
+                    filePath TEXT NOT NULL,
+                    extractedJson TEXT,
+                    capturedAt INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_clinical_photos_encounterId ON clinical_photos(encounterId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_clinical_photos_patientId ON clinical_photos(patientId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_clinical_photos_patientId_contentType ON clinical_photos(patientId, contentType)")
+        }
+    }
+
     val MIGRATION_14_15 = object : Migration(14, 15) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE encounters ADD COLUMN immunizations TEXT NOT NULL DEFAULT '[]'")

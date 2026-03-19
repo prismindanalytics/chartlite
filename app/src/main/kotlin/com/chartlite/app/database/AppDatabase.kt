@@ -22,9 +22,11 @@ import com.chartlite.app.database.dao.PatientDao
 import com.chartlite.app.database.dao.ProviderDao
 import com.chartlite.app.database.dao.ReferralDao
 import com.chartlite.app.database.dao.StockDao
+import com.chartlite.app.database.dao.ClinicalPhotoDao
 import com.chartlite.app.database.dao.UserDao
 import com.chartlite.app.database.dao.VisitDao
 import com.chartlite.app.database.entity.AppointmentEntity
+import com.chartlite.app.database.entity.ClinicalPhotoEntity
 import com.chartlite.app.database.entity.AuditLogEntity
 import com.chartlite.app.database.entity.EncounterEntity
 import com.chartlite.app.database.entity.ExtractionQueueEntity
@@ -63,9 +65,10 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         GrowthMeasurementEntity::class
         ,
         ExtractionQueueEntity::class,
-        SmsLogEntity::class
+        SmsLogEntity::class,
+        ClinicalPhotoEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -85,6 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun fpVisitDao(): FPVisitDao
     abstract fun growthDao(): GrowthDao
     abstract fun smsLogDao(): SmsLogDao
+    abstract fun clinicalPhotoDao(): ClinicalPhotoDao
 
     companion object {
         private const val TAG = "AppDatabase"
@@ -120,7 +124,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MigrationHelper.MIGRATION_11_12,
                     MigrationHelper.MIGRATION_12_13,
                     MigrationHelper.MIGRATION_13_14,
-                    MigrationHelper.MIGRATION_14_15
+                    MigrationHelper.MIGRATION_14_15,
+                    MigrationHelper.MIGRATION_15_16
                 )
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .addCallback(object : Callback() {

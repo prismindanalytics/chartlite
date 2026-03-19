@@ -255,7 +255,7 @@ Output ONLY the JSON object. Start with { and end with }.
   "content_type": "rdt_result or lab_report or vital_device or medication_package or referral_letter or other",
   "vitals": [{"name": "temperature", "value": "36.7", "unit": "C"}],
   "investigations": [{"test": "WBC", "result": "5.2", "reference_range": "4.0-11.0"}],
-  "rdt": {"test_type": "THE TEST NAME PRINTED ON DEVICE e.g. hiv or malaria or pregnancy", "result": "positive or negative or invalid", "details": "describe visible lines using ONLY labels printed on the device", "device": "brand name from label"},
+  "rdt": {"test_type": "hiv or malaria or pregnancy or other", "result": "positive or negative or invalid", "details": "visible bands", "device": "brand name"},
   "medications": [{"name": "Amoxicillin", "dose": "500mg", "form": "capsule", "expiry": "2026-01"}],
   "referral": {"from_facility": "facility name", "diagnosis": "...", "reason": "...", "urgency": "routine or urgent or emergency"},
   "raw_text": "any other visible text not captured above"

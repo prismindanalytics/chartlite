@@ -1634,7 +1634,12 @@ fun EncounterRecordScreen(
                                 else -> MaterialTheme.colorScheme.onSurface
                             }
                         )
-                        rdt.details?.let { Text("Details: $it", style = MaterialTheme.typography.bodyMedium) }
+                        rdt.details?.takeIf {
+                            it.isNotBlank() && !it.contains("content_type") &&
+                            it.lowercase() != "visible bands" && it.length > 3
+                        }?.let {
+                            Text("Details: ${it.take(100)}", style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                     // Vitals
                     if (result.vitals.isNotEmpty()) {
@@ -1663,10 +1668,10 @@ fun EncounterRecordScreen(
                     // Referral info
                     result.referral?.let { ref ->
                         if (result.contentType == "rdt_result") {
-                            // For RDT, model may put brand/device info here
-                            ref.fromFacility?.let { Text("Device: $it", style = MaterialTheme.typography.bodyMedium) }
-                            ref.diagnosis?.let { Text("Diagnosis: $it", style = MaterialTheme.typography.bodyMedium) }
-                            ref.urgency?.let { Text("Urgency: $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+                            // For RDT, show device brand if model captured it; skip noise
+                            ref.fromFacility?.takeIf { !it.contains("not specified", ignoreCase = true) }?.let {
+                                Text("Device: $it", style = MaterialTheme.typography.bodyMedium)
+                            }
                         } else {
                             ref.fromFacility?.let { Text("From: $it", style = MaterialTheme.typography.bodyLarge) }
                             ref.diagnosis?.let { Text("Diagnosis: $it", style = MaterialTheme.typography.bodyLarge) }

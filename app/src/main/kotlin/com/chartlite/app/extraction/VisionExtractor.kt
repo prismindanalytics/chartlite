@@ -107,7 +107,10 @@ class VisionExtractor(
             val rdt = obj.getAsJsonObject("rdt")?.let { r ->
                 val testType = r.get("test_type")?.asString ?: return@let null
                 val result = r.get("result")?.asString ?: return@let null
-                RdtResult(testType, result, r.get("details")?.asString)
+                val rawDetails = r.get("details")?.asString
+                // Discard if model dumped schema junk into details
+                val details = rawDetails?.takeIf { it.length < 200 && !it.contains("content_type") }
+                RdtResult(testType, result, details)
             }
 
             val medications = (obj.getAsJsonArray("medications") ?: obj.getAsJsonArray("mediications") ?: obj.getAsJsonArray("medication"))?.mapNotNull { elem ->
@@ -125,7 +128,8 @@ class VisionExtractor(
                 )
             }
 
-            val rawText = obj.get("raw_text")?.asString
+            val rawTextVal = obj.get("raw_text")?.asString
+            val rawText = rawTextVal?.takeIf { it.length < 300 && !it.contains("content_type") }
 
             VisionResult(
                 contentType = contentType,

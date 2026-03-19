@@ -491,13 +491,44 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 var showAdvanced by rememberSaveable { mutableStateOf(false) }
                 var noteProcessingMode by remember { mutableStateOf(config.noteProcessingMode) }
                 var claudeApiKey by remember { mutableStateOf(config.claudeApiKey) }
+                var geminiApiKey by remember { mutableStateOf(config.geminiApiKey) }
+                var openaiApiKey by remember { mutableStateOf(config.openaiApiKey) }
+                var deepgramApiKey by remember { mutableStateOf(config.deepgramApiKey) }
                 var cloudAsrProvider by remember { mutableStateOf(config.cloudAsrProvider) }
                 var cloudNotesModel by remember { mutableStateOf(config.cloudNotesModel) }
+                var aiMode by remember { mutableStateOf(config.aiMode) }
                 val llmModelState by app.llmModelManager.state.collectAsState()
                 val llmRecommended = remember { app.llmModelManager.recommendedTier() }
                 val deviceRamGb = remember { app.llmModelManager.deviceRamGb() }
                 var selectedLlmTier by remember {
                     mutableStateOf(app.llmModelManager.activeTier())
+                }
+
+                fun notesProvider(model: String): String = when {
+                    model.startsWith("claude") -> "claude"
+                    model.startsWith("gemini") -> "gemini"
+                    model.startsWith("gpt") -> "openai"
+                    else -> "claude"
+                }
+
+                fun missingAsrKeyMessage(provider: String): String? {
+                    if (config.cloudKeyMode != "byok") return null
+                    return when (provider) {
+                        "gemini" -> if (geminiApiKey.isBlank()) "Requires Gemini API key in Advanced settings" else null
+                        "openai" -> if (openaiApiKey.isBlank()) "Requires OpenAI API key in Advanced settings" else null
+                        "deepgram" -> if (deepgramApiKey.isBlank()) "Requires Deepgram API key in Advanced settings" else null
+                        else -> null
+                    }
+                }
+
+                fun missingNotesKeyMessage(model: String): String? {
+                    if (config.cloudKeyMode != "byok") return null
+                    return when (notesProvider(model)) {
+                        "claude" -> if (claudeApiKey.isBlank()) "Requires Anthropic API key in Advanced settings" else null
+                        "gemini" -> if (geminiApiKey.isBlank()) "Requires Gemini API key in Advanced settings" else null
+                        "openai" -> if (openaiApiKey.isBlank()) "Requires OpenAI API key in Advanced settings" else null
+                        else -> null
+                    }
                 }
 
                 // Auto-select best ASR tier
@@ -508,8 +539,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 // Helper to apply simple toggle changes to config
                 fun applyVoiceMode(offline: Boolean) {
                     voiceOffline = offline
-                    val newMode = if (offline) "onnx" else
-                        if (config.cloudKeyMode == "chartlite") "cloud" else "google"
+                    val newMode = if (offline) "onnx" else "cloud"
                     asrMode = newMode
                     config.asrMode = newMode
                     app.asr.mode = when (newMode) {
@@ -522,6 +552,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 fun applyNotesMode(offline: Boolean) {
                     notesOffline = offline
                     val newMode = if (offline) "on_device" else "auto"
+                    aiMode = newMode
                     config.aiMode = newMode
                     if (!offline) app.llmModelManager.unloadModel()
                     scope.launch(Dispatchers.IO) { app.loadCountryData() }
@@ -559,13 +590,16 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                if (voiceOffline) stringResource(R.string.setup_voice_offline_desc)
-                                else stringResource(R.string.setup_voice_internet_desc),
+                                when {
+                                    voiceOffline -> stringResource(R.string.setup_voice_offline_desc)
+                                    asrMode == "google" -> stringResource(R.string.setup_google_speech_desc)
+                                    else -> stringResource(R.string.setup_voice_internet_desc)
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
                             // Cloud ASR provider picker — shown when Uses Internet is selected
-                            if (!voiceOffline) {
+                            if (!voiceOffline && asrMode == "cloud") {
                                 Spacer(Modifier.height(8.dp))
                                 Text("Transcription service", style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 8.dp))
@@ -583,8 +617,8 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                         onClick = { cloudAsrProvider = value; config.cloudAsrProvider = value }
                                     )
                                 }
-                                if (config.cloudKeyMode == "byok" && config.geminiApiKey.isBlank() && cloudAsrProvider == "gemini") {
-                                    Text("Requires Gemini API key in Advanced settings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
+                                missingAsrKeyMessage(cloudAsrProvider)?.let { message ->
+                                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
                                 }
                             }
                         }
@@ -652,9 +686,8 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                         }
                                     )
                                 }
-                                if (config.cloudKeyMode == "byok" && config.claudeApiKey.isBlank() &&
-                                    (cloudNotesModel.startsWith("claude"))) {
-                                    Text("Requires Anthropic API key in Advanced settings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
+                                missingNotesKeyMessage(cloudNotesModel)?.let { message ->
+                                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
                                 }
                             }
                         }
@@ -1023,7 +1056,6 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                             // Clinical Notes AI mode
                             Text(stringResource(R.string.settings_note_processing_ai), style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(4.dp))
-                            var aiMode by remember { mutableStateOf(config.aiMode) }
                             listOf(
                                 Triple("cloud", stringResource(R.string.settings_cloud_ai), stringResource(R.string.settings_cloud_ai_desc)),
                                 Triple("on_device", stringResource(R.string.settings_on_device_qwen), stringResource(R.string.settings_on_device_qwen_desc)),
@@ -1100,8 +1132,57 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 }
                                 if (extractionKeyMode == "byok") {
                                     Spacer(Modifier.height(8.dp))
-                                    OutlinedTextField(value = claudeApiKey, onValueChange = { claudeApiKey = it.trim(); config.claudeApiKey = it.trim() },
-                                        label = { Text(stringResource(R.string.settings_claude_api_key)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation())
+                                    OutlinedTextField(
+                                        value = claudeApiKey,
+                                        onValueChange = {
+                                            claudeApiKey = it.trim()
+                                            config.claudeApiKey = it.trim()
+                                        },
+                                        label = { Text("Anthropic API key") },
+                                        placeholder = { Text("sk-ant-...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = geminiApiKey,
+                                        onValueChange = {
+                                            geminiApiKey = it.trim()
+                                            config.geminiApiKey = it.trim()
+                                        },
+                                        label = { Text("Gemini API key") },
+                                        placeholder = { Text("AIza...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = openaiApiKey,
+                                        onValueChange = {
+                                            openaiApiKey = it.trim()
+                                            config.openaiApiKey = it.trim()
+                                        },
+                                        label = { Text("OpenAI API key") },
+                                        placeholder = { Text("sk-proj-...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedTextField(
+                                        value = deepgramApiKey,
+                                        onValueChange = {
+                                            deepgramApiKey = it.trim()
+                                            config.deepgramApiKey = it.trim()
+                                        },
+                                        label = { Text("Deepgram API key") },
+                                        placeholder = { Text("dg_...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
                                 }
                             }
 

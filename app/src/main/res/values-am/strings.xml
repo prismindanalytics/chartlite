@@ -1287,4 +1287,8 @@
     <string name="twilio_invalid_credentials">Invalid credentials</string>
     <!-- TODO: translate -->
     <string name="twilio_saved_native_sms">Saved — will use phone SIM</string>
+    <string name="scan_analyzing">Analyzing...</string>
+    <string name="scan_button_label">Scan Lab / RDT / Vitals</string>
+    <string name="content_desc_scan">Scan clinical document</string>
+    <string name="scan_result_prefix">Scanned: %1$s</string>
 </resources>

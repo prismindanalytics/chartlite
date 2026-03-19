@@ -123,9 +123,12 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
     var isSaving by remember { mutableStateOf(false) }
 
     // AI Setup state (Step 5)
-    var asrMode by rememberSaveable { mutableStateOf("onnx") }
-    var aiMode by rememberSaveable { mutableStateOf("on_device") }
-    var claudeApiKey by remember { mutableStateOf("") }
+    var asrMode by rememberSaveable { mutableStateOf(app.appConfig.asrMode) }
+    var aiMode by rememberSaveable { mutableStateOf(app.appConfig.aiMode) }
+    var claudeApiKey by remember { mutableStateOf(app.appConfig.claudeApiKey) }
+    var geminiApiKey by remember { mutableStateOf(app.appConfig.geminiApiKey) }
+    var openaiApiKey by remember { mutableStateOf(app.appConfig.openaiApiKey) }
+    var deepgramApiKey by remember { mutableStateOf(app.appConfig.deepgramApiKey) }
     var chartliteEnrollmentCode by remember { mutableStateOf(app.appConfig.chartliteEnrollmentCode) }
     var noteProcessingMode by rememberSaveable { mutableStateOf(app.appConfig.noteProcessingMode) }
     var recordingModeDefault by rememberSaveable { mutableStateOf(app.appConfig.recordingModeDefault) }
@@ -815,8 +818,8 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     val llmAbiSupported = remember { app.llmModelManager.isSupportedAbi() }
 
                     // Simple mode choices
-                    var voiceOffline by rememberSaveable { mutableStateOf(true) }
-                    var notesOffline by rememberSaveable { mutableStateOf(llmAbiSupported) }
+                    var voiceOffline by rememberSaveable { mutableStateOf(app.appConfig.asrMode == "onnx") }
+                    var notesOffline by rememberSaveable { mutableStateOf(app.appConfig.aiMode == "on_device" && llmAbiSupported) }
                     var showAdvanced by rememberSaveable { mutableStateOf(false) }
                     var cloudAsrProvider by rememberSaveable { mutableStateOf(app.appConfig.cloudAsrProvider) }
                     var cloudNotesModel by rememberSaveable { mutableStateOf(app.appConfig.cloudNotesModel) }
@@ -848,11 +851,32 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                         llmModelState is LlmModelManager.ModelState.Downloading ||
                         llmModelState is LlmModelManager.ModelState.Verifying
 
-                    // Map simple toggles to config values
-                    asrMode = if (voiceOffline) "onnx" else {
-                        if (app.appConfig.cloudKeyMode == "chartlite") "cloud" else "google"
+                    fun notesProvider(model: String): String = when {
+                        model.startsWith("claude") -> "claude"
+                        model.startsWith("gemini") -> "gemini"
+                        model.startsWith("gpt") -> "openai"
+                        else -> "claude"
                     }
-                    aiMode = if (notesOffline) "on_device" else "auto"
+
+                    fun missingAsrKeyMessage(provider: String): String? {
+                        if (app.appConfig.cloudKeyMode != "byok" || asrMode != "cloud") return null
+                        return when (provider) {
+                            "gemini" -> if (geminiApiKey.isBlank()) "Requires Gemini API key below" else null
+                            "openai" -> if (openaiApiKey.isBlank()) "Requires OpenAI API key below" else null
+                            "deepgram" -> if (deepgramApiKey.isBlank()) "Requires Deepgram API key below" else null
+                            else -> null
+                        }
+                    }
+
+                    fun missingNotesKeyMessage(model: String): String? {
+                        if (app.appConfig.cloudKeyMode != "byok" || notesOffline) return null
+                        return when (notesProvider(model)) {
+                            "claude" -> if (claudeApiKey.isBlank()) "Requires Anthropic API key below" else null
+                            "gemini" -> if (geminiApiKey.isBlank()) "Requires Gemini API key below" else null
+                            "openai" -> if (openaiApiKey.isBlank()) "Requires OpenAI API key below" else null
+                            else -> null
+                        }
+                    }
 
                     // Ensure ASR tier config is set
                     LaunchedEffect(selectedAsrTierObj) {
@@ -880,24 +904,33 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                                 SegmentedButton(
                                     selected = voiceOffline,
-                                    onClick = { voiceOffline = true },
+                                    onClick = {
+                                        voiceOffline = true
+                                        asrMode = "onnx"
+                                    },
                                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                                 ) { Text(stringResource(R.string.setup_works_offline)) }
                                 SegmentedButton(
                                     selected = !voiceOffline,
-                                    onClick = { voiceOffline = false },
+                                    onClick = {
+                                        voiceOffline = false
+                                        asrMode = "cloud"
+                                    },
                                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                                 ) { Text(stringResource(R.string.setup_uses_internet)) }
                             }
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                if (voiceOffline) stringResource(R.string.setup_voice_offline_desc)
-                                else stringResource(R.string.setup_voice_internet_desc),
+                                when {
+                                    voiceOffline -> stringResource(R.string.setup_voice_offline_desc)
+                                    asrMode == "google" -> stringResource(R.string.setup_google_speech_desc)
+                                    else -> stringResource(R.string.setup_voice_internet_desc)
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             // Cloud ASR provider picker — shown when Uses Internet is selected
-                            if (!voiceOffline) {
+                            if (!voiceOffline && asrMode == "cloud") {
                                 Spacer(Modifier.height(8.dp))
                                 val asrProviders = listOf(
                                     Triple("gemini", "Gemini 3.1 Flash Lite", "Recommended · Great with African accents"),
@@ -950,6 +983,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                         )
                                     }
                                 }
+                                missingAsrKeyMessage(cloudAsrProvider)?.let { message ->
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 8.dp))
+                                }
                             }
                         }
                     }
@@ -965,13 +1002,21 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                                 SegmentedButton(
                                     selected = notesOffline,
-                                    onClick = { if (llmAbiSupported) notesOffline = true },
+                                    onClick = {
+                                        if (llmAbiSupported) {
+                                            notesOffline = true
+                                            aiMode = "on_device"
+                                        }
+                                    },
                                     enabled = llmAbiSupported,
                                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                                 ) { Text(stringResource(R.string.setup_works_offline)) }
                                 SegmentedButton(
                                     selected = !notesOffline,
-                                    onClick = { notesOffline = false },
+                                    onClick = {
+                                        notesOffline = false
+                                        aiMode = "auto"
+                                    },
                                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
                                 ) { Text(stringResource(R.string.setup_uses_internet)) }
                             }
@@ -1046,6 +1091,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                             }
                                         )
                                     }
+                                }
+                                missingNotesKeyMessage(cloudNotesModel)?.let { message ->
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(start = 8.dp))
                                 }
                             }
                         }
@@ -1448,15 +1497,66 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                 }
                             }
 
-                            // Cloud API key (BYOK mode only)
-                            if ((aiMode == "cloud" || aiMode == "auto") && app.appConfig.cloudKeyMode == "byok") {
-                                OutlinedTextField(
-                                    value = claudeApiKey, onValueChange = { claudeApiKey = it.trim() },
-                                    label = { Text(stringResource(R.string.setup_claude_api_key)) },
-                                    placeholder = { Text(stringResource(R.string.setup_claude_api_placeholder)) },
-                                    modifier = Modifier.fillMaxWidth(), singleLine = true
-                                )
-                                Text(stringResource(R.string.setup_claude_api_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                            // Cloud API keys (BYOK mode only)
+                            if (app.appConfig.cloudKeyMode == "byok") {
+                                val needsClaudeKey = (aiMode == "cloud" || aiMode == "auto") && cloudNotesModel.startsWith("claude")
+                                val needsGeminiKey = ((aiMode == "cloud" || aiMode == "auto") && cloudNotesModel.startsWith("gemini")) ||
+                                    (asrMode == "cloud" && cloudAsrProvider == "gemini")
+                                val needsOpenAiKey = ((aiMode == "cloud" || aiMode == "auto") && cloudNotesModel.startsWith("gpt")) ||
+                                    (asrMode == "cloud" && cloudAsrProvider == "openai")
+                                val needsDeepgramKey = asrMode == "cloud" && cloudAsrProvider == "deepgram"
+
+                                if (needsClaudeKey) {
+                                    OutlinedTextField(
+                                        value = claudeApiKey,
+                                        onValueChange = { claudeApiKey = it.trim() },
+                                        label = { Text("Anthropic API key") },
+                                        placeholder = { Text("sk-ant-...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Text(stringResource(R.string.setup_claude_api_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                if (needsGeminiKey) {
+                                    OutlinedTextField(
+                                        value = geminiApiKey,
+                                        onValueChange = { geminiApiKey = it.trim() },
+                                        label = { Text("Gemini API key") },
+                                        placeholder = { Text("AIza...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Text("Get a key at ai.google.dev", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                if (needsOpenAiKey) {
+                                    OutlinedTextField(
+                                        value = openaiApiKey,
+                                        onValueChange = { openaiApiKey = it.trim() },
+                                        label = { Text("OpenAI API key") },
+                                        placeholder = { Text("sk-proj-...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Text("Get a key at platform.openai.com", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                if (needsDeepgramKey) {
+                                    OutlinedTextField(
+                                        value = deepgramApiKey,
+                                        onValueChange = { deepgramApiKey = it.trim() },
+                                        label = { Text("Deepgram API key") },
+                                        placeholder = { Text("dg_...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    Text("Get a key at console.deepgram.com", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                }
                             }
 
                             // ── LLM tier picker ──
@@ -1680,9 +1780,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                 app.rebuildExtractionPipeline()
                                 app.appConfig.noteProcessingMode = noteProcessingMode
                                 app.appConfig.recordingModeDefault = recordingModeDefault
-                                if (claudeApiKey.isNotBlank()) {
-                                    app.appConfig.claudeApiKey = claudeApiKey
-                                }
+                                app.appConfig.claudeApiKey = claudeApiKey.trim()
+                                app.appConfig.geminiApiKey = geminiApiKey.trim()
+                                app.appConfig.openaiApiKey = openaiApiKey.trim()
+                                app.appConfig.deepgramApiKey = deepgramApiKey.trim()
                                 app.appConfig.chartliteEnrollmentCode = chartliteEnrollmentCode
 
                                 app.appConfig.countryCode = country

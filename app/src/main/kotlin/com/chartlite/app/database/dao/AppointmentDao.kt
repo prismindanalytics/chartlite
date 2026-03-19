@@ -36,9 +36,8 @@ interface AppointmentDao {
         SELECT * FROM appointments
         WHERE facilityId = :facilityId AND scheduledDate >= :fromDate AND status = 'SCHEDULED'
         ORDER BY scheduledDate ASC, scheduledTime ASC
-        LIMIT :limit
     """)
-    suspend fun getUpcoming(facilityId: String, fromDate: Long, limit: Int = 50): List<AppointmentEntity>
+    suspend fun getUpcoming(facilityId: String, fromDate: Long): List<AppointmentEntity>
 
     @Query("""
         SELECT COUNT(*) FROM appointments

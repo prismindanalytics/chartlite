@@ -138,7 +138,12 @@ class AppointmentRepositoryTest {
         override suspend fun getById(id: String) = appts[id]
         override suspend fun getByDate(facilityId: String, date: Long) = appts.values.filter { it.facilityId == facilityId && it.scheduledDate == date }
         override suspend fun getByPatient(patientId: String) = appts.values.filter { it.patientId == patientId }
-        override suspend fun getUpcoming(facilityId: String, fromDate: Long, limit: Int) = appts.values.filter { it.facilityId == facilityId && it.scheduledDate >= fromDate && it.status == AppointmentStatus.SCHEDULED.name }.take(limit)
+        override suspend fun getUpcoming(facilityId: String, fromDate: Long) =
+            appts.values.filter {
+                it.facilityId == facilityId &&
+                    it.scheduledDate >= fromDate &&
+                    it.status == AppointmentStatus.SCHEDULED.name
+            }
         override suspend fun getCountForDate(facilityId: String, date: Long) = getByDate(facilityId, date).size
         override suspend fun getNextForDate(facilityId: String, date: Long) = getByDate(facilityId, date).firstOrNull()
         override fun observeByDate(facilityId: String, date: Long): Flow<List<AppointmentEntity>> = flowOf(emptyList())

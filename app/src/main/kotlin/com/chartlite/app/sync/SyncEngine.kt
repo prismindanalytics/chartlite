@@ -267,6 +267,7 @@ class SyncEngine(
                     endpointId,
                     Payload.fromBytes(bytes)
                 ).addOnSuccessListener {
+                    lastPushTimestamps[endpointId] = payload.timestamp
                     _syncResult.value = SyncResult(
                         patientsReceived = 0,
                         encountersReceived = 0,
@@ -777,7 +778,7 @@ class SyncEngine(
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             if (result.status.isSuccess) {
                 _connectedEndpoints.update { it + endpointId }
-                lastPushTimestamps[endpointId] = appConfig.lastSyncTimestamp
+                lastPushTimestamps[endpointId] = 0L
                 _state.value = SyncState.SYNCING
                 Log.d(TAG, "Connected to $endpointId (${_connectedEndpoints.value.size} peers), sendOnConnect=$sendOnConnect")
 
@@ -806,7 +807,7 @@ class SyncEngine(
                                 // payload; we handle it in handleCrossFacilityPayload().
                                 Log.d(TAG, "Suppressing same-facility send: peer $endpointId is cross-facility")
                             } else {
-                                scope.launch { sendSyncData() }
+                                scope.launch { sendSyncData(fullSync = true, targetEndpointId = endpointId) }
                             }
                         }
                         SendOnConnect.NONE -> {

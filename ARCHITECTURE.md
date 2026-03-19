@@ -65,11 +65,10 @@ Dual-mode automatic speech recognition.
 
 Strategy-pattern pipeline that extracts structured clinical data from transcripts, enhanced with on-device RAG retrieval and token-efficient I/O.
 
-**Fallback chain** (each strategy gets up to 90 seconds):
-1. **Gemini Nano** - On-device via AI Edge SDK (currently placeholder)
-2. **Qwen 3.5 + RAG** - On-device via llama.cpp with TF-IDF vector retrieval for context-aware prompts
-3. **Claude API** - Cloud-based, highest accuracy, requires API key
-4. **Regex** - Keyword/fuzzy matching, always available as final fallback
+**Runtime extraction chain** (each strategy gets up to 90 seconds):
+1. **Selected primary model** - Either Qwen 3.5 on-device, or a selected Claude, OpenAI, or Gemini cloud model
+2. **Qwen 3.5 + RAG** - Added as a fallback only when AI mode is `auto`
+3. **Regex** - Keyword/fuzzy matching, always available as the final fallback
 
 **On-device RAG pipeline**: A TF-IDF vector store (`ClinicalVectorStore`) indexes all 815 ICD-10 codes and formulary drugs at app startup (~20-50ms). Per transcript, cosine similarity retrieves the 10-15 most relevant entries, reducing reference tokens from ~6,000 to ~400-800 and freeing 80% of the 8K context window for longer transcripts and better generation.
 

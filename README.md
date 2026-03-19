@@ -12,7 +12,7 @@ Built for sub-Saharan Africa first, expanding globally.
 - **On-Device LLM Extraction** - Qwen 3.5 runs entirely on-device via llama.cpp (built from source) with flash attention, Q8 KV cache, and on-device RAG retrieval; no internet required
 - **Smart Context Retrieval** - TF-IDF vector store indexes 300 ICD-10 codes and 515 formulary drugs, retrieves only relevant entries per transcript (80% context reduction)
 - **Battery-Aware Batched Inference** - Extraction queue processes multiple patient transcripts in a single model load; urgent cases (referrals/emergencies) bypass the queue for immediate processing
-- **6-Strategy Extraction Fallback** - Gemini Nano &rarr; Qwen on-device &rarr; Claude API &rarr; OpenAI &rarr; Gemini Cloud &rarr; Regex, with automatic fallback chain
+- **Selectable Clinical Extraction** - Qwen 3.5 on-device or a selected Claude, OpenAI, or Gemini cloud model, with Regex fallback when model extraction is unavailable
 - **Offline-First Architecture** - SQLCipher-encrypted local database, works without any network connection
 - **SMS as Portable Health Record** - V4 binary encoding (92 bytes, 1 SMS) carries the current visit plus accumulated health history: chronic conditions, abnormal vitals, allergies, growth metrics, immunization records, and clinical status flags (HIV, TB, pregnancy, malaria, etc.). AES-256-GCM encrypted with optional PIN for shared-phone privacy
 - **Insurance Claims** - ICD-10 to CPT/HCPCS mapping, E/M level scoring (2021 MDM guidelines), SOAP note generation, PDF export
@@ -30,7 +30,7 @@ ChartLite is organized into 8 modules:
 | Module | Directory | Purpose |
 |--------|-----------|---------|
 | ASR | `asr/` | Meta Omnilingual ASR (1600+ langs, ONNX CTC) + cloud fallback (Gemini, OpenAI, Deepgram) |
-| Clinical Extraction | `extraction/` | 6-strategy fallback: Gemini Nano &rarr; Qwen (on-device RAG) &rarr; Claude &rarr; OpenAI &rarr; Gemini &rarr; Regex |
+| Clinical Extraction | `extraction/` | Qwen (on-device RAG) or a selected Claude/OpenAI/Gemini cloud model, plus Regex fallback |
 | Local Database | `database/` | Room + SQLCipher encrypted schema (17 entities, v15), FHIR R4 export on-demand |
 | SMS Health Record | `sms/` | V4 binary encode (92 bytes) with health history, growth, immunization + AES-256-GCM |
 | Clinical Decision Support | `cdss/` | Drug-allergy, drug-drug, dosage, vital alerts |

@@ -69,38 +69,68 @@ class OpenAIExtractionStrategy(
     private suspend fun callApi(systemPrompt: String, userPrompt: String, purpose: String): String? {
         Log.d(TAG, "Calling OpenAI $model for $purpose")
 
-        // Send Claude-compatible format — worker transforms to OpenAI chat completions format
-        val requestBody = gson.toJson(mapOf(
-            "model" to model,
-            "max_tokens" to 2048,
-            "system" to systemPrompt,
-            "messages" to listOf(mapOf("role" to "user", "content" to userPrompt))
-        ))
-
-        val requestBuilder = when (authConfig) {
-            is AuthConfig.Direct -> {
-                if (authConfig.apiKeyProvider().isBlank()) return null
-                Request.Builder()
-                    .url("$PROXY_BASE_URL/v1/extract")
-                    .addHeader("X-ChartLite-AI-Provider", "openai")
-                    .addHeader("X-OpenAI-Api-Key", authConfig.apiKeyProvider())
-            }
+        return when (authConfig) {
+            is AuthConfig.Direct -> callDirectApi(systemPrompt, userPrompt, purpose, authConfig.apiKeyProvider())
             is AuthConfig.Proxied -> {
-                val authHeaders = try { authConfig.authHeaderProvider() }
-                catch (e: Exception) { Log.w(TAG, "OpenAI proxy auth unavailable: ${e.message}"); return null }
-                val builder = Request.Builder()
+                val requestBody = gson.toJson(
+                    mapOf(
+                        "model" to model,
+                        "max_tokens" to 2048,
+                        "system" to systemPrompt,
+                        "messages" to listOf(mapOf("role" to "user", "content" to userPrompt))
+                    )
+                )
+                val authHeaders = try {
+                    authConfig.authHeaderProvider()
+                } catch (e: Exception) {
+                    Log.w(TAG, "OpenAI proxy auth unavailable: ${e.message}")
+                    return null
+                }
+                val request = Request.Builder()
                     .url("$PROXY_BASE_URL/v1/extract")
                     .addHeader("X-ChartLite-AI-Provider", "openai")
-                authHeaders.forEach { (k, v) -> builder.addHeader(k, v) }
-                builder
+                    .addHeader("content-type", "application/json")
+                    .apply { authHeaders.forEach { (k, v) -> addHeader(k, v) } }
+                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+                executeRequest(request, purpose, ::parseProxyResponse)
             }
         }
+    }
 
-        val request = requestBuilder
+    private suspend fun callDirectApi(
+        systemPrompt: String,
+        userPrompt: String,
+        purpose: String,
+        apiKey: String
+    ): String? {
+        if (apiKey.isBlank()) return null
+
+        val requestBody = gson.toJson(
+            mapOf(
+                "model" to model,
+                "messages" to listOf(
+                    mapOf("role" to "system", "content" to systemPrompt),
+                    mapOf("role" to "user", "content" to userPrompt)
+                ),
+                "max_tokens" to 2048
+            )
+        )
+        val request = Request.Builder()
+            .url(DIRECT_API_URL)
+            .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("content-type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
 
+        return executeRequest(request, purpose, ::parseDirectResponse)
+    }
+
+    private suspend fun executeRequest(
+        request: Request,
+        purpose: String,
+        parser: (String) -> String?
+    ): String? {
         val call = SharedHttpClient.instance.newCall(request)
         val response = suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
@@ -109,18 +139,55 @@ class OpenAIExtractionStrategy(
         }
 
         return response.use { resp ->
-            if (!resp.isSuccessful) { Log.e(TAG, "OpenAI $model $purpose error ${resp.code}"); return@use null }
+            if (!resp.isSuccessful) {
+                val errBody = resp.body?.string()?.take(500).orEmpty()
+                Log.e(TAG, "OpenAI $model $purpose error ${resp.code}: $errBody")
+                return@use null
+            }
             val body = resp.body?.string() ?: return@use null
             try {
-                val json = gson.fromJson(body, JsonObject::class.java)
-                json.get("text")?.asString
-            } catch (e: Exception) { Log.e(TAG, "Failed to parse OpenAI response", e); null }
+                parser(body)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse OpenAI response", e)
+                null
+            }
+        }
+    }
+
+    private fun parseProxyResponse(body: String): String? {
+        val json = gson.fromJson(body, JsonObject::class.java)
+        return json.get("text")?.asString
+    }
+
+    private fun parseDirectResponse(body: String): String? {
+        val json = gson.fromJson(body, JsonObject::class.java)
+        val message = json.getAsJsonArray("choices")
+            ?.firstOrNull()
+            ?.asJsonObject
+            ?.getAsJsonObject("message")
+            ?: return null
+        val content = message.get("content") ?: return null
+        return when {
+            content.isJsonPrimitive -> content.asString
+            content.isJsonArray -> {
+                buildString {
+                    content.asJsonArray.forEach { item ->
+                        val chunk = item.asJsonObject.get("text")?.asString?.trim().orEmpty()
+                        if (chunk.isNotBlank()) {
+                            if (isNotEmpty()) append('\n')
+                            append(chunk)
+                        }
+                    }
+                }.takeIf { it.isNotBlank() }
+            }
+            else -> null
         }
     }
 
     companion object {
         private const val TAG = "OpenAIExtraction"
         private const val PROXY_BASE_URL = "https://api.chartlite.health"
+        private const val DIRECT_API_URL = "https://api.openai.com/v1/chat/completions"
         const val GPT_5_4 = "gpt-5.4"
         const val GPT_4_1 = "gpt-4.1"
     }

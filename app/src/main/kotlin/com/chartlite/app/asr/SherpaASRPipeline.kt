@@ -387,9 +387,11 @@ class SherpaASRPipeline {
      * Single-threaded inference consumer. Processes segments from [inferenceChannel]
      * in order, ensuring transcript segments commit in capture order (not finish order).
      */
-    private fun launchInferenceConsumer() {
+    private fun launchInferenceConsumer(readySignal: kotlinx.coroutines.CompletableDeferred<Unit>? = null) {
         inferenceConsumerJob?.cancel()
         inferenceConsumerJob = inferenceScope.launch {
+            // Signal that the consumer loop is executing — audio chunks can now be processed.
+            readySignal?.complete(Unit)
             for (samples in inferenceChannel) {
                 if (recognizerDestroyed.get()) {
                     inFlightInference.decrementAndGet()
@@ -515,11 +517,27 @@ class SherpaASRPipeline {
         // Drain any stale segments from a previous session
         while (inferenceChannel.tryReceive().isSuccess) { /* discard */ }
 
-        // Launch serial inference consumer
-        launchInferenceConsumer()
+        // Launch serial inference consumer and wait for it to actually start executing.
+        // On low-RAM devices, the Dispatchers.Default thread pool can be slow to schedule
+        // the consumer coroutine; audio chunks arriving before the consumer loop starts
+        // would be discarded, causing the first 3-4 seconds of speech to be lost.
+        val consumerReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+        launchInferenceConsumer(consumerReady)
 
         recognizerDestroyed.set(false)
         isRunning = true
+
+        // Block briefly to ensure consumer is actually executing before audio recording starts.
+        // CompletableDeferred.complete() is called as the first action inside the consumer loop.
+        try {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeout(2000) {
+                    consumerReady.await()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Inference consumer startup wait timed out: ${e.message}")
+        }
     }
 
     fun stop(): String {

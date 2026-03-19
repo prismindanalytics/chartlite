@@ -55,6 +55,8 @@ class VisionExtractor(
         }
 
         Log.d(TAG, "Vision response: ${raw.length} chars")
+        // Log first 500 chars for debugging model output format
+        Log.d(TAG, "Vision raw (first 500): ${raw.take(500)}")
         return parseVisionJson(raw)
     }
 
@@ -66,8 +68,8 @@ class VisionExtractor(
         val jsonStart = cleaned.indexOf('{')
         val jsonEnd = cleaned.lastIndexOf('}')
         if (jsonStart < 0 || jsonEnd <= jsonStart) {
-            Log.w(TAG, "No JSON found in vision response")
-            return null
+            Log.w(TAG, "No JSON found in vision response, using text fallback")
+            return textFallback(cleaned)
         }
         val jsonStr = cleaned.substring(jsonStart, jsonEnd + 1)
 
@@ -132,6 +134,48 @@ class VisionExtractor(
             Log.w(TAG, "Vision parse error: ${e.message}")
             null
         }
+    }
+
+    /** Fallback: wrap raw text description as a VisionResult so the UI can still show it. */
+    private fun textFallback(text: String): VisionResult {
+        // Try to detect content type from keywords
+        val lower = text.lowercase()
+        val contentType = when {
+            lower.contains("rdt") || lower.contains("rapid test") || lower.contains("cassette") ||
+                lower.contains("test line") || lower.contains("control line") -> "rdt_result"
+            lower.contains("blood pressure") || lower.contains("temperature") ||
+                lower.contains("pulse ox") || lower.contains("glucometer") -> "vital_device"
+            lower.contains("lab") || lower.contains("cbc") || lower.contains("hemoglobin") ||
+                lower.contains("wbc") || lower.contains("rbc") -> "lab_report"
+            lower.contains("tablet") || lower.contains("capsule") || lower.contains("mg") ||
+                lower.contains("medication") || lower.contains("drug") -> "medication_package"
+            lower.contains("referral") || lower.contains("refer to") -> "referral_letter"
+            else -> "other"
+        }
+
+        // Try to extract RDT result from text
+        val rdt = if (contentType == "rdt_result") {
+            val testType = when {
+                lower.contains("malaria") || lower.contains("pf") || lower.contains("plasmodium") -> "malaria"
+                lower.contains("hiv") -> "hiv"
+                lower.contains("pregnan") || lower.contains("hcg") -> "pregnancy"
+                else -> "other"
+            }
+            val result = when {
+                lower.contains("positive") || lower.contains("reactive") -> "positive"
+                lower.contains("negative") || lower.contains("non-reactive") || lower.contains("nonreactive") -> "negative"
+                lower.contains("invalid") -> "invalid"
+                else -> "unknown"
+            }
+            RdtResult(testType, result, text.take(200))
+        } else null
+
+        return VisionResult(
+            contentType = contentType,
+            rdt = rdt,
+            rawText = text,
+            rawJson = null
+        )
     }
 
     companion object {

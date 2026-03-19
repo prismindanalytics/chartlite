@@ -157,14 +157,12 @@ class ExtractionPromptBuilder(
 
     /** User prompt for vision extraction — the image is passed separately via JNI. */
     fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Look at this clinical image and extract all visible data as JSON.")
+        appendLine("Extract clinical data from this image as a JSON object matching this schema:")
         if (additionalContext.isNotBlank()) {
             appendLine(additionalContext)
         }
         appendLine()
         appendLine(VISION_JSON_SCHEMA)
-        appendLine()
-        append("JSON:")
     }
 
     companion object {
@@ -240,19 +238,16 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You are a clinical data extractor for medical images.
-Identify what the image shows and extract all visible clinical data as JSON.
+You are a clinical image data extractor. You MUST respond with ONLY a JSON object. No text before or after the JSON.
 
-Content types: lab_report, rdt_result, vital_device, medication_package, referral_letter, other
+Extract visible clinical data from the image. Set content_type to one of: lab_report, rdt_result, vital_device, medication_package, referral_letter, other
 
-Rules:
-- Extract ONLY what is visible. Do NOT infer or guess values.
-- For RDT cassettes (malaria, HIV, pregnancy): report test type, result (positive/negative/invalid), and visible band pattern.
-- For vital devices (BP monitor, pulse oximeter, thermometer, glucometer): read exact numbers from the display.
-- For lab reports: extract test name, value, unit, and reference range if visible.
-- For medications: drug name, strength, form, manufacturer, expiry date.
-- For referral letters: referring facility, diagnosis, reason, urgency.
-- Output valid JSON only. No explanation text.
+For RDT cassettes: report test_type (malaria/hiv/pregnancy/other), result (positive/negative/invalid), band details.
+For vital devices: read exact numbers from display.
+For lab reports: test name, value, unit, reference range.
+For medications: drug name, strength, form, expiry.
+
+IMPORTANT: Output ONLY the JSON object. Start your response with { and end with }. No other text.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """

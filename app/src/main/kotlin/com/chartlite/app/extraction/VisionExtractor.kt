@@ -86,10 +86,24 @@ class VisionExtractor(
                     }?.let { this.get(it) }
                 }
 
-            val rawContentType = obj.fuzzy("content_type", "category", "categories", "type")?.asString
-            // Infer content type if not explicitly provided (simple JSON format)
-            val contentType = (rawContentType ?: if (obj.has("test") || obj.has("result")) "rdt_result" else "other")
-                .replace(Regex("s+$"), "") // strip trailing 's' from typos
+            val rawContentType = obj.fuzzy("content_type", "category", "categories", "type")?.asString ?: ""
+            val rawText = obj.get("text")?.asString ?: ""
+            val rawData = obj.get("data")?.asString ?: ""
+            val combined = "$rawContentType $rawText $rawData".lowercase()
+
+            // Infer content type from type/text/data fields
+            val contentType = when {
+                rawContentType.contains("rdt") || rawContentType.contains("lab_report") ||
+                    rawContentType.contains("vital") || rawContentType.contains("medication") ||
+                    rawContentType.contains("referral") -> rawContentType.replace(Regex("s+$"), "")
+                combined.contains("cassette") || combined.contains("rapid test") || combined.contains("rdt") -> "rdt_result"
+                combined.contains("lab") || combined.contains("cbc") || combined.contains("hemoglobin") -> "lab_report"
+                combined.contains("thermometer") || combined.contains("blood pressure") ||
+                    combined.contains("pulse ox") || combined.contains("glucometer") -> "vital_device"
+                combined.contains("tablet") || combined.contains("capsule") || combined.contains("medication") -> "medication_package"
+                combined.contains("referral") || combined.contains("refer to") -> "referral_letter"
+                else -> "other"
+            }
 
             val vitals = (obj.getAsJsonArray("vitals") ?: obj.getAsJsonArray("vital"))?.mapNotNull { elem ->
                 val o = elem.asJsonObject
@@ -114,12 +128,16 @@ class VisionExtractor(
                 val details = rawDetails?.takeIf { it.length < 200 && !it.contains("content_type") }
                 RdtResult(testType, result, details)
             } ?: run {
-                // Simple format: top-level "test" and "result" keys (no nested "rdt" object)
+                // Simple format: top-level "test"+"result" keys, or generic "data" field
                 val testName = obj.get("test")?.asString
                 val testResult = obj.get("result")?.asString
                 val lines = obj.get("lines")?.asString
                 if (testName != null && testResult != null) {
                     RdtResult(testName, testResult, lines)
+                } else if (contentType == "rdt_result") {
+                    // Parse RDT from generic data/text fields via textFallback logic
+                    val fallback = textFallback("$rawText $rawData")
+                    fallback.rdt
                 } else null
             }
 
@@ -138,8 +156,11 @@ class VisionExtractor(
                 )
             }
 
+            // Use raw_text if present, otherwise fall back to generic text/data fields
             val rawTextVal = obj.get("raw_text")?.asString
-            val rawText = rawTextVal?.takeIf { it.length < 300 && !it.contains("content_type") }
+                ?: rawData.takeIf { it.isNotBlank() }
+                ?: rawText.takeIf { it.isNotBlank() }
+            val parsedRawText = rawTextVal?.takeIf { it.length < 300 && !it.contains("content_type") }
 
             VisionResult(
                 contentType = contentType,
@@ -148,7 +169,7 @@ class VisionExtractor(
                 rdt = rdt,
                 medications = medications,
                 referral = referral,
-                rawText = rawText,
+                rawText = parsedRawText,
                 rawJson = jsonStr
             )
         } catch (e: JsonSyntaxException) {

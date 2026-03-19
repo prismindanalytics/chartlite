@@ -243,6 +243,6 @@ Read the image. Respond with ONLY a short JSON object. No other text.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-Respond with JSON only: {"text":"all text on device","test":"test name","result":"positive or negative","lines":"which lines visible"}""".trimIndent()
+Respond with JSON only: {"type":"what is this item","text":"all visible text","data":"clinical readings or results"}""".trimIndent()
     }
 }

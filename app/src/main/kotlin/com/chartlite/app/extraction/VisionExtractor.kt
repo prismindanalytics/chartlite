@@ -31,6 +31,12 @@ class VisionExtractor(
     )
 
     suspend fun extract(imagePath: String, additionalContext: String = ""): VisionResult? {
+        // Check memory headroom before loading vision model + bitmap
+        if (!modelManager.hasRuntimeHeadroom()) {
+            Log.w(TAG, "Insufficient RAM for vision extraction, skipping")
+            return null
+        }
+
         val isLargeModel = modelManager.activeTier() == LlmModelManager.ModelTier.LARGE
         val system = promptBuilder.visionSystemPrompt(isLargeModel)
         val user = promptBuilder.visionUserPrompt(isLargeModel = isLargeModel, additionalContext = additionalContext)
@@ -62,8 +68,12 @@ class VisionExtractor(
     }
 
     private fun parseVisionJson(raw: String): VisionResult? {
-        // Strip thinking blocks if present
-        val cleaned = raw.replace(Regex("<think>[\\s\\S]*?</think>"), "").trim()
+        // Strip thinking blocks — handle both closed and unclosed (token cutoff)
+        var cleaned = raw.replace(Regex("<think>[\\s\\S]*?</think>"), "")
+        // Handle unclosed <think> block (model ran out of tokens mid-thinking)
+        val unclosedIdx = cleaned.indexOf("<think>")
+        if (unclosedIdx >= 0) cleaned = cleaned.substring(0, unclosedIdx)
+        cleaned = cleaned.trim()
 
         // Find JSON object
         val jsonStart = cleaned.indexOf('{')
@@ -177,8 +187,8 @@ class VisionExtractor(
             Log.w(TAG, "Failed to parse vision JSON: ${e.message}")
             null
         } catch (e: Exception) {
-            Log.w(TAG, "Vision parse error: ${e.message}")
-            null
+            Log.w(TAG, "Vision JSON parse error, falling back to text: ${e.message}")
+            textFallback(raw)
         }
     }
 

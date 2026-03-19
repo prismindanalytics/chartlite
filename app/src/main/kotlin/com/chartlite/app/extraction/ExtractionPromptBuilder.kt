@@ -239,10 +239,10 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-Read the image. Respond with ONLY a short JSON object. No other text.
+Describe what you see briefly.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-Respond with JSON only: {"type":"what is this item","text":"all visible text","data":"clinical readings or results"}""".trimIndent()
+What is this? What text do you see? Describe any lines, numbers, or colors.""".trimIndent()
     }
 }

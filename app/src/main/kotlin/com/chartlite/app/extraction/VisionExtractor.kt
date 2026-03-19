@@ -175,15 +175,15 @@ class VisionExtractor(
                 lower.contains("pregnan") || lower.contains("hcg") -> "pregnancy"
                 else -> "other"
             }
+            // Use regex to match "result is X" or "X result" patterns, avoiding echoed question text
             val result = when {
-                lower.contains("invalid") || (lower.contains("no c") || lower.contains("no control")) -> "invalid"
-                lower.contains("negative") || lower.contains("non-reactive") || lower.contains("nonreactive") ||
+                lower.contains("no c line") || lower.contains("no control line") -> "invalid"
+                Regex("result[:\\s]+negative|is negative|negative result|non-reactive|nonreactive").containsMatchIn(lower) ||
                     lower.contains("only c line") || lower.contains("only the c") || lower.contains("c line only") ||
-                    lower.contains("one line") || lower.contains("1 line") -> "negative"
-                lower.contains("positive") || lower.contains("reactive") ||
+                    lower.contains("one line visible") || lower.contains("only one line") -> "negative"
+                Regex("result[:\\s]+positive|is positive|positive result|\\breactive\\b").containsMatchIn(lower) ||
                     lower.contains("c and t") || lower.contains("both lines") ||
-                    lower.contains("two lines") || lower.contains("2 lines") ||
-                    lower.contains("t line visible") || lower.contains("t line is visible") -> "positive"
+                    lower.contains("two lines visible") || lower.contains("t line visible") -> "positive"
                 else -> "unknown"
             }
             // Extract device/brand if mentioned

@@ -157,7 +157,7 @@ class ExtractionPromptBuilder(
 
     /** User prompt for vision extraction — the image is passed separately via JNI. */
     fun visionUserPrompt(additionalContext: String = ""): String = buildString {
-        appendLine("Look at this clinical image carefully and answer these questions:")
+        appendLine("Look at this image:")
         if (additionalContext.isNotBlank()) {
             appendLine()
             appendLine(additionalContext)
@@ -239,15 +239,13 @@ Rules:
         """.trimIndent()
 
         private val VISION_SYSTEM_PROMPT = """
-You read clinical photos. Answer the questions briefly and accurately.
-For RDT test cassettes: determine positive/negative from the BANDS on the cassette, not from text on surrounding papers.
+Read the image. Be brief. One short sentence per line.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-1. What type of clinical item is this? (test cassette, lab report, vital sign device, medication, referral letter, or other)
-2. What text is printed on the device or document?
-3. If this is a test cassette: what test is it? Is the result positive, negative, or invalid? Which lines are visible?
-4. If this shows vital signs: what are the readings?
-5. If this is a medication: what is the drug name, dose, and expiry?""".trimIndent()
+What text is on the device?
+What test is this?
+Is the result positive or negative? Look at the bands only, ignore papers around it.
+Which lines are visible on the cassette?""".trimIndent()
     }
 }

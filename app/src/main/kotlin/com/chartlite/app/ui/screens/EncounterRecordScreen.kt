@@ -1691,8 +1691,8 @@ fun EncounterRecordScreen(
                             Text(it.take(300), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    // Raw text supplement — show additional context if available alongside structured data
-                    if (result.rawText != null && (result.rdt != null || result.vitals.isNotEmpty() || result.investigations.isNotEmpty())) {
+                    // Raw text supplement — only show if no structured data was extracted
+                    if (result.rawText != null && result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             "Additional: ${result.rawText.take(150)}",

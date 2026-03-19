@@ -416,7 +416,25 @@ class App : Application() {
 
     private fun scheduleDeferredExtractionWarmup() {
         appScope.launch(Dispatchers.Default) {
-            delay(DEFERRED_EXTRACTION_WARMUP_MS)
+            // Wait longer on low-RAM devices to avoid competing with ASR model loading.
+            // The extraction pipeline loads the MNN native library (~50MB) + vector store;
+            // if ASR is also loading its ONNX model, both OOM on 3GB devices.
+            val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val memInfo = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(memInfo)
+            val isLowRam = am.isLowRamDevice || (memInfo.totalMem / (1024 * 1024)) <= 4096
+            val delayMs = if (isLowRam) 8_000L else DEFERRED_EXTRACTION_WARMUP_MS
+
+            delay(delayMs)
+
+            // If ASR is actively loading or listening, wait until it's idle —
+            // concurrent model loads cause OOM on constrained devices.
+            if (isLowRam) {
+                while (asr.isPreparing.value || asr.isListening.value) {
+                    delay(2_000L)
+                }
+            }
+
             // Use forceReload so the pipeline is built with current config
             // (country, AI mode, API keys) even if stale services exist.
             runCatching { getOrCreateExtractionServices(forceReload = true) }

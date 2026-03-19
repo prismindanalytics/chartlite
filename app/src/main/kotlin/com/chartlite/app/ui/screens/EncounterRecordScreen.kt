@@ -85,6 +85,8 @@ fun EncounterRecordScreen(
     var showCamera by remember { mutableStateOf(false) }
     var isScanProcessing by remember { mutableStateOf(false) }
     var lastScanType by remember { mutableStateOf<String?>(null) }
+    var lastScanResult by remember { mutableStateOf<VisionExtractor.VisionResult?>(null) }
+    var showScanResult by remember { mutableStateOf(false) }
     val visionExtractor = remember {
         VisionExtractor(app.llmModelManager, app.promptBuilder)
     }
@@ -1596,6 +1598,79 @@ fun EncounterRecordScreen(
         }
     }
 
+    // ── Scan result dialog ──
+    if (showScanResult && lastScanResult != null) {
+        val result = lastScanResult!!
+        AlertDialog(
+            onDismissRequest = { showScanResult = false },
+            confirmButton = {
+                TextButton(onClick = { showScanResult = false }) {
+                    Text("OK")
+                }
+            },
+            title = {
+                Text(
+                    when (result.contentType) {
+                        "rdt_result" -> "RDT Result"
+                        "lab_report" -> "Lab Report"
+                        "vital_device" -> "Vital Signs"
+                        "medication_package" -> "Medication"
+                        "referral_letter" -> "Referral"
+                        else -> "Scan Result"
+                    }
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // RDT result
+                    result.rdt?.let { rdt ->
+                        Text("Test: ${rdt.testType}", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Result: ${rdt.result.uppercase()}",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = when (rdt.result.lowercase()) {
+                                "positive" -> MaterialTheme.colorScheme.error
+                                "negative" -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                        rdt.details?.let { Text("Details: $it", style = MaterialTheme.typography.bodyMedium) }
+                    }
+                    // Vitals
+                    if (result.vitals.isNotEmpty()) {
+                        result.vitals.forEach { v ->
+                            Text("${v.name}: ${v.value} ${v.unit}", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                    // Lab results
+                    if (result.investigations.isNotEmpty()) {
+                        result.investigations.forEach { lab ->
+                            Text(
+                                "${lab.test}: ${lab.result}${lab.referenceRange?.let { " (ref: $it)" } ?: ""}",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    // Medications
+                    if (result.medications.isNotEmpty()) {
+                        result.medications.forEach { med ->
+                            Text(
+                                "${med.name}${med.dose?.let { " $it" } ?: ""}${med.form?.let { " ($it)" } ?: ""}",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    // Raw text fallback
+                    if (result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty() && result.medications.isEmpty()) {
+                        result.rawText?.let {
+                            Text(it.take(300), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
     // ── Camera scan overlay ──
     if (showCamera) {
         ClinicalCameraCapture(
@@ -1610,6 +1685,7 @@ fun EncounterRecordScreen(
                     isScanProcessing = false
                     if (result != null) {
                         lastScanType = result.contentType
+                        lastScanResult = result
                         // Save photo record to database
                         val photoEntity = ClinicalPhotoEntity(
                             id = java.util.UUID.randomUUID().toString(),
@@ -1624,11 +1700,8 @@ fun EncounterRecordScreen(
                         extractedEncounter?.let { existing ->
                             extractedEncounter = EncounterMerger.mergeVisionResult(existing, result)
                         }
-                        Toast.makeText(
-                            context,
-                            "Scanned: ${result.contentType.replace('_', ' ')}",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        // Show result to clinician
+                        showScanResult = true
                     } else {
                         Toast.makeText(context, "Could not extract data from image", Toast.LENGTH_SHORT).show()
                         // Delete photo if extraction failed

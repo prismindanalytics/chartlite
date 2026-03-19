@@ -243,9 +243,8 @@ Read the image. Be brief. One short sentence per line.
         """.trimIndent()
 
         private val VISION_JSON_SCHEMA = """
-What text is on the device?
-What test is this?
-Is the result positive or negative? Look at the bands only, ignore papers around it.
-Which lines are visible on the cassette?""".trimIndent()
+What text is on the device or document?
+What clinical data can you read from it?
+If it is a test cassette, look at the bands only to decide positive or negative. Ignore surrounding papers.""".trimIndent()
     }
 }

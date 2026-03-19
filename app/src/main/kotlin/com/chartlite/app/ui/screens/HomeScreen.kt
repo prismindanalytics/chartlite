@@ -838,7 +838,9 @@ private fun CompactActionItem(
             label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
+            maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }

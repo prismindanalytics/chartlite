@@ -1,6 +1,8 @@
 package com.chartlite.app.ui.screens
 
 import android.content.Context
+import android.net.Uri
+import android.provider.Telephony
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +29,7 @@ import com.chartlite.app.sms.DecodedEncounterV2
 import com.chartlite.app.sms.DecodedEncounterV3
 import com.chartlite.app.sms.DecodedEncounterV4
 import com.chartlite.app.sms.BinaryDecodeLookup
+import com.chartlite.app.sms.SMSEncryption
 import com.chartlite.app.sms.DecodedChronicCondition
 import com.chartlite.app.sms.DecodedAbnormalVital
 import androidx.compose.material.icons.filled.PersonAdd
@@ -57,26 +60,39 @@ fun SMSDecryptScreen(
     val app = context.applicationContext as App
     val scope = rememberCoroutineScope()
 
-    // ── RECEIVE_SMS permission — required for SMSReceiver to get incoming SMS ──
-    var hasReceiveSmsPermission by remember {
+    // ── SMS permissions — RECEIVE_SMS for broadcast receiver, READ_SMS for inbox scan ──
+    var smsPermissionGranted by remember {
         mutableStateOf(
             androidx.core.content.ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.RECEIVE_SMS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_SMS
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         )
     }
-    val receiveSmsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { granted -> hasReceiveSmsPermission = granted }
+    val smsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { results -> smsPermissionGranted = results.values.any { it } }
     LaunchedEffect(Unit) {
-        if (!hasReceiveSmsPermission) {
-            receiveSmsPermissionLauncher.launch(android.Manifest.permission.RECEIVE_SMS)
+        if (!smsPermissionGranted) {
+            smsPermissionLauncher.launch(arrayOf(
+                android.Manifest.permission.RECEIVE_SMS,
+                android.Manifest.permission.READ_SMS
+            ))
         }
     }
 
-    // Load pending SMS from receiver store (re-read after permission granted)
-    val pendingSMS = remember(hasReceiveSmsPermission) {
-        loadPendingSMS(context)
+    // Load pending SMS: first from broadcast receiver store, then scan device inbox as fallback
+    val pendingSMS = remember(smsPermissionGranted) {
+        val fromReceiver = loadPendingSMS(context)
+        if (fromReceiver.isNotEmpty()) {
+            fromReceiver
+        } else {
+            // Fallback: scan SMS inbox for clinical messages (catches SMS received
+            // before RECEIVE_SMS permission was granted or broadcast was missed)
+            scanSmsInbox(context)
+        }
     }
 
     var phoneNumber by remember { mutableStateOf("") }
@@ -607,6 +623,46 @@ private fun loadPendingSMS(context: Context): List<PendingSMS> {
             )
         } else null
     }.sortedByDescending { it.timestamp }
+}
+
+/**
+ * Scan the device SMS inbox for clinical messages.
+ * Fallback for when the BroadcastReceiver missed messages (e.g., RECEIVE_SMS permission
+ * wasn't granted when the SMS arrived). Scans the last 50 received SMS.
+ */
+private fun scanSmsInbox(context: Context): List<PendingSMS> {
+    val hasReadSms = androidx.core.content.ContextCompat.checkSelfPermission(
+        context, android.Manifest.permission.READ_SMS
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    if (!hasReadSms) return emptyList()
+
+    val results = mutableListOf<PendingSMS>()
+    try {
+        val cursor = context.contentResolver.query(
+            Telephony.Sms.Inbox.CONTENT_URI,
+            arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.DATE, Telephony.Sms.BODY),
+            null, null,
+            "${Telephony.Sms.DATE} DESC LIMIT 50"
+        )
+        cursor?.use {
+            val addrIdx = it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+            val dateIdx = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            val bodyIdx = it.getColumnIndexOrThrow(Telephony.Sms.BODY)
+            while (it.moveToNext()) {
+                val body = it.getString(bodyIdx) ?: continue
+                if (SMSEncryption.looksLikeClinicalSMS(body)) {
+                    results.add(PendingSMS(
+                        sender = it.getString(addrIdx) ?: "Unknown",
+                        timestamp = it.getLong(dateIdx),
+                        body = body
+                    ))
+                }
+            }
+        }
+    } catch (_: Exception) {
+        // ContentResolver query can fail on some devices
+    }
+    return results
 }
 
 @Composable

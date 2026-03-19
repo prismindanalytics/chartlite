@@ -1,14 +1,22 @@
 package com.chartlite.app.sms
 
 import android.Manifest
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.telephony.SmsManager
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.chartlite.app.config.AppConfig
 import com.chartlite.app.database.entity.PatientEntity
 import com.chartlite.app.model.SMSStatus
 import com.chartlite.app.model.StructuredEncounter
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class SMSSender(private val context: Context, private val appConfig: AppConfig) {
 
@@ -94,23 +102,11 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
      * Handles multipart messages for texts exceeding 160 characters.
      * Pre-checks SMS permission before sending.
      */
-    fun sendPlainSMS(to: String, body: String): SendResult {
+    suspend fun sendPlainSMS(to: String, body: String): SendResult {
         if (!hasPermission()) {
             return SendResult(SMSStatus.FAILED, "SMS permission not granted")
         }
-        return try {
-            @Suppress("DEPRECATION")
-            val smsManager = SmsManager.getDefault()
-            val parts = smsManager.divideMessage(body)
-            if (parts.size <= 1) {
-                smsManager.sendTextMessage(to, null, body, null, null)
-            } else {
-                smsManager.sendMultipartTextMessage(to, null, parts, null, null)
-            }
-            SendResult(SMSStatus.SENT)
-        } catch (e: Exception) {
-            SendResult(SMSStatus.FAILED, e.message)
-        }
+        return sendViaNative(to, body)
     }
 
     private suspend fun sendViaTwilio(to: String, body: String): SendResult {
@@ -127,21 +123,68 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
         )
     }
 
-    private fun sendViaNative(to: String, body: String): SendResult {
+    private suspend fun sendViaNative(to: String, body: String): SendResult {
         if (!hasPermission()) {
             return SendResult(SMSStatus.FAILED, "SMS permission not granted")
         }
 
-        @Suppress("DEPRECATION")
-        val smsManager = SmsManager.getDefault()
-        // Handle multipart messages (>160 chars)
-        val parts = smsManager.divideMessage(body)
-        if (parts.size <= 1) {
-            smsManager.sendTextMessage(to, null, body, null, null)
+        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java)
         } else {
-            smsManager.sendMultipartTextMessage(to, null, parts, null, null)
+            @Suppress("DEPRECATION")
+            SmsManager.getDefault()
         }
-        return SendResult(SMSStatus.SENT)
+
+        return suspendCancellableCoroutine { cont ->
+            val action = "com.chartlite.app.SMS_SENT_${System.nanoTime()}"
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context, intent: Intent) {
+                    context.unregisterReceiver(this)
+                    when (resultCode) {
+                        android.app.Activity.RESULT_OK ->
+                            cont.resume(SendResult(SMSStatus.SENT))
+                        SmsManager.RESULT_ERROR_NO_SERVICE ->
+                            cont.resume(SendResult(SMSStatus.FAILED, "No cellular service — check signal or SIM"))
+                        SmsManager.RESULT_ERROR_RADIO_OFF ->
+                            cont.resume(SendResult(SMSStatus.FAILED, "Radio off — enable mobile network"))
+                        SmsManager.RESULT_ERROR_NULL_PDU ->
+                            cont.resume(SendResult(SMSStatus.FAILED, "SMS encoding error — phone number may be invalid"))
+                        else ->
+                            cont.resume(SendResult(SMSStatus.FAILED, "SMS send failed (error code: $resultCode)"))
+                    }
+                }
+            }
+
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Context.RECEIVER_NOT_EXPORTED
+            } else {
+                0
+            }
+            context.registerReceiver(receiver, IntentFilter(action), flags)
+
+            val sentIntent = PendingIntent.getBroadcast(
+                context, 0, Intent(action),
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            cont.invokeOnCancellation {
+                runCatching { context.unregisterReceiver(receiver) }
+            }
+
+            try {
+                val parts = smsManager.divideMessage(body)
+                if (parts.size <= 1) {
+                    smsManager.sendTextMessage(to, null, body, sentIntent, null)
+                } else {
+                    val sentIntents = ArrayList(parts.map { sentIntent })
+                    smsManager.sendMultipartTextMessage(to, null, parts, sentIntents, null)
+                }
+                Log.d("SMSSender", "Native SMS queued to $to (${body.length} chars, ${parts.size} part(s))")
+            } catch (e: Exception) {
+                runCatching { context.unregisterReceiver(receiver) }
+                cont.resume(SendResult(SMSStatus.FAILED, "SMS send error: ${e.message}"))
+            }
+        }
     }
 
     /**

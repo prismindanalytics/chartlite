@@ -417,7 +417,9 @@ class App : Application() {
     private fun scheduleDeferredExtractionWarmup() {
         appScope.launch(Dispatchers.Default) {
             delay(DEFERRED_EXTRACTION_WARMUP_MS)
-            runCatching { getOrCreateExtractionServices() }
+            // Use forceReload so the pipeline is built with current config
+            // (country, AI mode, API keys) even if stale services exist.
+            runCatching { getOrCreateExtractionServices(forceReload = true) }
                 .onFailure { Log.w(TAG, "Deferred extraction warm-up failed", it) }
         }
     }

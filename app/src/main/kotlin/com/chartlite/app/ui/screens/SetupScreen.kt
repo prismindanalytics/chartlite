@@ -1770,6 +1770,12 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                     suffixedUsername
                                 }
 
+                                // Set ALL config values BEFORE building extraction pipeline
+                                // so the pipeline uses the correct country, AI mode, and keys.
+                                app.appConfig.countryCode = country
+                                app.appConfig.providerId = providerId
+                                app.appConfig.facilityId = facilityId
+                                app.appConfig.facilityName = resolvedFacilityName
                                 app.appConfig.asrMode = asrMode
                                 app.asr.mode = when (asrMode) {
                                     "onnx" -> com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE
@@ -1777,7 +1783,6 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                     else -> com.chartlite.app.asr.ASREngine.Mode.GOOGLE_ONLINE
                                 }
                                 app.appConfig.aiMode = aiMode
-                                app.rebuildExtractionPipeline()
                                 app.appConfig.noteProcessingMode = noteProcessingMode
                                 app.appConfig.recordingModeDefault = recordingModeDefault
                                 app.appConfig.claudeApiKey = claudeApiKey.trim()
@@ -1785,12 +1790,13 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                 app.appConfig.openaiApiKey = openaiApiKey.trim()
                                 app.appConfig.deepgramApiKey = deepgramApiKey.trim()
                                 app.appConfig.chartliteEnrollmentCode = chartliteEnrollmentCode
-
-                                app.appConfig.countryCode = country
-                                app.appConfig.providerId = providerId
-                                app.appConfig.facilityId = facilityId
-                                app.appConfig.facilityName = resolvedFacilityName
                                 app.appConfig.isSetupComplete = true
+
+                                // Defer extraction pipeline build to avoid OOM on 3GB devices
+                                // that just finished downloading models. loadCountryData with
+                                // deferExtraction=true schedules the heavy pipeline build
+                                // (native lib load + vector index) after a short delay when
+                                // memory pressure from the download has subsided.
                                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                                     app.loadCountryData(deferExtraction = true)
                                 }

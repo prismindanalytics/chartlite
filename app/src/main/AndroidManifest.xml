@@ -8,9 +8,10 @@
     <!-- Network access (Google Speech recognition, Twilio SMS) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- SMS send/receive -->
+    <!-- SMS send/receive/read -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- Nearby Connections (BT/WiFi peer-to-peer sync) -->

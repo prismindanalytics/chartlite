@@ -361,8 +361,11 @@ fun EncounterRecordScreen(
 
     suspend fun finalizeAmbientRecording() {
         extractionError = null
-        // Show loading spinner immediately — cloud ASR finalization can take several seconds
+        // Show loading spinner immediately — cloud ASR finalization can take several seconds.
+        // yield() gives Compose a frame to recompose and display the spinner BEFORE
+        // the heavy stopListeningAndAwait() call blocks (especially cloud ASR).
         isGeneratingNote = true
+        kotlinx.coroutines.yield()
         val result = asr.stopListeningAndAwait()
         transcript = result.text
         durationMs = 0L

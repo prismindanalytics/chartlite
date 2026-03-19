@@ -1,7 +1,9 @@
 package com.chartlite.app.extraction
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
+import java.io.File
 import com.chartlite.app.asr.cloud.NetworkUtils
 import com.chartlite.app.asr.cloud.SharedHttpClient
 import com.chartlite.app.model.StructuredEncounter
@@ -171,6 +173,99 @@ class ClaudeExtractionStrategy(
             } ?: return@use null
 
             Log.d(TAG, "Claude $purpose response (${text.length} chars)")
+            text
+        }
+    }
+
+    /**
+     * Extract clinical data from a photo via Claude Vision API.
+     * Sends image as base64 alongside the vision prompt.
+     */
+    suspend fun extractVision(imagePath: String, promptBuilder: ExtractionPromptBuilder): String? = withContext(Dispatchers.IO) {
+        if (!isAvailable()) return@withContext null
+
+        val file = File(imagePath)
+        if (!file.exists()) {
+            Log.e(TAG, "Vision image not found: $imagePath")
+            return@withContext null
+        }
+
+        val imageBytes = file.readBytes()
+        val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+        val mediaType = if (imagePath.endsWith(".png")) "image/png" else "image/jpeg"
+
+        val systemPrompt = "Read the image. Respond with ONLY a JSON object."
+        val userPrompt = promptBuilder.visionUserPrompt(isLargeModel = true)
+
+        Log.d(TAG, "Calling Claude Vision API (image: ${imageBytes.size / 1024}KB)")
+
+        val requestBody = gson.toJson(mapOf(
+            "model" to MODEL,
+            "max_tokens" to 1024,
+            "system" to systemPrompt,
+            "messages" to listOf(
+                mapOf("role" to "user", "content" to listOf(
+                    mapOf(
+                        "type" to "image",
+                        "source" to mapOf(
+                            "type" to "base64",
+                            "media_type" to mediaType,
+                            "data" to base64Image
+                        )
+                    ),
+                    mapOf(
+                        "type" to "text",
+                        "text" to userPrompt
+                    )
+                ))
+            )
+        ))
+
+        val requestBuilder = when (authConfig) {
+            is AuthConfig.Direct -> {
+                Request.Builder()
+                    .url(DIRECT_API_URL)
+                    .addHeader("x-api-key", authConfig.apiKeyProvider())
+                    .addHeader("anthropic-version", API_VERSION)
+            }
+            is AuthConfig.Proxied -> {
+                val builder = Request.Builder()
+                    .url("$PROXY_BASE_URL/v1/extract")
+                    .addHeader("X-Anthropic-Version", API_VERSION)
+                val authHeaders = try { authConfig.authHeaderProvider() } catch (e: Exception) {
+                    Log.e(TAG, "Vision auth failed: ${e.message}")
+                    return@withContext null
+                }
+                authHeaders.entries.fold(builder) { b, (k, v) -> b.addHeader(k, v) }
+            }
+        }
+
+        val request = requestBuilder
+            .addHeader("content-type", "application/json")
+            .post(requestBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val call = SharedHttpClient.instance.newCall(request)
+        val response = suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            try {
+                cont.resumeWith(Result.success(call.execute()))
+            } catch (e: Exception) {
+                cont.resumeWith(Result.failure(e))
+            }
+        }
+
+        response.use { resp ->
+            if (!resp.isSuccessful) {
+                Log.e(TAG, "Claude vision error ${resp.code}")
+                return@withContext null
+            }
+            val body = resp.body?.string() ?: return@withContext null
+            val json = gson.fromJson(body, JsonObject::class.java)
+            val text = json.getAsJsonArray("content")?.firstOrNull()?.asJsonObject
+                ?.get("text")?.asString
+
+            Log.d(TAG, "Claude vision response (${text?.length ?: 0} chars)")
             text
         }
     }

@@ -21,7 +21,7 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 /**
  * Manages downloading and loading of MNN-LLM models for on-device inference.
@@ -52,6 +52,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         data object NotDownloaded : ModelState()
         data class Downloading(val bytesDownloaded: Long, val totalBytes: Long) : ModelState()
         data object Verifying : ModelState()
+        data class Installing(val bytesProcessed: Long, val totalBytes: Long) : ModelState()
         data object Ready : ModelState()
         data class Error(val message: String) : ModelState()
         data object Paused : ModelState()
@@ -81,9 +82,9 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     private val loadMutex = Mutex()
     private val inferenceMutex = Mutex()
     private var autoUnloadJob: Job? = null
-    /** Keep model loaded for 30s after last inference to avoid repeated load/unload cycles
-     *  during multi-snippet encounter sessions. onTrimMemory still overrides if system needs RAM. */
-    private val autoUnloadDelayMs = 30_000L
+    @Volatile private var loadCleanupPending = false
+    @Volatile private var warmLeaseUntilMs = 0L
+    private var timedOutLoadCleanupJob: Job? = null
 
     init {
         context.registerComponentCallbacks(this)
@@ -123,8 +124,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     val modelFile: File get() = modelDir
 
     fun isModelDownloaded(): Boolean {
-        val dir = modelDir
-        return dir.exists() && File(dir, "llm_config.json").exists()
+        if (isInstallInProgressState()) return false
+        return hasRequiredModelFiles(modelDir, activeTier())
     }
 
     fun isNativeAvailable(): Boolean {
@@ -163,6 +164,9 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         if (!dir.exists()) return 0
         return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
+
+    private fun isInstallInProgressState(state: ModelState = _state.value): Boolean =
+        state is ModelState.Downloading || state is ModelState.Verifying || state is ModelState.Installing
 
     private data class MemoryBudget(
         val availableRamBytes: Long,
@@ -212,6 +216,58 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         )
     }
 
+    private fun availableRamBytes(): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        return memInfo.availMem
+    }
+
+    private fun availableRamMb(): Long = availableRamBytes() / 1024 / 1024
+
+    private fun autoUnloadDelayMs(): Long = when {
+        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_AUTO_UNLOAD_DELAY_MS
+        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_AUTO_UNLOAD_DELAY_MS
+        deviceRamGb() < 4.0 -> MID_RAM_AUTO_UNLOAD_DELAY_MS
+        else -> DEFAULT_AUTO_UNLOAD_DELAY_MS
+    }
+
+    private fun modelLoadTimeoutMs(): Long = when {
+        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_MODEL_LOAD_TIMEOUT_MS
+        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_MODEL_LOAD_TIMEOUT_MS
+        else -> DEFAULT_MODEL_LOAD_TIMEOUT_MS
+    }
+
+    private fun inferenceTimeoutMs(): Long = when {
+        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS
+        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_INFERENCE_TIMEOUT_MS
+        else -> DEFAULT_INFERENCE_TIMEOUT_MS
+    }
+
+    private fun validateInstalledModelDirectoryOrThrow(dir: File, tier: ModelTier) {
+        if (hasRequiredModelFiles(dir, tier)) return
+
+        val missing = requiredModelFiles(tier).filter { name ->
+            val file = File(dir, name)
+            !file.exists() || file.length() <= 0L
+        }
+        val staleVision = !tier.supportsVision && File(dir, "visual.mnn").exists()
+        val detail = buildString {
+            if (missing.isNotEmpty()) {
+                append("missing ")
+                append(missing.joinToString(", "))
+            }
+            if (staleVision) {
+                if (isNotEmpty()) append("; ")
+                append("stale visual.mnn from an older vision install")
+            }
+        }.ifBlank { "unexpected extracted file layout" }
+
+        throw IllegalStateException(
+            "Installed ${tier.label} files are incomplete: $detail. Re-download or re-import the model."
+        )
+    }
+
     fun hasRuntimeHeadroom(forInference: Boolean = true): Boolean {
         if (!isModelDownloaded() || !isSupportedAbi()) return false
 
@@ -253,6 +309,14 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     fun isConstrainedDevice(): Boolean = deviceRamGb() <= CONSTRAINED_DEVICE_GB
 
+    fun isUltraLowRamDevice(): Boolean = deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB
+
+    /**
+     * Low-RAM handoff helper: true while native generation is active or a timed-out
+     * load is still cleaning itself up. Starting ASR during either state risks overlap.
+     */
+    fun isBusyForLowRamHandoff(): Boolean = inferring || loadCleanupPending
+
     fun maxTranscriptChars(): Int = when {
         activeTier() == ModelTier.LARGE -> LARGE_MODEL_MAX_TRANSCRIPT_CHARS
         deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_MAX_TRANSCRIPT_CHARS
@@ -280,10 +344,112 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         else -> SMALL_MODEL_MAX_OUTPUT_TOKENS
     }
 
+    fun recommendedExtractionOutputTokens(): Int = when {
+        activeTier() == ModelTier.LARGE -> LARGE_MODEL_EXTRACTION_OUTPUT_TOKENS
+        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_EXTRACTION_OUTPUT_TOKENS
+        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_EXTRACTION_OUTPUT_TOKENS
+        else -> SMALL_MODEL_EXTRACTION_OUTPUT_TOKENS
+    }
+
+    fun recommendedNoteOutputTokens(): Int = when {
+        activeTier() == ModelTier.LARGE -> LARGE_MODEL_NOTE_OUTPUT_TOKENS
+        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_NOTE_OUTPUT_TOKENS
+        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_NOTE_OUTPUT_TOKENS
+        else -> SMALL_MODEL_NOTE_OUTPUT_TOKENS
+    }
+
     fun recommendedSnippetOutputTokens(): Int = when {
         activeTier() == ModelTier.LARGE -> LARGE_MODEL_MAX_SNIPPET_OUTPUT_TOKENS
         deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_MAX_SNIPPET_OUTPUT_TOKENS
         else -> SMALL_MODEL_MAX_SNIPPET_OUTPUT_TOKENS
+    }
+
+    private suspend fun prepareInstallDirectory(destDir: File) {
+        if (loadCleanupPending) {
+            throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
+        }
+        if (inferring) {
+            throw IllegalStateException("Wait for note processing to finish before replacing the on-device model.")
+        }
+        unloadModelIfIdleAndWait()
+        if (destDir.exists()) {
+            Log.w(TAG, "Clearing existing model directory before install: ${destDir.absolutePath}")
+            destDir.deleteRecursively()
+        }
+        if (!destDir.mkdirs() && !destDir.exists()) {
+            throw IllegalStateException("Unable to create model directory: ${destDir.absolutePath}")
+        }
+    }
+
+    private suspend fun installModelArchive(
+        zipFile: File,
+        destDir: File,
+        tier: ModelTier,
+        onProgress: ((Long, Long) -> Unit)? = null
+    ) {
+        prepareInstallDirectory(destDir)
+        try {
+            extractZip(zipFile, destDir, onProgress)
+            validateInstalledModelDirectoryOrThrow(destDir, tier)
+            clearVerifiedModelCache()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install ${tier.label}; clearing partial files", e)
+            destDir.deleteRecursively()
+            destDir.mkdirs()
+            clearVerifiedModelCache()
+            throw e
+        }
+    }
+
+    private suspend fun runNativeLoadWithTimeout(dir: File, timeoutMs: Long): Boolean {
+        if (loadCleanupPending) {
+            throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
+        }
+
+        val loadTask = scope.async(Dispatchers.IO) {
+            LlamaBridge.initGenerateModel(dir.absolutePath)
+        }
+
+        val success = withTimeoutOrNull(timeoutMs) { loadTask.await() }
+        if (success != null) return success
+
+        Log.e(TAG, "On-device model load timed out after ${timeoutMs / 1000}s for ${dir.name}")
+        loadCleanupPending = true
+        timedOutLoadCleanupJob?.cancel()
+        timedOutLoadCleanupJob = scope.launch(Dispatchers.IO) {
+            try {
+                runCatching { loadTask.await() }
+            } finally {
+                loadMutex.withLock {
+                    try {
+                        LlamaBridge.shutdown()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error cleaning up timed-out model load", e)
+                    }
+                    modelLoaded = false
+                    loadCleanupPending = false
+                    timedOutLoadCleanupJob = null
+                }
+            }
+        }
+        throw IllegalStateException("On-device model load timed out after ${timeoutMs / 1000}s")
+    }
+
+    private fun scheduleAutoUnload() {
+        autoUnloadJob?.cancel()
+        val baseDelayMs = autoUnloadDelayMs()
+        val leaseDelayMs = (warmLeaseUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
+        val delayMs = maxOf(baseDelayMs, leaseDelayMs)
+        autoUnloadJob = scope.launch {
+            delay(delayMs)
+            if (!inferring) {
+                Log.d(
+                    TAG,
+                    "Auto-unloading model after ${delayMs / 1000}s idle (avail=${availableRamMb()}MB)"
+                )
+                unloadModel()
+            }
+        }
     }
 
     // ── Model loading ──
@@ -302,13 +468,23 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     suspend fun loadModel() {
         if (modelLoaded) return
         if (!isModelDownloaded()) throw IllegalStateException("Model not downloaded")
+        if (loadCleanupPending) {
+            throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
+        }
 
         loadMutex.withLock {
             // Re-check after acquiring lock
             if (modelLoaded) return
+            if (loadCleanupPending) {
+                throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
+            }
 
+            val startedAt = System.currentTimeMillis()
+            val timeoutMs = modelLoadTimeoutMs()
             withContext(Dispatchers.IO) {
                 val dir = modelDir
+                val tier = activeTier()
+                validateInstalledModelDirectoryOrThrow(dir, tier)
                 val budget = currentMemoryBudget(forInference = true)
                 if (budget.availableRamBytes < budget.requiredRamBytes) {
                     Log.w(TAG, "Insufficient system memory to load LLM: " +
@@ -319,17 +495,14 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     throw IllegalStateException("Not enough free memory for on-device note processing")
                 }
 
-                // Validate MNN model directory has required files
-                val configFile = File(dir, "llm_config.json")
-                if (!configFile.exists()) {
-                    Log.e(TAG, "Model directory missing llm_config.json: ${dir.absolutePath}")
-                    throw IllegalStateException("Invalid MNN model — re-download may be needed")
-                }
-
-                Log.d(TAG, "Loading model via MNN-LLM: ${dir.name}")
+                Log.d(
+                    TAG,
+                    "Loading model via MNN-LLM: ${dir.name} " +
+                        "(avail=${availableRamMb()}MB, timeout=${timeoutMs / 1000}s)"
+                )
 
                 // MNN: pass directory path containing llm_config.json, llm.mnn, llm.mnn.weight, tokenizer.txt
-                val success = LlamaBridge.initGenerateModel(dir.absolutePath)
+                val success = runNativeLoadWithTimeout(dir, timeoutMs)
                 if (!success) {
                     throw IllegalStateException("MNN model load failed for ${dir.name}")
                 }
@@ -339,7 +512,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 applyGenerationParams(recommendedOutputTokens())
 
                 modelLoaded = true
-                Log.d(TAG, "Model loaded: ${dir.name}")
+                Log.d(
+                    TAG,
+                    "Model loaded: ${dir.name} in ${System.currentTimeMillis() - startedAt}ms " +
+                        "(avail=${availableRamMb()}MB)"
+                )
             }
         }
     }
@@ -369,9 +546,43 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     Log.w(TAG, "Error during LlamaBridge.shutdown()", e)
                 }
                 modelLoaded = false
+                warmLeaseUntilMs = 0L
+                Log.d(TAG, "Model unloaded (avail=${availableRamMb()}MB)")
             }
         } finally {
             loadMutex.unlock()
+        }
+    }
+
+    /**
+     * Synchronously unload the model when the manager is idle.
+     * Use this before reloading offline ASR on low-memory devices so the two
+     * native runtimes never overlap during a handoff.
+     */
+    suspend fun unloadModelIfIdleAndWait(): Boolean = withContext(Dispatchers.IO) {
+        autoUnloadJob?.cancel()
+        val startedAt = System.currentTimeMillis()
+        loadMutex.withLock {
+            if (inferring) {
+                Log.w(TAG, "Skipping blocking unload — inference in progress")
+                return@withLock false
+            }
+            if (!modelLoaded) {
+                return@withLock false
+            }
+            try {
+                LlamaBridge.shutdown()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error during blocking LlamaBridge.shutdown()", e)
+            }
+            modelLoaded = false
+            warmLeaseUntilMs = 0L
+            Log.d(
+                TAG,
+                "Blocking model unload finished in ${System.currentTimeMillis() - startedAt}ms " +
+                    "(avail=${availableRamMb()}MB)"
+            )
+            true
         }
     }
 
@@ -379,6 +590,22 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         if (!inferring) return
         Log.w(TAG, "Cancelling in-flight on-device inference")
         LlamaBridge.cancelGeneration()
+    }
+
+    /**
+     * Keep the current model load warm for a short period after inference so
+     * note review / immediate follow-up extraction doesn't pay another cold load.
+     * ASR handoff still forces an unload when recording starts.
+     */
+    fun keepModelWarmFor(durationMs: Long) {
+        if (durationMs <= 0L) return
+        val keepUntil = System.currentTimeMillis() + durationMs
+        if (keepUntil > warmLeaseUntilMs) {
+            warmLeaseUntilMs = keepUntil
+        }
+        if (modelLoaded && !inferring) {
+            scheduleAutoUnload()
+        }
     }
 
     // ── Inference ──
@@ -469,6 +696,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         generate: () -> String?
     ): String? {
         autoUnloadJob?.cancel()
+        val timeoutMs = inferenceTimeoutMs()
+        val startedAt = System.currentTimeMillis()
         return try {
             // Set inferring BEFORE loadModel() to prevent onTrimMemory from
             // unloading mid-load on 3GB devices under memory pressure.
@@ -480,7 +709,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 try {
                     inferenceMutex.withLock {
                         applyGenerationParams(maxTokens, config)
-                        Log.d(TAG, "Starting $label inference")
+                        Log.d(
+                            TAG,
+                            "Starting $label inference " +
+                                "(maxTokens=$maxTokens, timeout=${timeoutMs / 1000}s, avail=${availableRamMb()}MB)"
+                        )
 
                         val text = generate()
 
@@ -488,7 +721,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                             Log.w(TAG, "LlamaBridge.$label returned empty")
                             result.complete(null)
                         } else {
-                            Log.d(TAG, "$label inference complete: ${text.length} chars")
+                            Log.d(
+                                TAG,
+                                "$label inference complete: ${text.length} chars " +
+                                    "in ${System.currentTimeMillis() - startedAt}ms (avail=${availableRamMb()}MB)"
+                            )
                             result.complete(text)
                         }
                     }
@@ -500,18 +737,38 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     if (!result.isCompleted) result.complete(null)
                 } finally {
                     inferring = false
-                    autoUnloadJob = scope.launch {
-                        delay(autoUnloadDelayMs)
-                        if (!inferring) {
-                            Log.d(TAG, "Auto-unloading model after ${autoUnloadDelayMs / 1000}s idle")
-                            unloadModel()
-                        }
-                    }
+                    scheduleAutoUnload()
                 }
             }
 
             try {
-                result.await()
+                val awaited = withTimeoutOrNull(timeoutMs) { result.await() }
+                if (awaited != null || result.isCompleted) {
+                    awaited
+                } else {
+                    Log.e(TAG, "$label inference timed out after ${timeoutMs / 1000}s; signalling native inference stop")
+                    cancelInference()
+                    val joined = withContext(NonCancellable) {
+                        withTimeoutOrNull(CANCEL_WAIT_TIMEOUT_MS) {
+                            generationJob.join()
+                            true
+                        }
+                    } ?: false
+                    if (!joined) {
+                        Log.e(TAG, "Timed out waiting for cancelled $label inference to stop; scheduling deferred cleanup")
+                        scope.launch {
+                            val eventuallyJoined = withTimeoutOrNull(DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS) {
+                                generationJob.join()
+                                true
+                            } ?: false
+                            if (!eventuallyJoined) {
+                                Log.e(TAG, "$label native generation still running after deferred cleanup timeout")
+                            }
+                            unloadModelIfIdleAndWait()
+                        }
+                    }
+                    null
+                }
             } catch (e: CancellationException) {
                 Log.w(TAG, "$label cancelled; signalling native inference stop")
                 cancelInference()
@@ -522,7 +779,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     }
                 } ?: false
                 if (!joined) {
-                    Log.e(TAG, "Timed out waiting for cancelled $label inference to stop")
+                    Log.e(TAG, "Timed out waiting for cancelled $label inference to stop; scheduling deferred cleanup")
+                    scope.launch {
+                        val eventuallyJoined = withTimeoutOrNull(DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS) {
+                            generationJob.join()
+                            true
+                        } ?: false
+                        if (!eventuallyJoined) {
+                            Log.e(TAG, "$label native generation still running after deferred cleanup timeout")
+                        }
+                        unloadModelIfIdleAndWait()
+                    }
                 }
                 throw e
             }
@@ -630,12 +897,13 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                     return@launch
                 }
 
-                // Extract zip to model directory
                 val destDir = modelDir
-                destDir.mkdirs()
-                extractZip(tmpFile, destDir)
+                _state.value = ModelState.Installing(0L, -1L)
+                installModelArchive(tmpFile, destDir, tier) { bytesProcessed, totalBytes ->
+                    _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                }
                 tmpFile.delete()
-                clearVerifiedModelCache()
+                Log.i(TAG, "Installed ${tier.label} model archive successfully")
                 _state.value = ModelState.Ready
 
             } catch (e: CancellationException) {
@@ -689,12 +957,14 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
             downloadJob?.cancel()
             activeCall?.cancel()
-            unloadModel()
-
             val destDir = modelDir
-            destDir.mkdirs()
-            extractZip(sourceFile, destDir)
-            clearVerifiedModelCache()
+            runBlocking(Dispatchers.IO) {
+                _state.value = ModelState.Installing(0L, -1L)
+                installModelArchive(sourceFile, destDir, activeTier()) { bytesProcessed, totalBytes ->
+                    _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                }
+            }
+            Log.i(TAG, "Imported ${activeTier().label} model archive successfully")
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
@@ -703,27 +973,72 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
-    /** Extract a zip archive to the given directory. */
-    private fun extractZip(zipFile: File, destDir: File) {
-        ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                if (!entry.isDirectory) {
-                    val outFile = File(destDir, entry.name)
-                    outFile.parentFile?.mkdirs()
-                    FileOutputStream(outFile).use { fos ->
-                        zis.copyTo(fos)
+    /** Extract a zip archive to the given directory with byte progress updates. */
+    private suspend fun extractZip(
+        zipFile: File,
+        destDir: File,
+        onProgress: ((Long, Long) -> Unit)? = null
+    ) {
+        ZipFile(zipFile).use { archive ->
+            val entries = archive.entries().toList()
+            val totalBytes = entries
+                .filterNot { it.isDirectory }
+                .mapNotNull { entry -> entry.size.takeIf { it > 0L } }
+                .sum()
+                .takeIf { it > 0L } ?: -1L
+
+            var bytesProcessed = 0L
+            var lastUpdateTime = 0L
+            val destRoot = destDir.canonicalFile
+            val buffer = ByteArray(8192)
+
+            onProgress?.invoke(0L, totalBytes)
+
+            for (entry in entries) {
+                yield()
+                val outFile = File(destDir, entry.name)
+                val canonicalOutFile = outFile.canonicalFile
+                if (!canonicalOutFile.path.startsWith(destRoot.path + File.separator) &&
+                    canonicalOutFile != destRoot
+                ) {
+                    throw IllegalStateException("Invalid model archive entry: ${entry.name}")
+                }
+
+                if (entry.isDirectory) {
+                    if (!canonicalOutFile.mkdirs() && !canonicalOutFile.exists()) {
+                        throw IllegalStateException("Unable to create model directory: ${canonicalOutFile.absolutePath}")
+                    }
+                    continue
+                }
+
+                canonicalOutFile.parentFile?.mkdirs()
+                archive.getInputStream(entry).use { input ->
+                    FileOutputStream(canonicalOutFile).use { output ->
+                        while (true) {
+                            yield()
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            bytesProcessed += read
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastUpdateTime >= 200) {
+                                onProgress?.invoke(bytesProcessed, totalBytes)
+                                lastUpdateTime = now
+                            }
+                        }
                     }
                 }
-                zis.closeEntry()
-                entry = zis.nextEntry
             }
+
+            onProgress?.invoke(bytesProcessed, totalBytes)
         }
     }
 
     /** Cancel all coroutines and unload the model. Call on app shutdown. */
     fun close() {
         cancelDownload()
+        timedOutLoadCleanupJob?.cancel()
         unloadModel()
         context.unregisterComponentCallbacks(this)
         scope.cancel()
@@ -742,6 +1057,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         _state.value = when {
             !hasPinnedChecksum() -> ModelState.Error("Trusted SHA-256 is not configured for ${activeTier().label}")
             isModelDownloaded() -> ModelState.Ready
+            modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true ->
+                ModelState.Error("Installed ${activeTier().label} files are incomplete. Re-download or re-import the model.")
             modelsDir.listFiles()?.any { it.name.endsWith(".tmp") } == true -> ModelState.Paused
             else -> {
                 // Auto-detect sideloaded model on external storage / microSD
@@ -795,16 +1112,18 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         val modelUrl: String,
         val sha256: String,
         val sizeMb: Int,
-        val description: String
+        val description: String,
+        val supportsVision: Boolean
     ) {
         SMALL(
             label = "Qwen 3.5 0.8B",
             dirName = "qwen35-0.8b-mnn",
-            filename = "qwen35-0.8b-int4-mnn-vision.zip",
-            modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn-vision.zip",
-            sha256 = "2667046bc560c5fc3e38b28d2b91a14d6b659b9d5e02db76adb5ec02fe18fe8e",
-            sizeMb = 452,
-            description = "Fast inference + vision via MNN, fits devices with 2+ GB RAM"
+            filename = "qwen35-0.8b-int4-mnn.zip",
+            modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn.zip",
+            sha256 = "5780c9f0912679ae8f271dae7cc15690bf803dfefd9e94d14bfd105100bc7b44",
+            sizeMb = 390,
+            description = "Fast text-only inference via MNN, fits low-memory phones",
+            supportsVision = false
         ),
         LARGE(
             label = "Qwen 3.5 2B",
@@ -813,7 +1132,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-2b-int4-mnn-vision.zip",
             sha256 = "344f169dcb38b3fc6f2b67e8ed9ffdbb9906edf85d87fb1228aae195348de29a",
             sizeMb = 1205,
-            description = "Higher accuracy + vision via MNN, needs 4+ GB RAM"
+            description = "Higher accuracy + vision via MNN, needs 4+ GB RAM",
+            supportsVision = true
         );
 
         /** Non-technical display name for simplified UI (e.g., setup wizard). */
@@ -998,12 +1318,52 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val LOW_RAM_MAX_TRANSCRIPT_CHARS = 4000
         private const val DEFAULT_MAX_TRANSCRIPT_CHARS = 6400
         private const val LARGE_MODEL_MAX_TRANSCRIPT_CHARS = 8000
-        private const val ULTRA_LOW_RAM_MAX_OUTPUT_TOKENS = 1024  // n_ctx=2048, leaves ~960 for prompt + 64 headroom
+        private const val ULTRA_LOW_RAM_MAX_OUTPUT_TOKENS = 768  // smaller decode budget keeps 3GB devices responsive and leaves more prompt headroom
         private const val SMALL_MODEL_MAX_OUTPUT_TOKENS = 2048
         private const val LARGE_MODEL_MAX_OUTPUT_TOKENS = 3072
+        private const val ULTRA_LOW_RAM_EXTRACTION_OUTPUT_TOKENS = 512
+        private const val LOW_RAM_EXTRACTION_OUTPUT_TOKENS = 640
+        private const val SMALL_MODEL_EXTRACTION_OUTPUT_TOKENS = 1024
+        private const val LARGE_MODEL_EXTRACTION_OUTPUT_TOKENS = 1536
+        private const val ULTRA_LOW_RAM_NOTE_OUTPUT_TOKENS = 128
+        private const val LOW_RAM_NOTE_OUTPUT_TOKENS = 192
+        private const val SMALL_MODEL_NOTE_OUTPUT_TOKENS = 640
+        private const val LARGE_MODEL_NOTE_OUTPUT_TOKENS = 1024
         private const val ULTRA_LOW_RAM_MAX_SNIPPET_OUTPUT_TOKENS = 256
         private const val SMALL_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 320
         private const val LARGE_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 448
+        private const val ULTRA_LOW_RAM_AUTO_UNLOAD_DELAY_MS = 5_000L
+        private const val LOW_RAM_AUTO_UNLOAD_DELAY_MS = 8_000L
+        private const val MID_RAM_AUTO_UNLOAD_DELAY_MS = 15_000L
+        private const val DEFAULT_AUTO_UNLOAD_DELAY_MS = 30_000L
+        private const val ULTRA_LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 25_000L
+        private const val LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 35_000L
+        private const val DEFAULT_MODEL_LOAD_TIMEOUT_MS = 45_000L
+        private const val ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS = 60_000L
+        private const val LOW_RAM_INFERENCE_TIMEOUT_MS = 75_000L
+        private const val DEFAULT_INFERENCE_TIMEOUT_MS = 90_000L
         private const val CANCEL_WAIT_TIMEOUT_MS = 5_000L
+        private const val DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS = 15_000L
+
+        fun requiredModelFiles(tier: ModelTier): List<String> = buildList {
+            add("llm_config.json")
+            add("config.json")
+            add("llm.mnn")
+            add("llm.mnn.weight")
+            add("tokenizer.txt")
+            if (tier.supportsVision) {
+                add("visual.mnn")
+            }
+        }
+
+        fun hasRequiredModelFiles(dir: File, tier: ModelTier): Boolean {
+            if (!dir.exists()) return false
+            val requiredFilesPresent = requiredModelFiles(tier).all { name ->
+                val file = File(dir, name)
+                file.exists() && file.length() > 0L
+            }
+            if (!requiredFilesPresent) return false
+            return tier.supportsVision || !File(dir, "visual.mnn").exists()
+        }
     }
 }

@@ -176,6 +176,12 @@ class ModelDownloadService : Service() {
         if (llmState is LlmModelManager.ModelState.Verifying) {
             return ProgressInfo("Verifying LLM model…", -1, -1)
         }
+        if (llmState is LlmModelManager.ModelState.Installing) {
+            val mb = llmState.bytesProcessed / (1024 * 1024)
+            val totalMb = if (llmState.totalBytes > 0) llmState.totalBytes / (1024 * 1024) else -1L
+            val text = if (totalMb > 0) "Installing LLM model… ${mb}/${totalMb} MB" else "Installing LLM model… ${mb} MB"
+            return ProgressInfo(text, llmState.bytesProcessed, llmState.totalBytes)
+        }
 
         // Terminal states
         val asrDone = asrState is ModelDownloader.DownloadState.Complete || asrState is ModelDownloader.DownloadState.Idle

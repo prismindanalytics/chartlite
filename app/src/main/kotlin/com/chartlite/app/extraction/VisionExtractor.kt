@@ -31,6 +31,11 @@ class VisionExtractor(
     )
 
     suspend fun extract(imagePath: String, additionalContext: String = ""): VisionResult? {
+        if (!modelManager.activeTier().supportsVision) {
+            Log.w(TAG, "Vision extraction requested for a text-only model tier")
+            return null
+        }
+
         // Check memory headroom before loading vision model + bitmap
         if (!modelManager.hasRuntimeHeadroom()) {
             Log.w(TAG, "Insufficient RAM for vision extraction, skipping")
@@ -40,14 +45,15 @@ class VisionExtractor(
         val isLargeModel = modelManager.activeTier() == LlmModelManager.ModelTier.LARGE
         val system = promptBuilder.visionSystemPrompt(isLargeModel)
         val user = promptBuilder.visionUserPrompt(isLargeModel = isLargeModel, additionalContext = additionalContext)
+        val maxOutputTokens = modelManager.recommendedSnippetOutputTokens()
 
-        Log.d(TAG, "Running vision extraction on: $imagePath")
+        Log.d(TAG, "Running vision extraction on: $imagePath (maxTokens=$maxOutputTokens)")
 
         val raw = modelManager.runVisionInference(
             systemPrompt = system,
             userMessage = user,
             imagePath = imagePath,
-            maxTokens = modelManager.recommendedOutputTokens(),
+            maxTokens = maxOutputTokens,
             config = LlmModelManager.GenerationConfig(
                 temperature = 0.1f,
                 topP = 0.95f,

@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.chartlite.app.App
 import com.chartlite.app.R
-import com.chartlite.app.asr.ASREngine
 import com.chartlite.app.database.entity.PatientEntity
 import com.chartlite.app.extraction.EncounterSaveCoordinator
 import com.chartlite.app.extraction.PatientDemographicsExtractor
@@ -402,31 +401,17 @@ fun PatientRegistrationScreen(
                                 }
                                 voiceError = null
                                 voiceFilledFields = emptySet()
-                                if (asr.mode == ASREngine.Mode.ONNX_OFFLINE &&
-                                    asr.isOnnxModelDownloaded() &&
-                                    !asr.isModelLoaded()
-                                ) {
+                                scope.launch {
                                     preparingVoiceModel = true
-                                    scope.launch {
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                asr.loadModel(app.appConfig.language)
-                                            }
-                                        } finally {
-                                            preparingVoiceModel = false
-                                        }
-                                        asr.startListening(
+                                    try {
+                                        app.startAsrCaptureWithLowMemoryHandoff(
                                             language = app.appConfig.language,
                                             onError = { msg -> voiceError = msg },
                                             disableSilenceAutoStop = true
                                         )
+                                    } finally {
+                                        preparingVoiceModel = false
                                     }
-                                } else {
-                                    asr.startListening(
-                                        language = app.appConfig.language,
-                                        onError = { msg -> voiceError = msg },
-                                        disableSilenceAutoStop = true
-                                    )
                                 }
                             },
                             enabled = !preparingVoiceModel

@@ -262,7 +262,7 @@ fun QueuedExtractionReviewScreen(
                                     actionError = null
                                     scope.launch {
                                         try {
-                                            app.asr.unloadOfflineModelIfIdleAndWait()
+                                            if (!app.prepareOnDeviceNoteProcessingForLowRam { actionError = it }) return@launch
                                             app.extractionQueue.processItem(queueId)
                                             reloadQueueItem()
                                         } catch (e: Exception) {

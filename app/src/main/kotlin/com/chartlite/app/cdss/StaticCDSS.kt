@@ -16,12 +16,20 @@ class StaticCDSS(private val context: Context) {
     private var drugInteractions: List<DrugInteraction> = emptyList()
     private var vitalAlerts = VitalAlerts()
     private var dosageChecker = DosageChecker()
+    @Volatile private var rulesLoaded = false
 
     private val gson = Gson()
 
-    fun loadRules() {
+    @Synchronized
+    fun loadRules(forceReload: Boolean = false) {
+        if (rulesLoaded && !forceReload) return
         loadAllergyRules()
         loadDrugInteractions()
+        rulesLoaded = true
+    }
+
+    private fun ensureRulesLoaded() {
+        if (!rulesLoaded) loadRules()
     }
 
     private fun loadAllergyRules() {
@@ -53,6 +61,7 @@ class StaticCDSS(private val context: Context) {
      * Returns list of alerts sorted by severity (critical first).
      */
     fun evaluate(encounter: StructuredEncounter, patientAllergies: List<String>): List<CDSSAlert> {
+        ensureRulesLoaded()
         val alerts = mutableListOf<CDSSAlert>()
 
         // 1. Drug-allergy interactions (CRITICAL)

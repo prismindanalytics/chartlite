@@ -31,9 +31,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.room.withTransaction
 import com.chartlite.app.App
 import com.chartlite.app.R
 import com.chartlite.app.asr.ModelDownloader
+import com.chartlite.app.auth.AuthResult
 import com.chartlite.app.auth.PinHasher
 import com.chartlite.app.auth.UserRole
 import com.chartlite.app.database.entity.FacilityEntity
@@ -45,6 +47,7 @@ import com.chartlite.app.ui.theme.WarningAmber
 import com.chartlite.app.ui.theme.WarningAmberSurface
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -117,8 +120,9 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
     var inviteIsV2 by rememberSaveable { mutableStateOf(false) }
     var inviteConfirmCodeInput by rememberSaveable { mutableStateOf("") }
     var adminUsername by rememberSaveable { mutableStateOf("") }
-    var adminPin by remember { mutableStateOf("") }
-    var adminPinConfirm by remember { mutableStateOf("") }
+    var adminPin by rememberSaveable { mutableStateOf("") }
+    var adminPinConfirm by rememberSaveable { mutableStateOf("") }
+    var completeSetupError by rememberSaveable { mutableStateOf<String?>(null) }
     // isSaving must NOT survive config changes — could get stuck as true
     var isSaving by remember { mutableStateOf(false) }
 
@@ -137,7 +141,6 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
     var enrollmentVerifying by remember { mutableStateOf(false) }
     var enrollmentSuccess by remember { mutableStateOf<Boolean?>(null) }
     var enrollmentError by remember { mutableStateOf<String?>(null) }
-
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val scanned = result.contents
         if (scanned == null) {
@@ -764,7 +767,12 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             OutlinedTextField(
                                 value = adminPin,
-                                onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) adminPin = it },
+                                onValueChange = {
+                                    if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                        adminPin = it
+                                        completeSetupError = null
+                                    }
+                                },
                                 label = { Text(stringResource(R.string.pin_label)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
@@ -774,7 +782,12 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             Spacer(Modifier.height(12.dp))
                             OutlinedTextField(
                                 value = adminPinConfirm,
-                                onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) adminPinConfirm = it },
+                                onValueChange = {
+                                    if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                        adminPinConfirm = it
+                                        completeSetupError = null
+                                    }
+                                },
                                 label = { Text(stringResource(R.string.confirm_pin)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
@@ -842,14 +855,17 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     // Download states
                     val asrDownloadState by app.asr.modelDownloader.state.collectAsState()
                     val llmModelState by app.llmModelManager.state.collectAsState()
+                    val llmInstallInProgress =
+                        llmModelState is LlmModelManager.ModelState.Downloading ||
+                            llmModelState is LlmModelManager.ModelState.Verifying ||
+                            llmModelState is LlmModelManager.ModelState.Installing
                     val asrReady = asrDownloadState is ModelDownloader.DownloadState.Complete ||
-                        app.asr.isOnnxModelDownloaded()
+                        app.asr.isOnnxModelDownloadedFast()
                     val llmReady = llmModelState is LlmModelManager.ModelState.Ready ||
-                        app.llmModelManager.isModelDownloaded()
+                        (!llmInstallInProgress && app.llmModelManager.isModelDownloaded())
                     val isDownloading = asrDownloadState is ModelDownloader.DownloadState.Downloading ||
                         asrDownloadState is ModelDownloader.DownloadState.Verifying ||
-                        llmModelState is LlmModelManager.ModelState.Downloading ||
-                        llmModelState is LlmModelManager.ModelState.Verifying
+                        llmInstallInProgress
 
                     fun notesProvider(model: String): String = when {
                         model.startsWith("claude") -> "claude"
@@ -1187,6 +1203,37 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     val needsLlmDownload = notesOffline && !llmReady
                     val needsAnyDownload = needsAsrDownload || needsLlmDownload
 
+                    suspend fun downloadRequiredSetupModels() {
+                        // Start foreground service to survive screen-off
+                        val downloadType = when {
+                            needsAsrDownload && needsLlmDownload -> "both"
+                            needsAsrDownload -> "asr"
+                            needsLlmDownload -> "llm"
+                            else -> null
+                        }
+                        if (downloadType != null) {
+                            ModelDownloadService.start(context, downloadType)
+                        }
+
+                        var asrOk = !needsAsrDownload
+                        if (needsAsrDownload) {
+                            app.asr.modelDownloader.startDownload(
+                                modelUrl = selectedAsrTierObj.modelUrl,
+                                vocabUrl = selectedAsrTierObj.vocabUrl,
+                                expectedSha256 = app.appConfig.modelExpectedSha256,
+                                expectedVocabSha256 = app.appConfig.vocabExpectedSha256
+                            )
+                            val finalState = app.asr.modelDownloader.state.first { state ->
+                                state is ModelDownloader.DownloadState.Complete ||
+                                    state is ModelDownloader.DownloadState.Error
+                            }
+                            asrOk = finalState is ModelDownloader.DownloadState.Complete
+                        }
+                        if (needsLlmDownload && asrOk) {
+                            app.llmModelManager.startDownload()
+                        }
+                    }
+
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             if (!voiceOffline && !notesOffline) {
@@ -1302,8 +1349,17 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                         } else {
                                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                                         }
+                                    } else if (!isAsrPhase && llmModelState is LlmModelManager.ModelState.Installing) {
+                                        val install = llmModelState as LlmModelManager.ModelState.Installing
+                                        Text(stringResource(R.string.setup_installing_model), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                        if (install.totalBytes > 0) {
+                                            val progress = install.bytesProcessed.toFloat() / install.totalBytes.toFloat()
+                                            Text("${install.bytesProcessed / (1024 * 1024)} / ${install.totalBytes / (1024 * 1024)} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                                        } else {
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        }
                                     } else {
-                                        // Verifying phase
                                         Text(stringResource(R.string.setup_verifying_download), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                                     }
@@ -1333,37 +1389,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
 
                                     Button(
                                         onClick = {
-                                            // Start foreground service to survive screen-off
-                                            val downloadType = when {
-                                                needsAsrDownload && needsLlmDownload -> "both"
-                                                needsAsrDownload -> "asr"
-                                                needsLlmDownload -> "llm"
-                                                else -> null
-                                            }
-                                            if (downloadType != null) {
-                                                ModelDownloadService.start(context, downloadType)
-                                            }
-                                            scope.launch {
-                                                // Download ASR first, then LLM
-                                                var asrOk = !needsAsrDownload // skip = ok
-                                                if (needsAsrDownload) {
-                                                    app.asr.modelDownloader.startDownload(
-                                                        modelUrl = selectedAsrTierObj.modelUrl,
-                                                        vocabUrl = selectedAsrTierObj.vocabUrl,
-                                                        expectedSha256 = app.appConfig.modelExpectedSha256,
-                                                        expectedVocabSha256 = app.appConfig.vocabExpectedSha256
-                                                    )
-                                                    // Wait for ASR to finish before starting LLM
-                                                    val finalState = app.asr.modelDownloader.state.first { state ->
-                                                        state is ModelDownloader.DownloadState.Complete ||
-                                                            state is ModelDownloader.DownloadState.Error
-                                                    }
-                                                    asrOk = finalState is ModelDownloader.DownloadState.Complete
-                                                }
-                                                if (needsLlmDownload && asrOk) {
-                                                    app.llmModelManager.startDownload()
-                                                }
-                                            }
+                                            scope.launch { downloadRequiredSetupModels() }
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
@@ -1608,8 +1634,8 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     val requiresOfflineLlm = aiMode == "on_device"
                     val requiresOfflineModels = requiresOfflineAsr || requiresOfflineLlm
                     val offlineReady =
-                        (!requiresOfflineAsr || app.asr.isOnnxModelDownloaded()) &&
-                            (!requiresOfflineLlm || app.llmModelManager.isModelDownloaded())
+                        (!requiresOfflineAsr || app.asr.isOnnxModelDownloadedFast()) &&
+                            (!requiresOfflineLlm || llmReady)
 
                     // Enrollment required when cloud mode is selected with ChartLite proxy
                     val requiresEnrollment = app.appConfig.cloudKeyMode == "chartlite" &&
@@ -1664,155 +1690,202 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                         Spacer(Modifier.height(8.dp))
                     }
 
+                    completeSetupError?.let { message ->
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    val canCompleteSetup = !isSaving &&
+                        !isDownloading &&
+                        adminPin.length >= 4 &&
+                        adminPin == adminPinConfirm
+
+                    suspend fun performSetupCompletion() {
+                        try {
+                            val providerId = UUID.randomUUID().toString().take(8)
+                            val selectedMode = FacilitySetupMode.valueOf(facilityMode)
+                            if (
+                                selectedMode == FacilitySetupMode.JOIN_EXISTING &&
+                                inviteExpiresAtMs > 0L &&
+                                inviteExpiresAtMs <= System.currentTimeMillis()
+                            ) {
+                                completeSetupError = "Invitation QR expired. Ask admin to generate a new one."
+                                return
+                            }
+
+                            val facilityId = when (selectedMode) {
+                                FacilitySetupMode.CREATE_NEW ->
+                                    "${country.uppercase()}-${UUID.randomUUID().toString().take(6).uppercase()}"
+                                FacilitySetupMode.JOIN_EXISTING ->
+                                    normalizeFacilityId(scannedInviteFacilityId)
+                                        ?: run {
+                                            completeSetupError = "Invite is missing a valid facility ID."
+                                            return
+                                        }
+                            }
+                            val invitedRole = parseUserRole(invitedRoleName)
+                            if (selectedMode == FacilitySetupMode.JOIN_EXISTING && invitedRole == UserRole.ADMIN) {
+                                completeSetupError = "ADMIN role cannot be granted via invite. Ask admin to assign role manually."
+                                return
+                            }
+                            val newUserRole = when (selectedMode) {
+                                FacilitySetupMode.CREATE_NEW -> UserRole.ADMIN.name
+                                FacilitySetupMode.JOIN_EXISTING -> invitedRole?.name
+                                    ?: run {
+                                        completeSetupError = "Invite is missing a valid role."
+                                        return
+                                    }
+                            }
+
+                            val resolvedFacilityName = when (selectedMode) {
+                                FacilitySetupMode.CREATE_NEW -> facilityName
+                                FacilitySetupMode.JOIN_EXISTING ->
+                                    facilityName.ifBlank { "Facility $facilityId" }
+                            }
+                            val resolvedFacilityLocation = when (selectedMode) {
+                                FacilitySetupMode.CREATE_NEW -> facilityLocation
+                                FacilitySetupMode.JOIN_EXISTING ->
+                                    facilityLocation.ifBlank { "Joined existing facility" }
+                            }
+                            val normalizedUsername = adminUsername.trim().lowercase()
+                                .ifBlank {
+                                    completeSetupError = "Unable to create an admin username. Check the provider name."
+                                    return
+                                }
+                            val salt = PinHasher.generateSalt()
+                            val hash = PinHasher.hash(adminPin, salt)
+                            val userId = UUID.randomUUID().toString()
+                            val now = System.currentTimeMillis()
+                            val createdBy = when (selectedMode) {
+                                FacilitySetupMode.CREATE_NEW -> "setup"
+                                FacilitySetupMode.JOIN_EXISTING -> "invite_qr"
+                            }
+
+                            val finalUsername = withContext(Dispatchers.IO) {
+                                app.database.withTransaction {
+                                    val providerDao = app.database.providerDao()
+                                    val userDao = app.database.userDao()
+                                    providerDao.insertProvider(
+                                        ProviderEntity(providerId, providerName, qualification, facilityId)
+                                    )
+                                    providerDao.insertFacility(
+                                        FacilityEntity(facilityId, resolvedFacilityName, resolvedFacilityLocation)
+                                    )
+
+                                    try {
+                                        userDao.insert(
+                                            UserEntity(
+                                                id = userId,
+                                                username = normalizedUsername,
+                                                displayName = providerName,
+                                                pinHash = hash,
+                                                pinSalt = salt,
+                                                role = newUserRole,
+                                                facilityId = facilityId,
+                                                isActive = true,
+                                                createdBy = createdBy,
+                                                createdAt = now,
+                                                updatedAt = now
+                                            )
+                                        )
+                                        normalizedUsername
+                                    } catch (_: android.database.sqlite.SQLiteConstraintException) {
+                                        val suffixedUsername = "${normalizedUsername}.${(1..999).first { n ->
+                                            userDao.getByUsername("$normalizedUsername.$n", facilityId) == null
+                                        }}"
+                                        userDao.insert(
+                                            UserEntity(
+                                                id = userId,
+                                                username = suffixedUsername,
+                                                displayName = providerName,
+                                                pinHash = hash,
+                                                pinSalt = salt,
+                                                role = newUserRole,
+                                                facilityId = facilityId,
+                                                isActive = true,
+                                                createdBy = createdBy,
+                                                createdAt = now,
+                                                updatedAt = now
+                                            )
+                                        )
+                                        suffixedUsername
+                                    }
+                                }
+                            }
+
+                            app.appConfig.countryCode = country
+                            app.appConfig.providerId = providerId
+                            app.appConfig.facilityId = facilityId
+                            app.appConfig.facilityName = resolvedFacilityName
+                            app.appConfig.asrMode = asrMode
+                            app.asr.mode = when (asrMode) {
+                                "onnx" -> com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE
+                                "cloud" -> com.chartlite.app.asr.ASREngine.Mode.CLOUD_ASR
+                                else -> com.chartlite.app.asr.ASREngine.Mode.GOOGLE_ONLINE
+                            }
+                            app.appConfig.aiMode = aiMode
+                            app.appConfig.noteProcessingMode = noteProcessingMode
+                            app.appConfig.recordingModeDefault = recordingModeDefault
+                            app.appConfig.claudeApiKey = claudeApiKey.trim()
+                            app.appConfig.geminiApiKey = geminiApiKey.trim()
+                            app.appConfig.openaiApiKey = openaiApiKey.trim()
+                            app.appConfig.deepgramApiKey = deepgramApiKey.trim()
+                            app.appConfig.chartliteEnrollmentCode = chartliteEnrollmentCode
+                            app.appConfig.isSetupComplete = true
+
+                            withContext(Dispatchers.IO) {
+                                app.loadCountryData(deferExtraction = true)
+                            }
+
+                            when (val loginResult = app.sessionManager.login(finalUsername, adminPin, facilityId)) {
+                                is AuthResult.Success -> {
+                                    app.auditLogger.log(
+                                        "CREATE_USER",
+                                        targetType = "USER",
+                                        targetId = userId,
+                                        details = """{"role":"$newUserRole","source":"setup","mode":"${selectedMode.name.lowercase()}"}"""
+                                    )
+                                    onSetupComplete()
+                                }
+                                is AuthResult.Failed -> {
+                                    completeSetupError = "Setup saved, but automatic sign-in failed: ${loginResult.reason}"
+                                }
+                                AuthResult.AccountDisabled -> {
+                                    completeSetupError = "Setup saved, but the new account is disabled."
+                                }
+                                AuthResult.TooManyAttempts -> {
+                                    completeSetupError = "Setup saved, but automatic sign-in is temporarily locked. Sign in manually in a moment."
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            completeSetupError = e.message ?: "Unable to complete setup."
+                        } finally {
+                            isSaving = false
+                        }
+                    }
+
                     Button(
                         onClick = {
-                            if (isSaving) return@Button
-                            isSaving = true
-                            scope.launch {
-                                val providerId = UUID.randomUUID().toString().take(8)
-                                val selectedMode = FacilitySetupMode.valueOf(facilityMode)
-                                if (
-                                    selectedMode == FacilitySetupMode.JOIN_EXISTING &&
-                                    inviteExpiresAtMs > 0L &&
-                                    inviteExpiresAtMs <= System.currentTimeMillis()
-                                ) {
-                                    facilityScanError = "Invitation QR expired. Ask admin to generate a new one."
-                                    isSaving = false
-                                    return@launch
-                                }
-                                val facilityId = when (selectedMode) {
-                                    FacilitySetupMode.CREATE_NEW ->
-                                        "${country.uppercase()}-${UUID.randomUUID().toString().take(6).uppercase()}"
-                                    FacilitySetupMode.JOIN_EXISTING ->
-                                        normalizeFacilityId(scannedInviteFacilityId)
-                                            ?: run {
-                                                isSaving = false
-                                                return@launch
-                                            }
-                                }
-                                val resolvedFacilityName = when (selectedMode) {
-                                    FacilitySetupMode.CREATE_NEW -> facilityName
-                                    FacilitySetupMode.JOIN_EXISTING ->
-                                        facilityName.ifBlank { "Facility $facilityId" }
-                                }
-                                val resolvedFacilityLocation = when (selectedMode) {
-                                    FacilitySetupMode.CREATE_NEW -> facilityLocation
-                                    FacilitySetupMode.JOIN_EXISTING ->
-                                        facilityLocation.ifBlank { "Joined existing facility" }
-                                }
-
-                                app.database.providerDao().insertProvider(
-                                    ProviderEntity(providerId, providerName, qualification, facilityId)
-                                )
-                                app.database.providerDao().insertFacility(
-                                    FacilityEntity(facilityId, resolvedFacilityName, resolvedFacilityLocation)
-                                )
-
-                                val salt = PinHasher.generateSalt()
-                                val hash = PinHasher.hash(adminPin, salt)
-                                val userId = UUID.randomUUID().toString()
-                                val now = System.currentTimeMillis()
-                                val invitedRole = parseUserRole(invitedRoleName)
-                                if (selectedMode == FacilitySetupMode.JOIN_EXISTING && invitedRole == UserRole.ADMIN) {
-                                    facilityScanError = "ADMIN role cannot be granted via invite. Ask admin to assign role manually."
-                                    isSaving = false
-                                    return@launch
-                                }
-                                val newUserRole = when (selectedMode) {
-                                    FacilitySetupMode.CREATE_NEW -> UserRole.ADMIN.name
-                                    FacilitySetupMode.JOIN_EXISTING -> invitedRole?.name
-                                        ?: run {
-                                            isSaving = false
-                                            return@launch
-                                        }
-                                }
-                                val createdBy = when (selectedMode) {
-                                    FacilitySetupMode.CREATE_NEW -> "setup"
-                                    FacilitySetupMode.JOIN_EXISTING -> "invite_qr"
-                                }
-
-                                val finalUsername = try {
-                                    app.database.userDao().insert(
-                                        UserEntity(
-                                            id = userId,
-                                            username = adminUsername,
-                                            displayName = providerName,
-                                            pinHash = hash,
-                                            pinSalt = salt,
-                                            role = newUserRole,
-                                            facilityId = facilityId,
-                                            isActive = true,
-                                            createdBy = createdBy,
-                                            createdAt = now,
-                                            updatedAt = now
-                                        )
-                                    )
-                                    adminUsername
-                                } catch (_: android.database.sqlite.SQLiteConstraintException) {
-                                    val suffixedUsername = "${adminUsername}.${(1..999).first { n ->
-                                        app.database.userDao().getByUsername("$adminUsername.$n", facilityId) == null
-                                    }}"
-                                    app.database.userDao().insert(
-                                        UserEntity(
-                                            id = userId,
-                                            username = suffixedUsername,
-                                            displayName = providerName,
-                                            pinHash = hash,
-                                            pinSalt = salt,
-                                            role = newUserRole,
-                                            facilityId = facilityId,
-                                            isActive = true,
-                                            createdBy = createdBy,
-                                            createdAt = now,
-                                            updatedAt = now
-                                        )
-                                    )
-                                    suffixedUsername
-                                }
-
-                                // Set ALL config values BEFORE building extraction pipeline
-                                // so the pipeline uses the correct country, AI mode, and keys.
-                                app.appConfig.countryCode = country
-                                app.appConfig.providerId = providerId
-                                app.appConfig.facilityId = facilityId
-                                app.appConfig.facilityName = resolvedFacilityName
-                                app.appConfig.asrMode = asrMode
-                                app.asr.mode = when (asrMode) {
-                                    "onnx" -> com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE
-                                    "cloud" -> com.chartlite.app.asr.ASREngine.Mode.CLOUD_ASR
-                                    else -> com.chartlite.app.asr.ASREngine.Mode.GOOGLE_ONLINE
-                                }
-                                app.appConfig.aiMode = aiMode
-                                app.appConfig.noteProcessingMode = noteProcessingMode
-                                app.appConfig.recordingModeDefault = recordingModeDefault
-                                app.appConfig.claudeApiKey = claudeApiKey.trim()
-                                app.appConfig.geminiApiKey = geminiApiKey.trim()
-                                app.appConfig.openaiApiKey = openaiApiKey.trim()
-                                app.appConfig.deepgramApiKey = deepgramApiKey.trim()
-                                app.appConfig.chartliteEnrollmentCode = chartliteEnrollmentCode
-                                app.appConfig.isSetupComplete = true
-
-                                // Defer extraction pipeline build to avoid OOM on 3GB devices
-                                // that just finished downloading models. loadCountryData with
-                                // deferExtraction=true schedules the heavy pipeline build
-                                // (native lib load + vector index) after a short delay when
-                                // memory pressure from the download has subsided.
-                                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                                    app.loadCountryData(deferExtraction = true)
-                                }
-
-                                app.sessionManager.login(finalUsername, adminPin, facilityId)
-                                app.auditLogger.log(
-                                    "CREATE_USER",
-                                    targetType = "USER",
-                                    targetId = userId,
-                                    details = """{"role":"$newUserRole","source":"setup","mode":"${selectedMode.name.lowercase()}"}"""
-                                )
-
-                                onSetupComplete()
+                            if (isSaving || isDownloading) return@Button
+                            if (adminPin.length < 4) {
+                                completeSetupError = "Enter a 4-6 digit PIN before completing setup."
+                                return@Button
                             }
+                            if (adminPin != adminPinConfirm) {
+                                completeSetupError = "PINs do not match."
+                                return@Button
+                            }
+                            completeSetupError = null
+                            isSaving = true
+                            scope.launch { performSetupCompletion() }
                         },
-                        enabled = !isSaving,
+                        enabled = canCompleteSetup,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isSaving) {

@@ -394,7 +394,11 @@ fun FacilityDashboardScreen(
                                 } else {
                                     Button(onClick = {
                                         scope.launch {
-                                            app.asr.unloadOfflineModelIfIdleAndWait()
+                                            if (!app.prepareOnDeviceNoteProcessingForLowRam { msg ->
+                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                }) {
+                                                return@launch
+                                            }
                                             app.extractionQueue.processBatch()
                                         }
                                     }) {

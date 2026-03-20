@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import com.chartlite.app.model.TranscriptionResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +91,13 @@ class ASREngine(private val context: Context) {
     private var transcriptCollectorJob: Job? = null
     private var amplitudeCollectorJob: Job? = null
     private var recorderStateCollectorJob: Job? = null
+
+    private fun availableRamMb(): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        return memInfo.availMem / 1024 / 1024
+    }
 
     // ── Public API ──
 
@@ -312,22 +320,35 @@ class ASREngine(private val context: Context) {
                 if (audioRecorder.isRecording.value) {
                     audioRecorder.stop()
                 }
+                val finalizeStartedAt = System.currentTimeMillis()
                 // Finalizing ONNX inference can be CPU-heavy; keep it off the main thread
                 // to avoid UI hangs when users tap "Done" on voice capture screens.
                 val finalText = withContext(Dispatchers.Default) {
                     sherpaPipeline.stopAndAwait(timeoutMs = finalizeTimeoutMs)
                 }
+                val finalizeElapsedMs = System.currentTimeMillis() - finalizeStartedAt
                 val error = if (finalText.isBlank()) sherpaPipeline.consumeLastFailureReason() else null
                 _isListening.value = false
                 _amplitude.value = 0f
                 _transcript.value = finalText
+                Log.d(
+                    "ASREngine",
+                    "ASR finalize finished in ${finalizeElapsedMs}ms " +
+                        "(chars=${finalText.length}, avail=${availableRamMb()}MB)"
+                )
 
                 // Release ONNX session to free RAM before SLM inference.
                 // The pipeline auto-loads on next startListening() call.
                 if (releaseOnnxAfterStop) {
+                    val unloadStartedAt = System.currentTimeMillis()
                     withContext(Dispatchers.Default) {
                         sherpaPipeline.release()
                     }
+                    Log.d(
+                        "ASREngine",
+                        "ASR unload after finalize finished in ${System.currentTimeMillis() - unloadStartedAt}ms " +
+                            "(avail=${availableRamMb()}MB)"
+                    )
                 }
 
                 TranscriptionResult(
@@ -368,15 +389,15 @@ class ASREngine(private val context: Context) {
      */
     suspend fun loadModel(language: String = "en"): Boolean {
         currentLanguage = language
-        modelDownloader.refreshState()
-
-        if (!modelDownloader.isReady()) return false
         if (sherpaPipeline.isLoaded.value) return true
         if (_isPreparing.value) return false
 
         _isPreparing.value = true
         return try {
             withContext(Dispatchers.Default) {
+                modelDownloader.refreshState()
+                if (!modelDownloader.isReady()) return@withContext false
+                if (sherpaPipeline.isLoaded.value) return@withContext true
                 val tier = modelDownloader.configuredTier()
                 if (tier != null) {
                     sherpaPipeline.loadModel(
@@ -424,11 +445,17 @@ class ASREngine(private val context: Context) {
      */
     suspend fun unloadOfflineModelAndWait() {
         if (!sherpaPipeline.isLoaded.value) return
+        val unloadStartedAt = System.currentTimeMillis()
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             sherpaPipeline.release()
         }
         // Give the GC a nudge to reclaim native memory before LLM loads
         System.gc()
+        Log.d(
+            "ASREngine",
+            "Blocking ASR unload finished in ${System.currentTimeMillis() - unloadStartedAt}ms " +
+                "(avail=${availableRamMb()}MB)"
+        )
     }
 
     fun getCurrentLanguage(): String = currentLanguage
@@ -678,7 +705,7 @@ class ASREngine(private val context: Context) {
                         if (isContinuous && consecutiveErrors <= 3) {
                             restartWithBackoff()
                         } else {
-                            val offlineHint = if (!modelDownloader.isReady())
+                            val offlineHint = if (!modelDownloader.isReadyFast())
                                 ". Download the offline ASR model in Settings for use without internet." else ""
                             val msg = when (error) {
                                 SpeechRecognizer.ERROR_NETWORK -> "Network error — check your internet connection$offlineHint"

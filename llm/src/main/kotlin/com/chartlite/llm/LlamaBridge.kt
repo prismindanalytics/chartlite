@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import java.nio.ByteBuffer
+import java.io.File
 
 /**
  * JNI bridge to MNN-LLM for on-device Qwen inference.
@@ -16,6 +17,8 @@ object LlamaBridge {
 
     @Volatile
     private var initialized = false
+    @Volatile
+    private var cacheDirPath: String = ""
 
     /**
      * Initialize the llama.cpp backend. Must be called once before any other method.
@@ -24,6 +27,7 @@ object LlamaBridge {
         if (initialized) return
         synchronized(this) {
             if (initialized) return
+            cacheDirPath = File(context.cacheDir, "mnn_llm").apply { mkdirs() }.absolutePath
             System.loadLibrary("chartlite-llm")
             nativeInit()
             initialized = true
@@ -33,7 +37,7 @@ object LlamaBridge {
 
     fun initGenerateModel(modelPath: String): Boolean {
         check(initialized) { "LlamaBridge.initialize() not called" }
-        return nativeInitGenerateModel(modelPath)
+        return nativeInitGenerateModel(modelPath, cacheDirPath)
     }
 
     fun updateGenerateParams(
@@ -136,7 +140,7 @@ object LlamaBridge {
 
     // JNI native methods
     private external fun nativeInit()
-    private external fun nativeInitGenerateModel(modelPath: String): Boolean
+    private external fun nativeInitGenerateModel(modelPath: String, tmpPath: String): Boolean
     private external fun nativeUpdateGenerateParams(
         temperature: Float, maxTokens: Int, topP: Float, topK: Int, repeatPenalty: Float
     )

@@ -49,12 +49,13 @@ class ExtractionPromptBuilder(
 
     /** Return (system, user) pair for note generation — used with LlamaBridge.applyChatTemplate(). */
     fun noteSystemAndUser(transcript: String, compact: Boolean = false): Pair<String, String> =
-        Pair(buildNoteSystemPrompt(), buildNoteUserPrompt(transcript, compact))
+        Pair(buildNoteSystemPrompt(compact), buildNoteUserPrompt(transcript, compact))
 
     // ── Note Generation Prompts (draft-note-first architecture) ──
 
     /** System prompt for generating a clinical note from transcript. */
-    fun buildNoteSystemPrompt(): String = NOTE_SYSTEM_PROMPT
+    fun buildNoteSystemPrompt(compact: Boolean = false): String =
+        if (compact) COMPACT_NOTE_SYSTEM_PROMPT else NOTE_SYSTEM_PROMPT
 
     /** User prompt for note generation (cloud LLM). */
     fun buildNoteUserPrompt(transcript: String, compact: Boolean = false): String = buildString {
@@ -62,13 +63,12 @@ class ExtractionPromptBuilder(
         appendLine("Include ONLY facts from the dictation. Omit empty sections.")
         appendLine()
         if (compact) {
-            // Compact prompt for 0.8B model — fewer sections to reduce padding/repetition
-            // Dropped HPI + Exam Findings (biggest padding offenders) and Investigations
+            // Compact prompt for 0.8B model on low-RAM devices.
+            appendLine("Keep the note extremely short: at most 4 short bullets and about 60 words total.")
             appendLine("Sections (skip any not mentioned in dictation):")
-            appendLine("## Chief Complaint")
-            appendLine("## Vitals")
-            appendLine("## Assessment & Plan")
-            appendLine("## Allergies")
+            appendLine("## CC")
+            appendLine("## Findings")
+            appendLine("## Plan")
             appendLine("## Follow-up")
         } else {
             appendLine("Sections (include only if relevant):")
@@ -91,7 +91,7 @@ class ExtractionPromptBuilder(
     /** On-device chat-formatted prompt for note generation (Qwen). */
     fun buildOnDeviceNoteChatPrompt(transcript: String, compact: Boolean = false): String = buildString {
         appendLine("<|im_start|>system")
-        appendLine(buildNoteSystemPrompt())
+        appendLine(buildNoteSystemPrompt(compact))
         appendLine("<|im_end|>")
         appendLine("<|im_start|>user")
         appendLine(buildNoteUserPrompt(transcript, compact))
@@ -219,6 +219,14 @@ Rules:
 - Use exact numbers, values, and medical terms as dictated.
 - Format: ## for headers, - for bullets, **bold** for key terms.
 - No disclaimers or commentary.
+        """.trimIndent()
+
+        private val COMPACT_NOTE_SYSTEM_PROMPT = """
+You are a clinical scribe.
+Write a very short clinical note from the dictation.
+Use only stated facts. No repetition. Omit empty sections.
+Use ## headers and short bullets only.
+Do not use bold text. Do not write paragraphs.
         """.trimIndent()
 
         private val BENCHMARK_JSON_SCHEMA = """

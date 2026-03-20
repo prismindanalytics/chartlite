@@ -13,10 +13,14 @@ import kotlinx.coroutines.withContext
  * Output format: shared JSON schema used across cloud and local extraction.
  */
 class QwenExtractionStrategy(
-    private val modelManager: LlmModelManager,
+    private val modelManagerProvider: () -> LlmModelManager,
     private val promptBuilder: ExtractionPromptBuilder,
-    private val responseParser: LlmResponseParser
+    private val responseParser: LlmResponseParser,
+    private val prepareForLowRamInference: (suspend () -> Boolean)? = null
 ) : ExtractionStrategy {
+
+    private val modelManager: LlmModelManager
+        get() = modelManagerProvider()
 
     private class QwenParseRejectedException(message: String) : IllegalStateException(message)
 
@@ -51,6 +55,10 @@ class QwenExtractionStrategy(
         facilityId: String
     ): StructuredEncounter? = withContext(Dispatchers.IO) {
         try {
+            if (prepareForLowRamInference?.invoke() == false) {
+                Log.w(TAG, "Skipping Qwen extraction: ASR is active or still preparing")
+                return@withContext null
+            }
             if (!modelManager.hasRuntimeHeadroom()) {
                 Log.w(TAG, "Skipping Qwen: not enough free memory for safe inference")
                 return@withContext null
@@ -72,7 +80,7 @@ class QwenExtractionStrategy(
             // with proper special token IDs (not raw text <|im_start|> tags)
             val (systemPrompt, userMessage) = promptBuilder.extractionSystemAndUser(preparedTranscript.text)
 
-            val maxOutputTokens = modelManager.recommendedOutputTokens()
+            val maxOutputTokens = modelManager.recommendedExtractionOutputTokens()
             Log.d(
                 TAG,
                 "Running Qwen inference (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, " +
@@ -140,10 +148,10 @@ class QwenExtractionStrategy(
         )
         // More aggressive repeat penalty for 0.8B model on ≤3GB devices
         private val COMPACT_NOTE_GENERATION_CONFIG = LlmModelManager.GenerationConfig(
-            temperature = 0.2f,
-            topP = 0.9f,
-            topK = 30,
-            repeatPenalty = 1.5f
+            temperature = 0.1f,
+            topP = 0.85f,
+            topK = 20,
+            repeatPenalty = 1.6f
         )
         private val EMPTY_RESPONSE_RETRY_CONFIG = LlmModelManager.GenerationConfig(
             temperature = 0.2f,
@@ -405,6 +413,10 @@ class QwenExtractionStrategy(
      */
     override suspend fun generateNote(transcript: String): String? = withContext(Dispatchers.IO) {
         try {
+            if (prepareForLowRamInference?.invoke() == false) {
+                Log.w(TAG, "Skipping Qwen note generation: ASR is active or still preparing")
+                return@withContext null
+            }
             if (!modelManager.hasRuntimeHeadroom()) {
                 Log.w(TAG, "Skipping Qwen note generation: not enough free memory")
                 return@withContext null
@@ -417,15 +429,10 @@ class QwenExtractionStrategy(
                 Log.w(TAG, "Skipping Qwen note generation: transcript empty after preparation")
                 return@withContext null
             }
-            if (modelManager.shouldSkipLongTranscript(prepared.preparedChars)) {
-                Log.w(TAG, "Skipping Qwen note generation: transcript too long")
-                return@withContext null
-            }
-
             // Use structured system/user pair — MNN applies native chat template
             val compact = modelManager.activeTier() == LlmModelManager.ModelTier.SMALL
             val (systemPrompt, userMessage) = promptBuilder.noteSystemAndUser(prepared.text, compact = compact)
-            val maxOutputTokens = modelManager.recommendedOutputTokens()
+            val maxOutputTokens = modelManager.recommendedNoteOutputTokens()
             // Higher repeat penalty on small model to suppress cross-section repetition
             val config = if (compact) COMPACT_NOTE_GENERATION_CONFIG else NOTE_GENERATION_CONFIG
 

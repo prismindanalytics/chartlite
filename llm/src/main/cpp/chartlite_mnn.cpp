@@ -29,15 +29,37 @@ static int   g_top_k          = 40;
 static float g_repeat_penalty = 1.0f;
 static std::atomic<bool> g_cancel_generation(false);
 
+static std::string escape_json_string(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 8);
+    for (char ch : value) {
+        switch (ch) {
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '"':
+                escaped += "\\\"";
+                break;
+            default:
+                escaped += ch;
+                break;
+        }
+    }
+    return escaped;
+}
+
 // Build JSON config string for MNN sampling parameters
 static std::string build_config_json() {
     std::ostringstream ss;
     ss << "{"
        << "\"max_new_tokens\":" << g_max_tokens << ","
+       << "\"sampler_type\":\"mixed\","
+       << "\"mixed_samplers\":[\"penalty\",\"topK\",\"topP\",\"temperature\"],"
        << "\"temperature\":" << g_temperature << ","
-       << "\"top_k\":" << g_top_k << ","
-       << "\"top_p\":" << g_top_p << ","
-       << "\"repeat_penalty\":" << g_repeat_penalty
+       << "\"topK\":" << g_top_k << ","
+       << "\"topP\":" << g_top_p << ","
+       << "\"penalty\":" << g_repeat_penalty << ","
+       << "\"penalty_sampler\":\"temperature\""
        << "}";
     return ss.str();
 }
@@ -78,7 +100,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeInit(JNIEnv *, jobject) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject, jstring jModelPath) {
+Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject, jstring jModelPath, jstring jTmpPath) {
     std::lock_guard<std::mutex> lock(g_mutex);
 
     // Shutdown previous model if any
@@ -88,15 +110,20 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     }
 
     const char *modelPath = env->GetStringUTFChars(jModelPath, nullptr);
+    const char *tmpPathChars = env->GetStringUTFChars(jTmpPath, nullptr);
     LOGi("initGenerateModel (MNN): %s", modelPath);
 
     // MNN expects path to the directory containing llm_config.json, with trailing /
     std::string configDir(modelPath);
+    std::string tmpPath = tmpPathChars ? tmpPathChars : "";
     if (!configDir.empty() && configDir.back() != '/') {
         configDir += '/';
     }
     g_llm = Llm::createLLM(configDir);
     env->ReleaseStringUTFChars(jModelPath, modelPath);
+    if (tmpPathChars) {
+        env->ReleaseStringUTFChars(jTmpPath, tmpPathChars);
+    }
 
     if (!g_llm) {
         LOGe("Llm::createLLM failed");
@@ -105,7 +132,6 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
 
     // Configure threading based on available CPUs
     int n_cpu = (int)sysconf(_SC_NPROCESSORS_ONLN);
-    int n_threads = std::max(2, std::min(4, n_cpu - 2));
 
     // Get total RAM for logging
     long page_count = sysconf(_SC_PHYS_PAGES);
@@ -114,15 +140,33 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     if (page_count > 0 && page_size > 0) {
         total_ram_gb = (double)page_count * (double)page_size / (1024.0 * 1024.0 * 1024.0);
     }
+    const bool low_ram_device = total_ram_gb <= 3.5;
+    const bool can_push_three_threads = low_ram_device && total_ram_gb >= 2.5 && n_cpu >= 6;
+    const int n_threads = low_ram_device
+        ? (can_push_three_threads ? 3 : 2)
+        : std::max(2, std::min(4, n_cpu - 2));
+    const int attention_mode = low_ram_device ? 10 : 8;
 
-    // Set thread count, backend, and disable thinking (saves tokens for actual output)
+    // Use the MNN-documented runtime keys so low-RAM tuning is actually applied.
     std::ostringstream config;
     config << "{"
+           << "\"async\":false,"
            << "\"thread_num\":" << n_threads << ","
-           << "\"backend\":\"cpu\","
+           << "\"backend_type\":\"cpu\","
+           << "\"precision\":\"low\","
+           << "\"memory\":\"low\","
+           << "\"power\":\"high\","
+           << "\"use_mmap\":true,"
+           << "\"use_cached_mmap\":true,";
+    if (!tmpPath.empty()) {
+        config << "\"tmp_path\":\"" << escape_json_string(tmpPath) << "\",";
+    }
+    config << "\"attention_mode\":" << attention_mode << ","
            << "\"jinja\":{\"context\":{\"enable_thinking\":false}}"
            << "}";
-    g_llm->set_config(config.str());
+    if (!g_llm->set_config(config.str())) {
+        LOGw("Initial MNN config rejected, continuing with model defaults");
+    }
 
     // Load model weights
     if (!g_llm->load()) {
@@ -135,10 +179,21 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     // Apply current sampling parameters
     apply_params();
 
-    // Run tuning for optimal performance on this device
-    g_llm->tuning(OP_ENCODER_NUMBER, {1, 32, 64, 128});
+    // Low-RAM devices reload the model more often because ASR and LLM are serialized.
+    // Skip encoder tuning there to cut reload latency and reduce peak memory pressure.
+    if (!low_ram_device) {
+        g_llm->tuning(OP_ENCODER_NUMBER, {1, 32, 64, 128});
+    } else {
+        LOGi("Skipping MNN tuning on low-RAM device to reduce reload latency");
+    }
 
-    LOGi("MNN model loaded: ram=%.1fGB, threads=%d", total_ram_gb, n_threads);
+    LOGi(
+        "MNN model loaded: ram=%.1fGB, threads=%d, attention=%d, low_ram=%d",
+        total_ram_gb,
+        n_threads,
+        attention_mode,
+        low_ram_device ? 1 : 0
+    );
     return JNI_TRUE;
 }
 
@@ -177,7 +232,7 @@ static jstring generate_internal_jni(JNIEnv *env, jstring jPrompt) {
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {
-        LOGi("Generated: prompt=%d tokens, decode=%d tokens, prefill=%.1fms, decode=%.1fms",
+        LOGi("Generate metrics: prompt=%d tokens, decode=%d tokens, first_token_ms=%.1f, total_decode_ms=%.1f",
              ctx->prompt_len, ctx->gen_seq_len,
              ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
     }
@@ -228,7 +283,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {
-        LOGi("Generated: prompt=%d tokens, decode=%d tokens, prefill=%.1fms, decode=%.1fms",
+        LOGi("GenerateChat metrics: prompt=%d tokens, decode=%d tokens, first_token_ms=%.1f, total_decode_ms=%.1f",
              ctx->prompt_len, ctx->gen_seq_len,
              ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
     }
@@ -314,7 +369,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {
-        LOGi("Vision generated: prompt=%d tokens, decode=%d tokens, prefill=%.1fms, decode=%.1fms, vision=%.1fms",
+        LOGi("GenerateVision metrics: prompt=%d tokens, decode=%d tokens, first_token_ms=%.1f, total_decode_ms=%.1f, vision_ms=%.1f",
              ctx->prompt_len, ctx->gen_seq_len,
              ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0,
              ctx->vision_us / 1000.0);

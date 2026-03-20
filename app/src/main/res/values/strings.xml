@@ -427,6 +427,7 @@
     <string name="setup_downloading_progress">Downloading: %1$s / %2$s MB</string>
     <string name="setup_downloading">Downloading…</string>
     <string name="setup_verifying_download">Verifying download…</string>
+    <string name="setup_installing_model">Installing model files…</string>
     <string name="setup_speech_model_ready">Speech model ready</string>
     <string name="setup_resume_download">Resume Download</string>
     <string name="setup_retry">Retry</string>
@@ -754,6 +755,7 @@
     <string name="settings_download_paused">Download paused</string>
     <string name="settings_resume">Resume</string>
     <string name="settings_verifying_download">Verifying download\u2026</string>
+    <string name="settings_installing_model">Installing model files\u2026</string>
     <string name="settings_import_gguf">Import Notes AI Model</string>
 
     <!-- Settings Screen - Recording -->
@@ -807,6 +809,7 @@
     <string name="settings_not_downloaded">Not downloaded</string>
     <string name="settings_downloading_ellipsis">Downloading\u2026</string>
     <string name="settings_verifying_ellipsis">Verifying\u2026</string>
+    <string name="settings_installing_ellipsis">Installing\u2026</string>
     <string name="settings_ready_size_format">Ready (%1$s)</string>
     <string name="settings_download_failed">Download failed</string>
     <string name="settings_paused">Paused</string>

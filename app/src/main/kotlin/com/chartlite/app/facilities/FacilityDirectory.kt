@@ -16,13 +16,19 @@ import kotlin.math.*
  * - Filter by available services
  * - Sort by distance or name
  */
-class FacilityDirectory(private val context: Context) {
+class FacilityDirectory(
+    private val context: Context,
+    private val countryCodeProvider: () -> String
+) {
 
     private var facilities: List<Facility> = emptyList()
     private val gson = Gson()
+    @Volatile private var loadedCountryCode: String? = null
 
     /** Load facilities from bundled asset file for the given country. */
-    fun loadFacilities(countryCode: String) {
+    @Synchronized
+    fun loadFacilities(countryCode: String, forceReload: Boolean = false) {
+        if (!forceReload && loadedCountryCode == countryCode && facilities.isNotEmpty()) return
         try {
             val filename = "facilities/${countryCode}_facilities.json"
             val json = context.assets.open(filename)
@@ -33,55 +39,96 @@ class FacilityDirectory(private val context: Context) {
             Log.w(TAG, "Failed to load facilities", e)
             facilities = emptyList()
         }
+        loadedCountryCode = countryCode
+    }
+
+    @Synchronized
+    fun invalidate() {
+        facilities = emptyList()
+        loadedCountryCode = null
+    }
+
+    private fun ensureLoaded() {
+        val countryCode = countryCodeProvider().trim().lowercase()
+        if (loadedCountryCode != countryCode) {
+            loadFacilities(countryCode, forceReload = true)
+        }
     }
 
     /** Load from raw JSON string (useful for testing). */
     fun loadFromJson(json: String) {
         val wrapper = gson.fromJson(json, FacilitiesWrapper::class.java)
         facilities = wrapper?.facilities ?: emptyList()
+        loadedCountryCode = countryCodeProvider().trim().lowercase()
     }
 
     /** Get all loaded facilities. */
-    fun getAll(): List<Facility> = facilities
+    fun getAll(): List<Facility> {
+        ensureLoaded()
+        return facilities
+    }
 
     /** Get facility by ID. */
-    fun getById(id: String): Facility? = facilities.find { it.id == id }
+    fun getById(id: String): Facility? {
+        ensureLoaded()
+        return facilities.find { it.id == id }
+    }
 
     /** Get all unique facility types. */
-    fun getTypes(): List<String> = facilities.map { it.type }.distinct().sorted()
+    fun getTypes(): List<String> {
+        ensureLoaded()
+        return facilities.map { it.type }.distinct().sorted()
+    }
 
     /** Get all unique services across all facilities. */
-    fun getAvailableServices(): List<String> =
-        facilities.flatMap { it.services }.distinct().sorted()
+    fun getAvailableServices(): List<String> {
+        ensureLoaded()
+        return facilities.flatMap { it.services }.distinct().sorted()
+    }
 
     /** Get all unique provinces/regions. */
-    fun getProvinces(): List<String> = facilities.map { it.province }.distinct().sorted()
+    fun getProvinces(): List<String> {
+        ensureLoaded()
+        return facilities.map { it.province }.distinct().sorted()
+    }
 
     /** Get all unique districts. */
-    fun getDistricts(): List<String> = facilities.map { it.district }.distinct().sorted()
+    fun getDistricts(): List<String> {
+        ensureLoaded()
+        return facilities.map { it.district }.distinct().sorted()
+    }
 
     /** Filter by facility type. */
-    fun filterByType(type: String): List<Facility> =
-        facilities.filter { it.type.equals(type, ignoreCase = true) }
+    fun filterByType(type: String): List<Facility> {
+        ensureLoaded()
+        return facilities.filter { it.type.equals(type, ignoreCase = true) }
+    }
 
     /** Filter by available service. */
-    fun filterByService(service: String): List<Facility> =
-        facilities.filter { facility ->
+    fun filterByService(service: String): List<Facility> {
+        ensureLoaded()
+        return facilities.filter { facility ->
             facility.services.any { it.equals(service, ignoreCase = true) }
         }
+    }
 
     /** Filter by province. */
-    fun filterByProvince(province: String): List<Facility> =
-        facilities.filter { it.province.equals(province, ignoreCase = true) }
+    fun filterByProvince(province: String): List<Facility> {
+        ensureLoaded()
+        return facilities.filter { it.province.equals(province, ignoreCase = true) }
+    }
 
     /** Filter by district. */
-    fun filterByDistrict(district: String): List<Facility> =
-        facilities.filter { it.district.equals(district, ignoreCase = true) }
+    fun filterByDistrict(district: String): List<Facility> {
+        ensureLoaded()
+        return facilities.filter { it.district.equals(district, ignoreCase = true) }
+    }
 
     /**
      * Search facilities by keyword (matches name, district, subDistrict, services).
      */
     fun search(query: String): List<Facility> {
+        ensureLoaded()
         val q = query.lowercase().trim()
         if (q.isBlank()) return emptyList()
         return facilities.filter { facility ->
@@ -103,6 +150,7 @@ class FacilityDirectory(private val context: Context) {
         province: String? = null,
         district: String? = null
     ): List<Facility> {
+        ensureLoaded()
         return facilities.filter { facility ->
             (query == null || facility.name.lowercase().contains(query.lowercase()) ||
                 facility.district.lowercase().contains(query.lowercase()) ||
@@ -121,9 +169,11 @@ class FacilityDirectory(private val context: Context) {
     fun sortByDistance(
         fromLat: Double,
         fromLon: Double,
-        facilities: List<Facility> = this.facilities
+        facilities: List<Facility>? = null
     ): List<FacilityWithDistance> {
-        return facilities.map { facility ->
+        ensureLoaded()
+        val sourceFacilities = facilities ?: this.facilities
+        return sourceFacilities.map { facility ->
             val distance = haversineDistanceKm(fromLat, fromLon, facility.latitude, facility.longitude)
             FacilityWithDistance(facility, distance)
         }.sortedBy { it.distanceKm }

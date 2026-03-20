@@ -1,6 +1,5 @@
 package com.chartlite.app
 
-import android.content.Context
 import com.chartlite.app.facilities.FacilityDirectory
 import io.mockk.mockk
 import org.junit.Assert.*
@@ -93,7 +92,7 @@ class FacilityDirectoryTest {
 
     @Before
     fun setUp() {
-        directory = FacilityDirectory(mockk(relaxed = true))
+        directory = FacilityDirectory(mockk(relaxed = true)) { "za" }
         directory.loadFromJson(testJson)
     }
 

@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.app.ActivityManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -31,6 +32,7 @@ class AudioRecorder(private val context: Context) {
     private var audioRecord: AudioRecord? = null
     private var automaticGainControl: AutomaticGainControl? = null
     private var noiseSuppressor: NoiseSuppressor? = null
+    @Volatile private var tryPlatformAudioEffects = true
     private var recordingJob: Job? = null
     private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val audioLock = Any()
@@ -224,12 +226,38 @@ class AudioRecorder(private val context: Context) {
     private fun configureAudioEffects(record: AudioRecord?) {
         val sessionId = record?.audioSessionId ?: return
         releaseAudioEffects()
+        if (!shouldUsePlatformAudioEffects()) {
+            return
+        }
         automaticGainControl = runCatching {
             AutomaticGainControl.create(sessionId)?.apply { enabled = true }
+        }.onFailure {
+            Log.w(TAG, "Disabling AGC attempts after allocation/init failure: ${it.message}")
+            tryPlatformAudioEffects = false
         }.getOrNull()
         noiseSuppressor = runCatching {
             NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+        }.onFailure {
+            Log.w(TAG, "Disabling noise suppressor attempts after allocation/init failure: ${it.message}")
+            tryPlatformAudioEffects = false
         }.getOrNull()
+        if (automaticGainControl == null && noiseSuppressor == null) {
+            tryPlatformAudioEffects = false
+        }
+    }
+
+    private fun shouldUsePlatformAudioEffects(): Boolean {
+        if (!tryPlatformAudioEffects) return false
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        val totalRamGb = memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
+        if (am.isLowRamDevice || totalRamGb <= 3.5) {
+            tryPlatformAudioEffects = false
+            Log.d(TAG, "Skipping AGC/NoiseSuppressor on low-memory device")
+            return false
+        }
+        return true
     }
 
     private fun releaseAudioEffects() {

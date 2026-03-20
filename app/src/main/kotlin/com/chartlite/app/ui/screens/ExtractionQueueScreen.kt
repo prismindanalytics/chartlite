@@ -1,5 +1,6 @@
 package com.chartlite.app.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -151,7 +152,11 @@ fun ExtractionQueueScreen(
                             Button(
                                 onClick = {
                                     scope.launch {
-                                        app.asr.unloadOfflineModelIfIdleAndWait()
+                                        if (!app.prepareOnDeviceNoteProcessingForLowRam { msg ->
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }) {
+                                            return@launch
+                                        }
                                         app.extractionQueue.processBatch()
                                     }
                                 },

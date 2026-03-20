@@ -128,11 +128,11 @@ fun VoiceTriageCard(
             expanded &&
             !hasRecorded &&
             asr.mode == com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE &&
-            asr.isOnnxModelDownloaded() &&
+            asr.isOnnxModelDownloadedFast() &&
             !asr.isModelLoaded() &&
             !asr.isPreparing.value
         ) {
-            asr.loadModel(app.appConfig.language)
+            app.prepareOfflineAsrForCapture(app.appConfig.language)
         }
     }
 
@@ -204,10 +204,12 @@ fun VoiceTriageCard(
                         },
                         onStartRecording = {
                             asrError = null
-                            asr.startListening(
-                                language = app.appConfig.language,
-                                onError = { msg -> asrError = msg }
-                            )
+                            triageScope.launch {
+                                app.startAsrCaptureWithLowMemoryHandoff(
+                                    language = app.appConfig.language,
+                                    onError = { msg -> asrError = msg }
+                                )
+                            }
                         },
                         onStopRecording = {
                             // Use stopListeningAndAwait() to capture all buffered audio

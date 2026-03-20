@@ -34,10 +34,16 @@ import com.chartlite.app.sms.SMSSender
 import com.chartlite.app.sync.SyncEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 class App : Application() {
 
@@ -79,12 +85,16 @@ class App : Application() {
     lateinit var smsLogRepository: SmsLogRepository private set
     lateinit var appointmentReminder: AppointmentReminder private set
     lateinit var playIntegrityManager: com.chartlite.app.auth.PlayIntegrityManager private set
+    lateinit var extractionQueueRepository: ExtractionQueueRepository private set
 
     private lateinit var configLoader: CountryConfigLoader
     private val llmInitLock = Any()
     @Volatile private var llmModelManagerBacking: LlmModelManager? = null
     private val extractionInitLock = Any()
     @Volatile private var extractionServicesBacking: ExtractionServices? = null
+    private val _extractionServicesReady = MutableStateFlow(false)
+    val extractionServicesReady: StateFlow<Boolean> = _extractionServicesReady
+    private var deferredExtractionWarmupJob: Job? = null
 
     val llmModelManager: LlmModelManager
         get() = llmModelManagerBacking ?: synchronized(llmInitLock) {
@@ -103,8 +113,205 @@ class App : Application() {
     val extractionQueue: ExtractionQueue
         get() = getOrCreateExtractionServices().extractionQueue
 
-    val extractionQueueRepository: ExtractionQueueRepository
-        get() = getOrCreateExtractionServices().extractionQueueRepository
+    fun peekExtractionQueue(): ExtractionQueue? = extractionServicesBacking?.extractionQueue
+
+    /**
+     * Immediate draft-note path used by recording screens.
+     * This avoids building the full extraction pipeline just to get a draft note.
+     */
+    suspend fun generateDraftNoteDirect(transcript: String): ExtractionOrchestrator.NoteGenerationResult? =
+        withContext(Dispatchers.Default) {
+            buildNoteGenerationOrchestrator().generateNote(transcript)
+        }
+
+    /**
+     * Build the extraction services in the background while the clinician reviews
+     * the generated draft note. This keeps the two-step UX but hides most of the
+     * second-step setup cost behind review time.
+     */
+    fun prewarmExtractionPipelineForImmediateReview() {
+        if (extractionServicesBacking != null) return
+        appScope.launch(Dispatchers.Default) {
+            runCatching { getOrCreateExtractionServices() }
+                .onFailure { Log.w(TAG, "Background extraction prewarm failed", it) }
+        }
+    }
+
+    /**
+     * Resolve the active LLM tier without initializing the model manager.
+     */
+    private fun fastActiveLlmTier(): LlmModelManager.ModelTier {
+        val override = appConfig.llmTierOverride.takeIf { it.isNotBlank() }
+            ?.let { runCatching { LlmModelManager.ModelTier.valueOf(it) }.getOrNull() }
+        return override ?: run {
+            if (totalRamGb() >= 4.0) {
+                LlmModelManager.ModelTier.LARGE
+            } else {
+                LlmModelManager.ModelTier.SMALL
+            }
+        }
+    }
+
+    private fun totalRamGb(): Double {
+        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+        return memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
+    }
+
+    private fun shouldAggressivelySerializeAsrAndLlm(): Boolean {
+        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return am.isLowRamDevice || totalRamGb() <= 4.0
+    }
+
+    fun shouldForceBatchNoteProcessing(): Boolean {
+        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return am.isLowRamDevice || totalRamGb() <= 3.5
+    }
+
+    /**
+     * Modes that can execute the local Qwen fallback should inherit low-RAM
+     * protections even when cloud is tried first.
+     */
+    fun aiModeCanUseOnDeviceFallback(mode: String = appConfig.aiMode): Boolean =
+        mode == "on_device" || mode == "auto"
+
+    /**
+     * 3 GB / low-RAM phones need strict mutual exclusion between offline ASR and
+     * the local MNN runtime. This is the mode that allows immediate on-device notes
+     * without keeping both heavy runtimes resident at once.
+     */
+    fun shouldUseStrictLowRamSerialization(mode: String = appConfig.aiMode): Boolean {
+        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        return (am.isLowRamDevice || totalRamGb() <= 3.5) && aiModeCanUseOnDeviceFallback(mode)
+    }
+
+    private fun isOnDeviceNoteWorkActive(): Boolean {
+        if (!shouldUseStrictLowRamSerialization()) return false
+        val llmBusy = llmModelManagerBacking?.isBusyForLowRamHandoff() == true
+        return llmBusy
+    }
+
+    /**
+     * Force any warm LLM instance out of memory on constrained devices so ASR
+     * and LLM never overlap during low-memory handoffs.
+     */
+    suspend fun releaseLlmForLowMemoryHandoff() {
+        if (!shouldAggressivelySerializeAsrAndLlm()) return
+        val unloaded = llmModelManagerBacking?.unloadModelIfIdleAndWait() ?: false
+        if (unloaded) {
+            System.gc()
+        }
+    }
+
+    /**
+     * Prepare offline ASR for the next voice capture while ensuring a warm LLM
+     * has already been released on low-RAM devices.
+     */
+    suspend fun prepareOfflineAsrForCapture(language: String = appConfig.language): Boolean {
+        if (isOnDeviceNoteWorkActive()) {
+            Log.w(TAG, "Skipping ASR preload while on-device note work is active")
+            return false
+        }
+        releaseLlmForLowMemoryHandoff()
+        if (asr.mode != ASREngine.Mode.ONNX_OFFLINE) return true
+        if (!asr.isOnnxModelDownloadedFast()) return false
+        if (asr.isModelLoaded()) return true
+        if (asr.isPreparing.value) {
+            val prepared = waitForAsrPreparationToFinish()
+            return prepared && asr.isModelLoaded()
+        }
+        return asr.loadModel(language)
+    }
+
+    /**
+     * Shared ASR start path for voice capture screens. Keeps ASR/LLM handoff
+     * policy centralized so future screens don't bypass low-memory protections.
+     */
+    suspend fun startAsrCaptureWithLowMemoryHandoff(
+        language: String = appConfig.language,
+        onError: ((String) -> Unit)? = null,
+        maxRecordingMinutes: Int? = null,
+        disableSilenceAutoStop: Boolean = false
+    ) {
+        if (isOnDeviceNoteWorkActive()) {
+            onError?.invoke("Wait for the current on-device note to finish before starting a new recording.")
+            return
+        }
+        if (asr.mode == ASREngine.Mode.ONNX_OFFLINE && asr.isOnnxModelDownloadedFast()) {
+            val prepared = prepareOfflineAsrForCapture(language)
+            if (!prepared && asr.isPreparing.value) {
+                onError?.invoke("Offline voice model is still loading. Try again in a moment.")
+                return
+            }
+        } else {
+            releaseLlmForLowMemoryHandoff()
+        }
+        asr.startListening(
+            language = language,
+            onError = onError,
+            maxRecordingMinutes = maxRecordingMinutes,
+            disableSilenceAutoStop = disableSilenceAutoStop
+        )
+    }
+
+    private suspend fun waitForAsrPreparationToFinish(): Boolean {
+        if (!asr.isPreparing.value) return true
+        val completed = withTimeoutOrNull(ASR_PREPARATION_TIMEOUT_MS) {
+            asr.isPreparing.first { !it }
+        } != null
+        if (!completed) {
+            Log.w(TAG, "Timed out waiting for offline ASR preparation to finish")
+        }
+        return completed
+    }
+
+    /**
+     * Shared LLM start path for low-RAM immediate mode. Ensures ASR is not
+     * recording or still preloading before local note processing begins.
+     */
+    suspend fun prepareOnDeviceNoteProcessingForLowRam(
+        onError: ((String) -> Unit)? = null
+    ): Boolean {
+        if (!shouldUseStrictLowRamSerialization()) {
+            asr.unloadOfflineModelIfIdleAndWait()
+            return true
+        }
+        if (asr.isListening.value) {
+            onError?.invoke("Finish or cancel the recording before starting on-device note processing.")
+            return false
+        }
+        if (asr.isPreparing.value) {
+            val prepared = waitForAsrPreparationToFinish()
+            if (!prepared) {
+                onError?.invoke("Voice model is still preparing. Try again in a moment.")
+                return false
+            }
+        }
+        asr.unloadOfflineModelIfIdleAndWait()
+        return true
+    }
+
+    /**
+     * Cheap file-existence check for whether the recommended/overridden on-device LLM
+     * is installed. This avoids initializing the native LLM bridge for simple UI gating.
+     */
+    fun isLlmModelDownloadedFast(): Boolean {
+        val tier = fastActiveLlmTier()
+        val dir = File(noBackupFilesDir, "llm_models/${tier.dirName}")
+        return LlmModelManager.hasRequiredModelFiles(dir, tier)
+    }
+
+    /**
+     * Cheap check for whether the active tier supports on-device vision and is installed.
+     * Used to hide camera actions when low-memory devices default to the text-only tier.
+     */
+    fun isLlmVisionModelDownloadedFast(): Boolean {
+        val tier = fastActiveLlmTier()
+        if (!tier.supportsVision) return false
+        val dir = File(noBackupFilesDir, "llm_models/${tier.dirName}")
+        return LlmModelManager.hasRequiredModelFiles(dir, tier)
+    }
 
     val promptBuilder: ExtractionPromptBuilder
         get() = getOrCreateExtractionServices().promptBuilder
@@ -134,6 +341,7 @@ class App : Application() {
         patientRepository = PatientRepository(database.patientDao())
         encounterRepository = EncounterRepository(database.encounterDao())
         visitRepository = VisitRepository(database.visitDao())
+        extractionQueueRepository = ExtractionQueueRepository(database.extractionQueueDao())
 
         // Initialize auth system (SessionManager gets auditLogDao for auth event logging)
         sessionManager = SessionManager(appConfig, database.userDao(), database.auditLogDao())
@@ -190,16 +398,10 @@ class App : Application() {
         dataExporter = DataExporter(this, encounterRepository)
         syncEngine = SyncEngine(this, patientRepository, encounterRepository, visitRepository, appConfig, auditLogger)
 
-        // Initialize CDSS
+        // Initialize large asset-backed services lazily so cold start stays cheap on 3 GB phones.
         cdss = StaticCDSS(this)
-        cdss.loadRules()
-
-        // Initialize Clinical Protocol Engine
         protocolEngine = ClinicalProtocolEngine(this)
-        protocolEngine.loadProtocols()
-
-        // Initialize Facility Directory
-        facilityDirectory = FacilityDirectory(this)
+        facilityDirectory = FacilityDirectory(this) { appConfig.countryCode }
 
         // Initialize Appointment Reminder system
         appointmentReminder = AppointmentReminder(
@@ -214,8 +416,9 @@ class App : Application() {
         // Apply lightweight country presentation settings eagerly; the extraction
         // pipeline is deferred so first draw is not blocked by vector indexing.
         applyCountryPresentationConfig()
-        facilityDirectory.loadFacilities(appConfig.countryCode)
-        scheduleDeferredExtractionWarmup()
+        if (appConfig.isSetupComplete) {
+            scheduleDeferredExtractionWarmup()
+        }
 
         // ASR model loading is deferred to first use (ASREngine.startListening)
         // to avoid consuming ~200MB of memory at startup on low-RAM devices.
@@ -231,7 +434,7 @@ class App : Application() {
 
     fun loadCountryData(deferExtraction: Boolean = false) {
         applyCountryPresentationConfig()
-        facilityDirectory.loadFacilities(appConfig.countryCode)
+        facilityDirectory.invalidate()
         if (deferExtraction) {
             // Defer heavy extraction pipeline build to avoid OOM on low-RAM devices
             // during setup completion when memory is already constrained.
@@ -281,15 +484,22 @@ class App : Application() {
             if (!forceReload) {
                 extractionServicesBacking?.let { return@synchronized it }
             }
+            _extractionServicesReady.value = false
             val previous = extractionServicesBacking
             buildExtractionServices().also { fresh ->
                 extractionServicesBacking = fresh
+                _extractionServicesReady.value = true
                 previous?.close()
             }
         }
     }
 
-    private fun buildExtractionServices(): ExtractionServices {
+    private data class ExtractionKnowledge(
+        val formulary: Formulary,
+        val icd10: ICD10Index
+    )
+
+    private fun loadExtractionKnowledge(): ExtractionKnowledge {
         val formulary = try {
             configLoader.loadFormulary("formulary/${appConfig.countryCode}_formulary.json")
         } catch (_: Exception) {
@@ -302,15 +512,107 @@ class App : Application() {
             ICD10Index("1.0", emptyList())
         }
 
+        return ExtractionKnowledge(formulary = formulary, icd10 = icd10)
+    }
+
+    private fun buildNoteGenerationOrchestrator(): ExtractionOrchestrator {
+        val knowledge = loadExtractionKnowledge()
+        val promptBuilder = ExtractionPromptBuilder(knowledge.icd10, knowledge.formulary)
+        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary)
+        val strategies = mutableListOf<ExtractionStrategy>()
+        val lowRamInferencePreflight: (suspend () -> Boolean)? =
+            if (shouldUseStrictLowRamSerialization()) {
+                { prepareOnDeviceNoteProcessingForLowRam() }
+            } else {
+                null
+            }
+
+        fun addCloudStrategy() {
+            val model = appConfig.cloudNotesModel
+            when {
+                model.startsWith("claude") -> {
+                    val authConfig = if (appConfig.cloudKeyMode == "chartlite") {
+                        ClaudeExtractionStrategy.AuthConfig.Proxied { playIntegrityManager.getAuthHeaders() }
+                    } else {
+                        ClaudeExtractionStrategy.AuthConfig.Direct { appConfig.claudeApiKey }
+                    }
+                    strategies.add(ClaudeExtractionStrategy(this, promptBuilder, responseParser, authConfig))
+                }
+                model.startsWith("gemini") -> {
+                    val authConfig = if (appConfig.cloudKeyMode == "chartlite") {
+                        GeminiExtractionStrategy.AuthConfig.Proxied { playIntegrityManager.getAuthHeaders() }
+                    } else {
+                        GeminiExtractionStrategy.AuthConfig.Direct { appConfig.geminiApiKey }
+                    }
+                    strategies.add(GeminiExtractionStrategy(this, promptBuilder, responseParser, authConfig))
+                }
+                model.startsWith("gpt") -> {
+                    val authConfig = if (appConfig.cloudKeyMode == "chartlite") {
+                        OpenAIExtractionStrategy.AuthConfig.Proxied { playIntegrityManager.getAuthHeaders() }
+                    } else {
+                        OpenAIExtractionStrategy.AuthConfig.Direct { appConfig.openaiApiKey }
+                    }
+                    strategies.add(OpenAIExtractionStrategy(this, promptBuilder, responseParser, authConfig, model))
+                }
+                else -> {
+                    val authConfig = if (appConfig.cloudKeyMode == "chartlite") {
+                        ClaudeExtractionStrategy.AuthConfig.Proxied { playIntegrityManager.getAuthHeaders() }
+                    } else {
+                        ClaudeExtractionStrategy.AuthConfig.Direct { appConfig.claudeApiKey }
+                    }
+                    strategies.add(ClaudeExtractionStrategy(this, promptBuilder, responseParser, authConfig))
+                }
+            }
+        }
+
+        when (appConfig.aiMode) {
+            "cloud" -> addCloudStrategy()
+            "on_device" -> {
+                strategies.add(
+                    QwenExtractionStrategy(
+                        modelManagerProvider = { llmModelManager },
+                        promptBuilder = promptBuilder,
+                        responseParser = responseParser,
+                        prepareForLowRamInference = lowRamInferencePreflight
+                    )
+                )
+            }
+            else -> {
+                addCloudStrategy()
+                strategies.add(
+                    QwenExtractionStrategy(
+                        modelManagerProvider = { llmModelManager },
+                        promptBuilder = promptBuilder,
+                        responseParser = responseParser,
+                        prepareForLowRamInference = lowRamInferencePreflight
+                    )
+                )
+            }
+        }
+
+        return ExtractionOrchestrator(
+            strategies,
+            transcriptValidator = TranscriptValidator()
+        )
+    }
+
+    private fun buildExtractionServices(): ExtractionServices {
+        val knowledge = loadExtractionKnowledge()
+        val formulary = knowledge.formulary
+        val icd10 = knowledge.icd10
+
         val vectorStore = ClinicalVectorStore(icd10, formulary)
-        vectorStore.buildIndex()
 
         val clinicalExtractor = ClinicalExtractor(formulary, icd10, vectorStore)
-        val extractionQueueRepository = ExtractionQueueRepository(database.extractionQueueDao())
-
         val promptBuilder = ExtractionPromptBuilder(icd10, formulary, vectorStore)
         val responseParser = LlmResponseParser(icd10, formulary)
         val strategies = mutableListOf<ExtractionStrategy>()
+        val lowRamInferencePreflight: (suspend () -> Boolean)? =
+            if (shouldUseStrictLowRamSerialization()) {
+                { prepareOnDeviceNoteProcessingForLowRam() }
+            } else {
+                null
+            }
 
         // Build cloud extraction strategy based on selected model
         fun addCloudStrategy() {
@@ -354,11 +656,25 @@ class App : Application() {
         when (appConfig.aiMode) {
             "cloud" -> addCloudStrategy()
             "on_device" -> {
-                strategies.add(QwenExtractionStrategy(llmModelManager, promptBuilder, responseParser))
+                strategies.add(
+                    QwenExtractionStrategy(
+                        modelManagerProvider = { llmModelManager },
+                        promptBuilder = promptBuilder,
+                        responseParser = responseParser,
+                        prepareForLowRamInference = lowRamInferencePreflight
+                    )
+                )
             }
             else -> {
                 addCloudStrategy()
-                strategies.add(QwenExtractionStrategy(llmModelManager, promptBuilder, responseParser))
+                strategies.add(
+                    QwenExtractionStrategy(
+                        modelManagerProvider = { llmModelManager },
+                        promptBuilder = promptBuilder,
+                        responseParser = responseParser,
+                        prepareForLowRamInference = lowRamInferencePreflight
+                    )
+                )
             }
         }
 
@@ -374,7 +690,13 @@ class App : Application() {
         Log.d(
             "App",
             "Extraction pipeline rebuilt for aiMode=${appConfig.aiMode}: " +
-                strategies.joinToString(" -> ") { it.name }
+                strategies.joinToString(" -> ") { strategy ->
+                    when (strategy) {
+                        is QwenExtractionStrategy -> "Qwen 3.5 (on-device)"
+                        is RegexExtractionStrategy -> "Regex (offline)"
+                        else -> strategy.name
+                    }
+                }
         )
 
         val extractionQueue = ExtractionQueue(
@@ -382,7 +704,7 @@ class App : Application() {
             extractionQueueRepository,
             appScope,
             cancelCurrentProcessing = { llmModelManagerBacking?.cancelInference() },
-            unloadLlm = { llmModelManagerBacking?.unloadModel() }
+            unloadLlm = { releaseLlmForLowMemoryHandoff() }
         )
 
         // Wire up photo processing for batch mode: analyze pending photos during batch
@@ -416,7 +738,8 @@ class App : Application() {
     }
 
     private fun scheduleDeferredExtractionWarmup() {
-        appScope.launch(Dispatchers.Default) {
+        deferredExtractionWarmupJob?.cancel()
+        deferredExtractionWarmupJob = appScope.launch(Dispatchers.Default) {
             // Wait longer on low-RAM devices to avoid competing with ASR model loading.
             // The extraction pipeline loads the MNN native library (~50MB) + vector store;
             // if ASR is also loading its ONNX model, both OOM on 3GB devices.
@@ -424,23 +747,12 @@ class App : Application() {
             val memInfo = android.app.ActivityManager.MemoryInfo()
             am.getMemoryInfo(memInfo)
             val isLowRam = am.isLowRamDevice || (memInfo.totalMem / (1024 * 1024)) <= 4096
-            val delayMs = if (isLowRam) 8_000L else DEFERRED_EXTRACTION_WARMUP_MS
-
-            delay(delayMs)
-
-            // If ASR is actively loading or listening, wait until it's idle —
-            // concurrent model loads cause OOM on constrained devices.
             if (isLowRam) {
-                val maxWaitMs = 30_000L
-                val waitStart = System.currentTimeMillis()
-                while (asr.isPreparing.value || asr.isListening.value) {
-                    if (System.currentTimeMillis() - waitStart > maxWaitMs) {
-                        Log.w(TAG, "ASR idle wait timed out after ${maxWaitMs / 1000}s — proceeding with extraction warmup")
-                        break
-                    }
-                    delay(2_000L)
-                }
+                Log.d(TAG, "Skipping deferred extraction warm-up on low-RAM device; services stay lazy-loaded")
+                return@launch
             }
+
+            delay(DEFERRED_EXTRACTION_WARMUP_MS)
 
             // Use forceReload so the pipeline is built with current config
             // (country, AI mode, API keys) even if stale services exist.
@@ -495,5 +807,6 @@ class App : Application() {
     companion object {
         private const val TAG = "App"
         private const val DEFERRED_EXTRACTION_WARMUP_MS = 1_500L
+        private const val ASR_PREPARATION_TIMEOUT_MS = 30_000L
     }
 }

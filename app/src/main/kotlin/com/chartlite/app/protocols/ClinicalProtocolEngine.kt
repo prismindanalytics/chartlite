@@ -21,6 +21,7 @@ class ClinicalProtocolEngine(private val context: Context) {
 
     private var protocols: List<ClinicalProtocol> = emptyList()
     private val gson = Gson()
+    @Volatile private var protocolsLoaded = false
 
     companion object {
         private const val TAG = "ClinicalProtocolEngine"
@@ -28,7 +29,9 @@ class ClinicalProtocolEngine(private val context: Context) {
     }
 
     /** Load protocols from bundled asset file. */
-    fun loadProtocols() {
+    @Synchronized
+    fun loadProtocols(forceReload: Boolean = false) {
+        if (protocolsLoaded && !forceReload) return
         try {
             val json = context.assets.open("protocols/clinical_protocols.json")
                 .bufferedReader().use { it.readText() }
@@ -38,27 +41,41 @@ class ClinicalProtocolEngine(private val context: Context) {
             Log.w(TAG, "Failed to load protocols", e)
             protocols = emptyList()
         }
+        protocolsLoaded = true
+    }
+
+    private fun ensureProtocolsLoaded() {
+        if (!protocolsLoaded) loadProtocols()
     }
 
     /** Load from raw JSON string (useful for testing). */
     fun loadFromJson(json: String) {
         val wrapper = gson.fromJson(json, ProtocolsWrapper::class.java)
         protocols = wrapper?.protocols ?: emptyList()
+        protocolsLoaded = true
     }
 
     /** Get all loaded protocols. */
-    fun getAllProtocols(): List<ClinicalProtocol> = protocols
+    fun getAllProtocols(): List<ClinicalProtocol> {
+        ensureProtocolsLoaded()
+        return protocols
+    }
 
     /** Get protocols by category. */
-    fun getByCategory(category: String): List<ClinicalProtocol> =
-        protocols.filter { it.category.equals(category, ignoreCase = true) }
+    fun getByCategory(category: String): List<ClinicalProtocol> {
+        ensureProtocolsLoaded()
+        return protocols.filter { it.category.equals(category, ignoreCase = true) }
+    }
 
     /** Get all unique categories. */
-    fun getCategories(): List<String> =
-        protocols.map { it.category }.distinct().sorted()
+    fun getCategories(): List<String> {
+        ensureProtocolsLoaded()
+        return protocols.map { it.category }.distinct().sorted()
+    }
 
     /** Find protocols matching a specific ICD-10 code. */
     fun findByICD10(code: String): List<ClinicalProtocol> {
+        ensureProtocolsLoaded()
         val normalizedCode = code.uppercase().trim()
         return protocols.filter { protocol ->
             protocol.icd10Codes.any { protocolCode ->
@@ -88,14 +105,14 @@ class ClinicalProtocolEngine(private val context: Context) {
      * These are shown with highest priority.
      */
     fun getEmergencyProtocols(): List<ClinicalProtocol> =
-        protocols.filter { it.urgency == "EMERGENCY" }
+        getAllProtocols().filter { it.urgency == "EMERGENCY" }
 
     /**
      * Get all red flags across all steps for a given protocol.
      * Useful for displaying a summary danger sign checklist.
      */
     fun getRedFlags(protocolId: String): List<String> =
-        protocols.find { it.id == protocolId }
+        getAllProtocols().find { it.id == protocolId }
             ?.steps
             ?.flatMap { it.redFlags ?: emptyList() }
             ?: emptyList()
@@ -104,7 +121,7 @@ class ClinicalProtocolEngine(private val context: Context) {
      * Get all medications recommended across all steps of a protocol.
      */
     fun getMedications(protocolId: String): List<ProtocolMedication> =
-        protocols.find { it.id == protocolId }
+        getAllProtocols().find { it.id == protocolId }
             ?.steps
             ?.flatMap { it.medications ?: emptyList() }
             ?: emptyList()
@@ -113,7 +130,7 @@ class ClinicalProtocolEngine(private val context: Context) {
      * Get referral criteria for a protocol.
      */
     fun getReferralCriteria(protocolId: String): List<String> =
-        protocols.find { it.id == protocolId }
+        getAllProtocols().find { it.id == protocolId }
             ?.steps
             ?.flatMap { it.referralCriteria ?: emptyList() }
             ?: emptyList()
@@ -122,7 +139,7 @@ class ClinicalProtocolEngine(private val context: Context) {
      * Get the follow-up schedule (earliest recommended follow-up in days).
      */
     fun getFollowUpDays(protocolId: String): Int? =
-        protocols.find { it.id == protocolId }
+        getAllProtocols().find { it.id == protocolId }
             ?.steps
             ?.mapNotNull { it.followUpDays }
             ?.minOrNull()
@@ -131,6 +148,7 @@ class ClinicalProtocolEngine(private val context: Context) {
      * Search protocols by keyword in name, category, or step content.
      */
     fun search(query: String): List<ClinicalProtocol> {
+        ensureProtocolsLoaded()
         val q = query.lowercase().trim()
         if (q.isBlank()) return emptyList()
         return protocols.filter { protocol ->
@@ -149,7 +167,7 @@ class ClinicalProtocolEngine(private val context: Context) {
      * @param isFemale true if patient is female
      */
     fun filterByPatient(isAdult: Boolean, isFemale: Boolean): List<ClinicalProtocol> =
-        protocols.filter { protocol ->
+        getAllProtocols().filter { protocol ->
             when (protocol.applicableTo) {
                 "ALL" -> true
                 "ADULT" -> isAdult

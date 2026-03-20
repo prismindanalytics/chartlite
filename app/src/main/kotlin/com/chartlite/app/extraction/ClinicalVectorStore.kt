@@ -55,7 +55,9 @@ class ClinicalVectorStore(
      * Build the vector index from ICD-10 and formulary data.
      * Call once at app startup after loading country data (~20-50ms).
      */
+    @Synchronized
     fun buildIndex() {
+        if (indexed) return
         val allEntries = mutableListOf<IndexedEntry>()
 
         // Index ICD-10 codes
@@ -166,10 +168,7 @@ class ClinicalVectorStore(
         topKDiagnoses: Int = 10,
         topKDrugs: Int = 15
     ): RetrievalResult {
-        if (!indexed) {
-            Log.w(TAG, "Vector store not indexed, returning empty results")
-            return RetrievalResult(emptyList(), emptyList())
-        }
+        if (!indexed) buildIndex()
 
         val queryVector = computeTfIdfVector(tokenize(transcript.lowercase(Locale.ROOT)))
 

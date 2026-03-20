@@ -37,15 +37,13 @@ class ASRSLMHardeningTest {
     // ── P0-4: Model keep-alive prevents repeated load/unload ──
 
     @Test
-    fun `LlmModelManager auto-unload delay is 30 seconds`() {
-        // Verify the constant is set correctly (30s keep-alive window)
-        // We can't test the actual delay without Android context, but we verify
-        // the class design by checking the field exists via reflection
+    fun `LlmModelManager computes auto-unload delay dynamically`() {
+        // The unload window is now device-aware (shorter on 3GB phones, longer on larger devices).
+        // We can't invoke it without Android context, but we can verify the helper exists.
         val clazz = Class.forName("com.chartlite.app.extraction.LlmModelManager")
-        val field = clazz.getDeclaredField("autoUnloadDelayMs")
-        field.isAccessible = true
-        // Field exists — the hardening is in place
-        assertNotNull(field)
+        val method = clazz.getDeclaredMethod("autoUnloadDelayMs")
+        method.isAccessible = true
+        assertNotNull(method)
     }
 
     @Test

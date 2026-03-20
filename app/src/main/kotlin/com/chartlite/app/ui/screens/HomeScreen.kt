@@ -1,5 +1,6 @@
 package com.chartlite.app.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -69,8 +70,19 @@ fun HomeScreen(
     val context = LocalContext.current
     val app = context.applicationContext as App
     var currentRole by remember { mutableStateOf(app.sessionManager.currentSession?.role) }
-    val extractionItems by app.extractionQueue.items.collectAsState()
-    val extractionQueueState by app.extractionQueue.state.collectAsState()
+    val extractionReady by app.extractionServicesReady.collectAsState()
+    val extractionQueue = if (extractionReady) app.peekExtractionQueue() else null
+    val idleExtractionQueueState = remember {
+        kotlinx.coroutines.flow.MutableStateFlow(com.chartlite.app.extraction.ExtractionQueue.QueueState.IDLE)
+    }
+    val idleProcessedCount = remember { kotlinx.coroutines.flow.MutableStateFlow(0) }
+    val idleProcessingStep = remember {
+        kotlinx.coroutines.flow.MutableStateFlow(com.chartlite.app.extraction.ExtractionQueue.ProcessingStep.IDLE)
+    }
+    val extractionItems by app.extractionQueueRepository.observeActiveItems().collectAsState(initial = emptyList())
+    val extractionQueueState by (extractionQueue?.state ?: idleExtractionQueueState).collectAsState()
+    val processedCount by (extractionQueue?.processedCount ?: idleProcessedCount).collectAsState()
+    val currentStep by (extractionQueue?.processingStep ?: idleProcessingStep).collectAsState()
 
     var recentEncounters by remember { mutableStateOf<List<EncounterEntity>>(emptyList()) }
     var patientCount by remember { mutableIntStateOf(0) }
@@ -410,8 +422,6 @@ fun HomeScreen(
                 val readyCount = extractionItems.count { it.status == com.chartlite.app.extraction.ExtractionQueueRepository.QueueStatus.READY }
                 val failedCount = extractionItems.count { it.status == com.chartlite.app.extraction.ExtractionQueueRepository.QueueStatus.FAILED }
                 val batchModeEnabled = app.appConfig.noteProcessingMode == "batch"
-                val processedCount by app.extractionQueue.processedCount.collectAsState()
-                val currentStep by app.extractionQueue.processingStep.collectAsState()
                 val totalBatchItems = (processedCount + queuedCount).coerceAtLeast(queuedCount)
                 val hasItems = queuedCount > 0 || readyCount > 0 || failedCount > 0
                 val isProcessing = extractionQueueState == com.chartlite.app.extraction.ExtractionQueue.QueueState.PROCESSING
@@ -464,7 +474,11 @@ fun HomeScreen(
                                     Button(
                                         onClick = {
                                             scope.launch {
-                                                app.asr.unloadOfflineModelIfIdleAndWait()
+                                                if (!app.prepareOnDeviceNoteProcessingForLowRam { msg ->
+                                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                    }) {
+                                                    return@launch
+                                                }
                                                 app.extractionQueue.processBatch()
                                             }
                                         },

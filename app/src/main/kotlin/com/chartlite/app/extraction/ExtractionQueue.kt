@@ -30,7 +30,7 @@ class ExtractionQueue(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val cancelCurrentProcessing: () -> Unit = {},
     /** Optional callback to unload LLM model after batch cancel or between batch items on constrained devices. */
-    var unloadLlm: (() -> Unit)? = null,
+    var unloadLlm: (suspend () -> Unit)? = null,
     /** Optional: process pending clinical photos during batch. Returns merged encounter. */
     var photoProcessor: (suspend (patientId: String, encounter: StructuredEncounter) -> StructuredEncounter)? = null
 ) {
@@ -253,7 +253,7 @@ class ExtractionQueue(
         batchJob?.cancel()
         // Unload LLM immediately so subsequent recording doesn't OOM
         // (cancelled batch leaves model loaded, next ASR load competes for RAM)
-        unloadLlm?.invoke()
+        workerScope.launch { unloadLlm?.invoke() }
     }
 
     // ── Urgent (immediate) processing ───────────────────────────────────
@@ -277,6 +277,10 @@ class ExtractionQueue(
             Log.e(TAG, "Urgent processing failed for patient ${entry.patientId.take(4)}***", e)
             repository.markFailed(entry.id, e.message)
         } finally {
+            // On ≤4GB devices, releaseLlmForLowMemoryHandoff() unloads the model so
+            // ASR can reclaim the memory. On 4GB+ devices the callback is a no-op,
+            // letting the auto-unload timer keep the model warm for follow-up work.
+            unloadLlm?.invoke()
             _state.value = QueueState.IDLE
             _processingStep.value = ProcessingStep.IDLE
         }
@@ -305,6 +309,8 @@ class ExtractionQueue(
             repository.markFailed(queueEntryId, e.message)
             null
         } finally {
+            // See processUrgent — gated by shouldAggressivelySerializeAsrAndLlm() in the callback.
+            unloadLlm?.invoke()
             _state.value = QueueState.IDLE
             _processingStep.value = ProcessingStep.IDLE
             _processedCount.value = 0
@@ -324,7 +330,7 @@ class ExtractionQueue(
     suspend fun generateNoteForEntry(queueEntryId: String): QueuedNoteResult? {
         val item = repository.getItem(queueEntryId) ?: return null
 
-        val noteResult = orchestrator.generateNote(item.transcript) ?: return null
+        val noteResult = generateNoteWithFallbacks(item.transcript, item.patientId) ?: return null
 
         val result = QueuedNoteResult(
             queueEntryId = queueEntryId,
@@ -345,7 +351,7 @@ class ExtractionQueue(
      * Used for urgent/immediate processing where the transcript isn't queued first.
      */
     suspend fun generateNoteFromTranscript(transcript: String): ExtractionOrchestrator.NoteGenerationResult? {
-        return orchestrator.generateNote(transcript)
+        return generateNoteWithFallbacks(transcript, "direct")
     }
 
     fun getNoteResult(queueEntryId: String): QueuedNoteResult? = noteResults[queueEntryId]
@@ -480,6 +486,7 @@ class ExtractionQueue(
         item: ExtractionQueueRepository.QueueItem,
         skipNoteGeneration: Boolean = false
     ): QueuedResult {
+        val startedAt = System.currentTimeMillis()
         Log.d(TAG, "Processing transcript for patient ${item.patientId.take(4)}*** (skipNote=$skipNoteGeneration)")
         repository.markProcessing(item.id)
         _processingStep.value = ProcessingStep.LOADING_MODEL
@@ -505,9 +512,11 @@ class ExtractionQueue(
             noteResult = null
             extractionInput = item.transcript
         } else {
-            // Generate a fresh note from the transcript
+            // Note generation already has per-strategy timeouts in the orchestrator and
+            // per-inference bounds in LlmModelManager. Don't wrap the whole item in a
+            // second outer timeout or we can abort before later fallbacks run.
             _processingStep.value = ProcessingStep.GENERATING_NOTE
-            val generated = orchestrator.generateNote(item.transcript)
+            val generated = generateNoteWithFallbacks(item.transcript, item.patientId)
             if (generated != null) {
                 repository.markNoteGenerated(item.id, generated.note, generated.strategyUsed)
                 noteResult = generated
@@ -522,11 +531,17 @@ class ExtractionQueue(
         }
 
         _processingStep.value = ProcessingStep.EXTRACTING
+        val extractionStartedAt = System.currentTimeMillis()
         val result = orchestrator.extract(
             transcript = extractionInput,
             patientId = item.patientId,
             providerId = item.providerId,
             facilityId = item.facilityId
+        )
+        Log.d(
+            TAG,
+            "Structured extraction finished for ${item.patientId.take(4)}*** in " +
+                "${System.currentTimeMillis() - extractionStartedAt}ms via ${result.strategyUsed}"
         )
 
         // Process any pending clinical photos for this patient
@@ -534,7 +549,11 @@ class ExtractionQueue(
         photoProcessor?.let { processor ->
             try {
                 _processingStep.value = ProcessingStep.EXTRACTING
-                mergedEncounter = processor(item.patientId, mergedEncounter)
+                mergedEncounter = withTimeout(PHOTO_PROCESSING_TIMEOUT_MS) {
+                    processor(item.patientId, mergedEncounter)
+                }
+            } catch (_: TimeoutCancellationException) {
+                Log.w(TAG, "Photo processing timed out for ${item.patientId.take(4)}***")
             } catch (e: Exception) {
                 Log.w(TAG, "Photo processing failed for ${item.patientId.take(4)}***: ${e.message}")
             }
@@ -556,13 +575,33 @@ class ExtractionQueue(
         )
 
         repository.markReady(item.id, enrichedResult)
-        Log.d(TAG, "Processed patient ${item.patientId.take(4)}*** via ${enrichedResult.strategyUsed}")
+        Log.d(
+            TAG,
+            "Processed patient ${item.patientId.take(4)}*** via ${enrichedResult.strategyUsed} " +
+                "in ${System.currentTimeMillis() - startedAt}ms"
+        )
         return QueuedResult(
             queueEntryId = item.id,
             result = enrichedResult,
             processedAt = Instant.now(),
             draftNote = noteResult?.note
         )
+    }
+
+    private suspend fun generateNoteWithFallbacks(
+        transcript: String,
+        patientIdForLog: String
+    ): ExtractionOrchestrator.NoteGenerationResult? {
+        val startedAt = System.currentTimeMillis()
+        val result = orchestrator.generateNote(transcript)
+        if (result != null) {
+            Log.d(
+                TAG,
+                "Draft note finished for ${patientIdForLog.take(4)}*** in " +
+                    "${System.currentTimeMillis() - startedAt}ms via ${result.strategyUsed}"
+            )
+        }
+        return result
     }
 
     companion object {
@@ -573,6 +612,7 @@ class ExtractionQueue(
         private const val BATCH_UNLOAD_INTERVAL = 3
         /** Max bytes for SMS free-text in BinaryEncoder V4. */
         private const val SMS_SUMMARY_MAX = 19
+        private const val PHOTO_PROCESSING_TIMEOUT_MS = 30_000L
 
         // Common medical abbreviation map for SMS summary.
         // Multi-word phrases MUST come before their single-word components

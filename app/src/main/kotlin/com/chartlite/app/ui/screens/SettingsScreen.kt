@@ -701,7 +701,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(stringResource(R.string.settings_processing_workflow), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            if (app.llmModelManager.isConstrainedDevice() && notesOffline) {
+                            if (app.shouldUseStrictLowRamSerialization(aiMode)) {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     stringResource(R.string.settings_batch_recommended),
@@ -713,6 +713,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                                 SegmentedButton(
                                     selected = noteProcessingMode == "immediate",
+                                    enabled = true,
                                     onClick = { noteProcessingMode = "immediate"; config.noteProcessingMode = "immediate" },
                                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
                                 ) { Text(stringResource(R.string.settings_process_immediately)) }
@@ -729,6 +730,14 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
+                            if (app.shouldUseStrictLowRamSerialization(aiMode)) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Strict low-RAM mode serializes voice capture and the local model so immediate mode can stay enabled.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
                         }
                     }
 
@@ -768,7 +777,8 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 val isDownloading = downloadState is ModelDownloader.DownloadState.Downloading ||
                                     llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Downloading
                                 val isVerifying = downloadState is ModelDownloader.DownloadState.Verifying ||
-                                    llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Verifying
+                                    llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Verifying ||
+                                    llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Installing
 
                                 if (isDownloading || isVerifying) {
                                     Spacer(Modifier.height(8.dp))
@@ -796,6 +806,18 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                         if (dl.totalBytes > 0) {
                                             val progress = dl.bytesDownloaded.toFloat() / dl.totalBytes.toFloat()
                                             Text("${dl.bytesDownloaded / (1024 * 1024)} / ${dl.totalBytes / (1024 * 1024)} MB",
+                                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                                        } else {
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        }
+                                    } else if (!isAsrPhase && llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Installing) {
+                                        val install = llmModelState as com.chartlite.app.extraction.LlmModelManager.ModelState.Installing
+                                        Text(stringResource(R.string.settings_installing_model),
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                        if (install.totalBytes > 0) {
+                                            val progress = install.bytesProcessed.toFloat() / install.totalBytes.toFloat()
+                                            Text("${install.bytesProcessed / (1024 * 1024)} / ${install.totalBytes / (1024 * 1024)} MB",
                                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                             LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                                         } else {
@@ -1104,6 +1126,22 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                     }
                                     is com.chartlite.app.extraction.LlmModelManager.ModelState.Downloading -> {
                                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        TextButton(onClick = { app.llmModelManager.cancelDownload() }) { Text(stringResource(R.string.cancel)) }
+                                    }
+                                    is com.chartlite.app.extraction.LlmModelManager.ModelState.Verifying,
+                                    is com.chartlite.app.extraction.LlmModelManager.ModelState.Installing -> {
+                                        val install = llmModelState as? com.chartlite.app.extraction.LlmModelManager.ModelState.Installing
+                                        Text(
+                                            if (install != null) stringResource(R.string.settings_installing_model)
+                                            else stringResource(R.string.settings_verifying_download),
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                        if (install != null && install.totalBytes > 0) {
+                                            val progress = install.bytesProcessed.toFloat() / install.totalBytes.toFloat()
+                                            LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                                        } else {
+                                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        }
                                         TextButton(onClick = { app.llmModelManager.cancelDownload() }) { Text(stringResource(R.string.cancel)) }
                                     }
                                     is com.chartlite.app.extraction.LlmModelManager.ModelState.Error -> {

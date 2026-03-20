@@ -78,8 +78,12 @@ fun EncounterRecordScreen(
     val station = stationName?.let {
         try { ClinicStation.valueOf(it) } catch (_: Exception) { null }
     }
-    var isBatchProcessing by remember { mutableStateOf(app.appConfig.noteProcessingMode == "batch") }
-    val isConstrainedDevice = remember { app.llmModelManager.isConstrainedDevice() }
+    val strictLowRamSerialization = remember {
+        app.shouldUseStrictLowRamSerialization()
+    }
+    var isBatchProcessing by remember {
+        mutableStateOf(app.appConfig.noteProcessingMode == "batch")
+    }
 
     // ── Camera scan state ──
     var showCamera by remember { mutableStateOf(false) }
@@ -87,9 +91,6 @@ fun EncounterRecordScreen(
     var lastScanType by remember { mutableStateOf<String?>(null) }
     var lastScanResult by remember { mutableStateOf<VisionExtractor.VisionResult?>(null) }
     var showScanResult by remember { mutableStateOf(false) }
-    val visionExtractor = remember {
-        VisionExtractor(app.llmModelManager, app.promptBuilder)
-    }
     val photoDir = remember {
         java.io.File(context.filesDir, "encounter_photos/$patientId").also { it.mkdirs() }
     }
@@ -102,6 +103,7 @@ fun EncounterRecordScreen(
     val isPreparing by asr.isPreparing.collectAsState()
     val liveTranscript by asr.transcript.collectAsState()
     val amplitude by asr.amplitude.collectAsState()
+    val asrModelLoaded by asr.sherpaPipeline.isLoaded.collectAsState()
 
     // Recording duration timer
     var recordingStartTime by remember { mutableStateOf(0L) }
@@ -185,7 +187,11 @@ fun EncounterRecordScreen(
         transcript = trimmed
         isProcessing = true
         extractionError = null
-        asr.unloadOfflineModelAndWait()
+        val readyForLlm = app.prepareOnDeviceNoteProcessingForLowRam { extractionError = it }
+        if (!readyForLlm) {
+            isProcessing = false
+            return
+        }
 
         try {
             val queueId = app.extractionQueue.enqueue(
@@ -237,15 +243,22 @@ fun EncounterRecordScreen(
         transcript = trimmed
         isGeneratingNote = true
         extractionError = null
-        // Synchronously release ONNX ASR model and wait for memory to be freed
-        // before loading LLM. On 3GB devices, both can't coexist in memory.
-        asr.unloadOfflineModelAndWait()
+        val readyForLlm = app.prepareOnDeviceNoteProcessingForLowRam { extractionError = it }
+        if (!readyForLlm) {
+            isGeneratingNote = false
+            return
+        }
 
         try {
-            val noteResult = app.extractionQueue.generateNoteFromTranscript(trimmed)
+            val noteResult = app.generateDraftNoteDirect(trimmed)
             if (noteResult != null) {
                 draftNote = noteResult.note
                 noteStrategyUsed = noteResult.strategyUsed
+                val usedOnDeviceNote = noteResult.strategyUsed.contains("(on-device)")
+                if (strictLowRamSerialization && usedOnDeviceNote) {
+                    app.llmModelManager.keepModelWarmFor(45_000L)
+                }
+                app.prewarmExtractionPipelineForImmediateReview()
                 isGeneratingNote = false
             } else {
                 // No LLM available — fall back to direct extraction (old flow)
@@ -270,6 +283,11 @@ fun EncounterRecordScreen(
     suspend fun extractFromApprovedNote(approvedNote: String) {
         isProcessing = true
         extractionError = null
+        val readyForLlm = app.prepareOnDeviceNoteProcessingForLowRam { extractionError = it }
+        if (!readyForLlm) {
+            isProcessing = false
+            return
+        }
 
         try {
             val queueId = app.extractionQueue.enqueue(
@@ -361,6 +379,21 @@ fun EncounterRecordScreen(
         onBack()
     }
 
+    fun startEncounterCapture(
+        maxRecordingMinutes: Int,
+        disableSilenceAutoStop: Boolean,
+        onStartError: (String) -> Unit
+    ) {
+        scope.launch {
+            app.startAsrCaptureWithLowMemoryHandoff(
+                language = app.appConfig.language,
+                onError = onStartError,
+                maxRecordingMinutes = maxRecordingMinutes,
+                disableSilenceAutoStop = disableSilenceAutoStop
+            )
+        }
+    }
+
     suspend fun finalizeAmbientRecording() {
         extractionError = null
         // Show loading spinner immediately — cloud ASR finalization can take several seconds.
@@ -396,14 +429,26 @@ fun EncounterRecordScreen(
         }
     }
 
-    LaunchedEffect(asr.mode, app.appConfig.language) {
+    LaunchedEffect(
+        asr.mode,
+        app.appConfig.language,
+        asrModelLoaded,
+        draftNote != null,
+        extractedEncounter != null,
+        isGeneratingNote,
+        isProcessing
+    ) {
         if (
             asr.mode == com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE &&
-            asr.isOnnxModelDownloaded() &&
-            !asr.isModelLoaded() &&
-            !asr.isPreparing.value
+            asr.isOnnxModelDownloadedFast() &&
+            !asrModelLoaded &&
+            !asr.isPreparing.value &&
+            draftNote == null &&
+            extractedEncounter == null &&
+            !isGeneratingNote &&
+            !isProcessing
         ) {
-            asr.loadModel(app.appConfig.language)
+            app.prepareOfflineAsrForCapture(app.appConfig.language)
         }
     }
 
@@ -522,10 +567,18 @@ fun EncounterRecordScreen(
                     )
                     Switch(
                         checked = !isBatchProcessing,
+                        enabled = true,
                         onCheckedChange = { processNow ->
                             isBatchProcessing = !processNow
                             app.appConfig.noteProcessingMode = if (processNow) "immediate" else "batch"
                         }
+                    )
+                }
+                if (strictLowRamSerialization) {
+                    Text(
+                        "Strict low-RAM mode keeps voice and local AI serialized so immediate mode can stay enabled.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -843,14 +896,13 @@ fun EncounterRecordScreen(
                                 scope.launch { finalizeAmbientRecording() }
                             } else if (!isRecording) {
                                 extractionError = null
-                                asr.startListening(
-                                    language = app.appConfig.language,
-                                    onError = { msg ->
+                                startEncounterCapture(
+                                    maxRecordingMinutes = app.appConfig.maxRecordingMinutes,
+                                    disableSilenceAutoStop = true,
+                                    onStartError = { msg ->
                                         extractionError = msg
                                         showManualInput = true
-                                    },
-                                    maxRecordingMinutes = app.appConfig.maxRecordingMinutes,
-                                    disableSilenceAutoStop = true
+                                    }
                                 )
                             }
                         },
@@ -859,14 +911,13 @@ fun EncounterRecordScreen(
                             if (!isRecording) {
                                 isHolding = true
                                 extractionError = null
-                                asr.startListening(
-                                    language = app.appConfig.language,
-                                    onError = { msg ->
+                                startEncounterCapture(
+                                    maxRecordingMinutes = 2,
+                                    disableSilenceAutoStop = false,
+                                    onStartError = { msg ->
                                         extractionError = msg
                                         isHolding = false
-                                    },
-                                    maxRecordingMinutes = 2,
-                                    disableSilenceAutoStop = false
+                                    }
                                 )
                             }
                         },
@@ -926,7 +977,7 @@ fun EncounterRecordScreen(
                     }
 
                     // ── Camera scan button ──
-                    if (!isRecording && app.llmModelManager.isModelDownloaded()) {
+                    if (!isRecording && app.isLlmVisionModelDownloadedFast()) {
                         Spacer(Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = { showCamera = true },
@@ -968,14 +1019,13 @@ fun EncounterRecordScreen(
                         error = extractionError,
                         onRetry = {
                             extractionError = null
-                            asr.startListening(
-                                language = app.appConfig.language,
-                                onError = { msg ->
+                            startEncounterCapture(
+                                maxRecordingMinutes = app.appConfig.maxRecordingMinutes,
+                                disableSilenceAutoStop = true,
+                                onStartError = { msg ->
                                     extractionError = msg
                                     showManualInput = true
-                                },
-                                maxRecordingMinutes = app.appConfig.maxRecordingMinutes,
-                                disableSilenceAutoStop = true
+                                }
                             )
                         }
                     )
@@ -1759,7 +1809,7 @@ fun EncounterRecordScreen(
                         // Release ASR model first — on 3GB devices, ASR + vision can't coexist
                         asr.unloadOfflineModelAndWait()
                         val result = withContext(Dispatchers.Default) {
-                            visionExtractor.extract(filePath)
+                            VisionExtractor(app.llmModelManager, app.promptBuilder).extract(filePath)
                         }
                         isScanProcessing = false
                         if (result != null) {

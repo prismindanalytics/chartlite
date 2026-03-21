@@ -146,12 +146,17 @@ class QwenExtractionStrategy(
             topK = 40,
             repeatPenalty = 1.3f
         )
-        // More aggressive repeat penalty for 0.8B model on ≤3GB devices
         private val COMPACT_NOTE_GENERATION_CONFIG = LlmModelManager.GenerationConfig(
-            temperature = 0.1f,
-            topP = 0.85f,
-            topK = 20,
-            repeatPenalty = 1.6f
+            temperature = 0.2f,
+            topP = 0.92f,
+            topK = 40,
+            repeatPenalty = 1.2f
+        )
+        private val NOTE_RECOVERY_GENERATION_CONFIG = LlmModelManager.GenerationConfig(
+            temperature = 0.2f,
+            topP = 0.95f,
+            topK = 40,
+            repeatPenalty = 1.1f
         )
         private val EMPTY_RESPONSE_RETRY_CONFIG = LlmModelManager.GenerationConfig(
             temperature = 0.2f,
@@ -226,7 +231,7 @@ class QwenExtractionStrategy(
             val result = when {
                 normalized.startsWith("{") || normalized.startsWith("[") -> normalized
                 normalized.startsWith("\"") -> mergePrimedResponse(normalized)
-                else -> unwrapped
+                else -> withoutThinking
             }
 
             // Detect and truncate degenerate repetition loops
@@ -405,6 +410,15 @@ class QwenExtractionStrategy(
             }
             return afterLineDup
         }
+
+        internal fun looksLikeUsableNote(text: String): Boolean {
+            val lines = text.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            val letterCount = text.count { it.isLetter() }
+            val hasBodyContent = lines.any { it.startsWith("-") || it.length >= 32 }
+            return letterCount >= 24 && hasBodyContent
+        }
     }
 
     /**
@@ -430,11 +444,10 @@ class QwenExtractionStrategy(
                 return@withContext null
             }
             // Use structured system/user pair — MNN applies native chat template
-            val compact = modelManager.activeTier() == LlmModelManager.ModelTier.SMALL
+            val compact = false
             val (systemPrompt, userMessage) = promptBuilder.noteSystemAndUser(prepared.text, compact = compact)
             val maxOutputTokens = modelManager.recommendedNoteOutputTokens()
-            // Higher repeat penalty on small model to suppress cross-section repetition
-            val config = if (compact) COMPACT_NOTE_GENERATION_CONFIG else NOTE_GENERATION_CONFIG
+            val config = NOTE_GENERATION_CONFIG
 
             Log.d(TAG, "Running Qwen note generation (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, compact=$compact)")
 
@@ -444,30 +457,70 @@ class QwenExtractionStrategy(
                 maxTokens = maxOutputTokens,
                 config = config
             )
-
-            if (responseText.isNullOrBlank()) {
-                Log.w(TAG, "Qwen note generation returned empty response")
-                return@withContext null
+            val primaryNote = normalizeGeneratedNote(responseText)
+            if (primaryNote != null) {
+                Log.d(TAG, "Qwen note generated (${primaryNote.length} chars)")
+                return@withContext primaryNote
             }
 
-            // Strip chat markers and any thinking blocks
-            val cleaned = responseText.trimEnd()
-                .removePrefix(CHAT_ASSISTANT_PREFIX)
-                .trimStart('\n', '\r')
-                .removeSuffix(CHAT_END_TOKEN)
-                .let { stripThinkingBlocks(it) }
-
-            if (cleaned.isBlank()) {
-                Log.w(TAG, "Qwen note was entirely a thinking block — no usable content")
+            Log.w(TAG, "Primary Qwen note output was empty or too weak; retrying with stronger note prompt")
+            val retryResponse = modelManager.runChatInference(
+                systemPrompt = promptBuilder.buildNoteSystemPrompt(compact = true),
+                userMessage = buildNoteRecoveryUserMessage(prepared.text),
+                maxTokens = maxOutputTokens,
+                config = if (modelManager.activeTier() == LlmModelManager.ModelTier.SMALL) {
+                    COMPACT_NOTE_GENERATION_CONFIG
+                } else {
+                    NOTE_RECOVERY_GENERATION_CONFIG
+                }
+            )
+            val recoveredNote = normalizeGeneratedNote(retryResponse)
+            if (recoveredNote == null) {
+                Log.w(TAG, "Qwen note generation produced no usable note after retry")
                 return@withContext null
             }
-
-            // Truncate degenerate repetition loops in note text
-            val deduped = truncateNoteRepetition(cleaned)
-            Log.d(TAG, "Qwen note generated (${deduped.length} chars)")
-            deduped
+            Log.d(TAG, "Qwen note generated after retry (${recoveredNote.length} chars)")
+            recoveredNote
         } catch (e: Exception) {
             Log.e(TAG, "Qwen note generation failed", e)
+            null
+        }
+    }
+
+    private fun buildNoteRecoveryUserMessage(transcript: String): String = buildString {
+        appendLine("Write a clinically useful note from this dictation.")
+        appendLine("Return the note only.")
+        appendLine("Include any stated diagnosis, medication, immunization, treatment, counseling, and follow-up.")
+        appendLine("Use markdown headers (##) and bullet points (-).")
+        appendLine("Start directly with a section header such as ## Chief Complaint or ## Assessment.")
+        appendLine()
+        appendLine("DICTATION:")
+        appendLine()
+        appendLine(transcript)
+    }
+
+    private fun normalizeGeneratedNote(responseText: String?): String? {
+        if (responseText.isNullOrBlank()) {
+            Log.w(TAG, "Qwen note generation returned empty response")
+            return null
+        }
+
+        val cleaned = responseText.trimEnd()
+            .removePrefix(CHAT_ASSISTANT_PREFIX)
+            .trimStart('\n', '\r')
+            .removeSuffix(CHAT_END_TOKEN)
+            .let { stripThinkingBlocks(it) }
+
+        if (cleaned.isBlank()) {
+            Log.w(TAG, "Qwen note was entirely a thinking block — no usable content")
+            return null
+        }
+
+        val deduped = truncateNoteRepetition(cleaned)
+        return deduped.takeIf {
+            looksLikeUsableNote(it)
+        } ?: run {
+            Log.w(TAG, "Qwen note output was too thin to use (${deduped.length} chars)")
             null
         }
     }

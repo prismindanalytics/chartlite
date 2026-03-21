@@ -259,7 +259,9 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
     }
 
     const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    if (!sys) { LOGe("nativeGenerateChat: GetStringUTFChars failed for system"); return nullptr; }
     const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
+    if (!usr) { env->ReleaseStringUTFChars(jSystemPrompt, sys); LOGe("nativeGenerateChat: GetStringUTFChars failed for user"); return nullptr; }
 
     ChatMessages messages = {
         {"system", std::string(sys)},
@@ -401,7 +403,9 @@ Java_com_chartlite_llm_LlamaBridge_nativeApplyChatTemplate(
     }
 
     const char *systemPrompt = env->GetStringUTFChars(jSystemPrompt, nullptr);
+    if (!systemPrompt) { LOGe("applyChatTemplate: GetStringUTFChars failed for system"); return nullptr; }
     const char *userMessage  = env->GetStringUTFChars(jUserMessage, nullptr);
+    if (!userMessage) { env->ReleaseStringUTFChars(jSystemPrompt, systemPrompt); LOGe("applyChatTemplate: GetStringUTFChars failed for user"); return nullptr; }
 
     // Use MNN's built-in chat template from model metadata
     ChatMessages messages = {

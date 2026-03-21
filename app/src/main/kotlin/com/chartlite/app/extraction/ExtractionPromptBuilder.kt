@@ -63,25 +63,19 @@ class ExtractionPromptBuilder(
         appendLine("Include ONLY facts from the dictation. Omit empty sections.")
         appendLine()
         if (compact) {
-            // Compact prompt for 0.8B model on low-RAM devices.
-            appendLine("Keep the note extremely short: at most 4 short bullets and about 60 words total.")
-            appendLine("Sections (skip any not mentioned in dictation):")
-            appendLine("## CC")
-            appendLine("## Findings")
-            appendLine("## Plan")
-            appendLine("## Follow-up")
-        } else {
-            appendLine("Sections (include only if relevant):")
-            appendLine("## Chief Complaint")
-            appendLine("## History of Present Illness")
-            appendLine("## Examination Findings")
-            appendLine("## Vitals")
-            appendLine("## Investigations")
-            appendLine("## Assessment")
-            appendLine("## Plan (include all treatments, medications, immunizations given)")
-            appendLine("## Follow-up")
-            appendLine("## Allergies")
+            appendLine("Keep bullets short, but do not omit important clinical facts.")
+            appendLine("Always include any stated diagnosis, medication, immunization, treatment, counseling, and follow-up.")
         }
+        appendLine("Sections (include only if relevant):")
+        appendLine("## Chief Complaint")
+        appendLine("## History of Present Illness")
+        appendLine("## Examination Findings")
+        appendLine("## Vitals")
+        appendLine("## Investigations")
+        appendLine("## Assessment")
+        appendLine("## Plan (include all treatments, medications, immunizations given)")
+        appendLine("## Follow-up")
+        appendLine("## Allergies")
         appendLine()
         appendLine("DICTATION:")
         appendLine()
@@ -218,14 +212,17 @@ Rules:
 - Omit sections with no content. Do NOT write "None" or "Not mentioned".
 - Use exact numbers, values, and medical terms as dictated.
 - Format: ## for headers, - for bullets, **bold** for key terms.
+- If diagnoses, medications, immunizations, procedures, counseling,
+  or follow-up are stated, include them in the note.
 - No disclaimers or commentary.
         """.trimIndent()
 
         private val COMPACT_NOTE_SYSTEM_PROMPT = """
 You are a clinical scribe.
-Write a very short clinical note from the dictation.
+Write a clinically useful note from the dictation.
 Use only stated facts. No repetition. Omit empty sections.
-Use ## headers and short bullets only.
+Use ## headers and short bullets only, but do not drop important treatments,
+medications, diagnoses, counseling, or follow-up.
 Do not use bold text. Do not write paragraphs.
         """.trimIndent()
 

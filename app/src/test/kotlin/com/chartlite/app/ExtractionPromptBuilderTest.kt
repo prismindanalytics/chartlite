@@ -93,4 +93,15 @@ class ExtractionPromptBuilderTest {
         assertFalse(prompt.contains("suggested_diagnoses"))
         assertFalse(prompt.contains("Formulary reference:"))
     }
+
+    @Test
+    fun `compact note prompt still asks for full clinical sections`() {
+        val prompt = builder.buildNoteUserPrompt("fever and cough for three days", compact = true)
+
+        assertTrue(prompt.contains("## Chief Complaint"))
+        assertTrue(prompt.contains("## History of Present Illness"))
+        assertTrue(prompt.contains("## Assessment"))
+        assertTrue(prompt.contains("## Plan"))
+        assertFalse(prompt.contains("about 60 words total"))
+    }
 }

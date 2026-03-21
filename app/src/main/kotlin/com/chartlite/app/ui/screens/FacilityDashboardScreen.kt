@@ -84,9 +84,9 @@ fun FacilityDashboardScreen(
         isLoading = false
     }
 
-    val todayCount = encounters.count { it.timestamp >= todayStart }
-    val weekCount = encounters.count { it.timestamp >= weekStart }
-    val monthCount = encounters.count { it.timestamp >= monthStart }
+    val todayCount = remember(encounters) { encounters.count { it.timestamp >= todayStart } }
+    val weekCount = remember(encounters) { encounters.count { it.timestamp >= weekStart } }
+    val monthCount = remember(encounters) { encounters.count { it.timestamp >= monthStart } }
 
     // Aggregate diagnoses
     val topDiagnoses = remember(encounters) {

@@ -19,7 +19,7 @@ import com.google.gson.reflect.TypeToken
 class ClinicalProtocolEngine(private val context: Context) {
 
 
-    private var protocols: List<ClinicalProtocol> = emptyList()
+    @Volatile private var protocols: List<ClinicalProtocol> = emptyList()
     private val gson = Gson()
     @Volatile private var protocolsLoaded = false
 
@@ -48,7 +48,12 @@ class ClinicalProtocolEngine(private val context: Context) {
         if (!protocolsLoaded) loadProtocols()
     }
 
+    fun preload() {
+        ensureProtocolsLoaded()
+    }
+
     /** Load from raw JSON string (useful for testing). */
+    @Synchronized
     fun loadFromJson(json: String) {
         val wrapper = gson.fromJson(json, ProtocolsWrapper::class.java)
         protocols = wrapper?.protocols ?: emptyList()

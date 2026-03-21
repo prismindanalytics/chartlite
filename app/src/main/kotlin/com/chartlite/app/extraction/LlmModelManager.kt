@@ -4,7 +4,6 @@ import android.app.ActivityManager
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
-import android.net.wifi.WifiManager
 import android.os.PowerManager
 import android.util.Log
 import com.chartlite.llm.LlamaBridge
@@ -68,7 +67,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         .build()
 
     private var downloadJob: Job? = null
-    private var activeCall: Call? = null
+    @Volatile private var activeCall: Call? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // LlamaBridge inference state — LlamaBridge is a singleton object,
@@ -353,8 +352,6 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     fun recommendedNoteOutputTokens(): Int = when {
         activeTier() == ModelTier.LARGE -> LARGE_MODEL_NOTE_OUTPUT_TOKENS
-        deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> ULTRA_LOW_RAM_NOTE_OUTPUT_TOKENS
-        deviceRamGb() <= LOW_RAM_DEVICE_GB -> LOW_RAM_NOTE_OUTPUT_TOKENS
         else -> SMALL_MODEL_NOTE_OUTPUT_TOKENS
     }
 
@@ -702,7 +699,12 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             // Set inferring BEFORE loadModel() to prevent onTrimMemory from
             // unloading mid-load on 3GB devices under memory pressure.
             inferring = true
-            if (!modelLoaded) loadModel()
+            try {
+                if (!modelLoaded) loadModel()
+            } catch (e: Exception) {
+                inferring = false
+                throw e
+            }
 
             val result = CompletableDeferred<String?>()
             val generationJob = scope.launch {
@@ -1254,21 +1256,6 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         verifiedModelFingerprint = null
     }
 
-    private fun verifyInstalledModelFile(file: File, tier: ModelTier) {
-        val fingerprint = "${tier.name}:${file.absolutePath}:${file.length()}:${file.lastModified()}"
-        if (verifiedModelFingerprint == fingerprint) return
-
-        val expectedSha = requirePinnedSha256(tier)
-        val actualSha = sha256(file)
-        if (!actualSha.equals(expectedSha, ignoreCase = true)) {
-            clearVerifiedModelCache()
-            throw IllegalStateException(
-                "Installed model failed SHA-256 verification. Delete and re-import ${tier.label}."
-            )
-        }
-        verifiedModelFingerprint = fingerprint
-    }
-
     private fun normalizeSha256(raw: String): String? {
         val cleaned = raw.trim().lowercase()
         return if (Regex("^[a-f0-9]{64}$").matches(cleaned)) cleaned else null
@@ -1290,27 +1277,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
-    private fun acquireWifiLock(tag: String): WifiManager.WifiLock? {
-        return try {
-            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-                ?: return null
-            val lock = runCatching {
-                wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, tag)
-            }.getOrElse {
-                wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL, tag)
-            }
-            lock.setReferenceCounted(false)
-            lock.acquire()
-            lock
-        } catch (e: Exception) {
-            Log.w(TAG, "Unable to acquire Wi-Fi lock for LLM download", e)
-            null
-        }
-    }
-
     companion object {
         private const val TAG = "LlmModelManager"
-        private const val LLM_DOWNLOAD_WAKELOCK_TIMEOUT_MS = 8L * 60L * 60L * 1000L
         private const val ULTRA_LOW_RAM_DEVICE_GB = 3.0
         private const val LOW_RAM_DEVICE_GB = 3.5
         private const val CONSTRAINED_DEVICE_GB = 6.0
@@ -1325,8 +1293,6 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val LOW_RAM_EXTRACTION_OUTPUT_TOKENS = 640
         private const val SMALL_MODEL_EXTRACTION_OUTPUT_TOKENS = 1024
         private const val LARGE_MODEL_EXTRACTION_OUTPUT_TOKENS = 1536
-        private const val ULTRA_LOW_RAM_NOTE_OUTPUT_TOKENS = 128
-        private const val LOW_RAM_NOTE_OUTPUT_TOKENS = 192
         private const val SMALL_MODEL_NOTE_OUTPUT_TOKENS = 640
         private const val LARGE_MODEL_NOTE_OUTPUT_TOKENS = 1024
         private const val ULTRA_LOW_RAM_MAX_SNIPPET_OUTPUT_TOKENS = 256

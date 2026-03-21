@@ -286,7 +286,7 @@ private fun QueueItemCard(
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onPrimaryAction) {
-                    if (primaryActionLabel == "Retry") {
+                    if (item.status == ExtractionQueueRepository.QueueStatus.FAILED) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     } else {
                         Icon(Icons.Default.AutoAwesome, contentDescription = "Auto extract")

@@ -104,6 +104,15 @@ fun VoiceTriageCard(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
 
+    // Stop ASR if recording when the card leaves composition (e.g., navigation away)
+    DisposableEffect(Unit) {
+        onDispose {
+            if (asr.isListening.value) {
+                asr.cancelListening()
+            }
+        }
+    }
+
     // Extract vitals from transcript when recording stops
     fun extractAndPopulate(text: String) {
         transcript = text

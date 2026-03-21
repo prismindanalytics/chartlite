@@ -21,7 +21,7 @@ class FacilityDirectory(
     private val countryCodeProvider: () -> String
 ) {
 
-    private var facilities: List<Facility> = emptyList()
+    @Volatile private var facilities: List<Facility> = emptyList()
     private val gson = Gson()
     @Volatile private var loadedCountryCode: String? = null
 
@@ -55,7 +55,12 @@ class FacilityDirectory(
         }
     }
 
+    fun preloadCurrentCountry() {
+        ensureLoaded()
+    }
+
     /** Load from raw JSON string (useful for testing). */
+    @Synchronized
     fun loadFromJson(json: String) {
         val wrapper = gson.fromJson(json, FacilitiesWrapper::class.java)
         facilities = wrapper?.facilities ?: emptyList()

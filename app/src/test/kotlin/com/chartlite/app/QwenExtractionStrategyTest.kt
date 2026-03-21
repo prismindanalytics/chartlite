@@ -76,4 +76,27 @@ class QwenExtractionStrategyTest {
 
         assertEquals("{\"chief_complaint\": \"child has fever\"\n}", normalized)
     }
+
+    @Test
+    fun `usable note heuristic accepts headed note with body`() {
+        val note = """
+            ## Chief Complaint
+            - Fever and cough
+
+            ## Plan
+            - Start amoxicillin and review in 3 days
+        """.trimIndent()
+
+        assertTrue(QwenExtractionStrategy.looksLikeUsableNote(note))
+    }
+
+    @Test
+    fun `usable note heuristic rejects nearly empty note`() {
+        val note = """
+            ## Chief Complaint
+            -
+        """.trimIndent()
+
+        assertFalse(QwenExtractionStrategy.looksLikeUsableNote(note))
+    }
 }

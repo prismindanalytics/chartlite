@@ -163,7 +163,6 @@ fun EncounterRecordScreen(
     var draftNote by remember { mutableStateOf<String?>(null) }
     var noteStrategyUsed by rememberSaveable { mutableStateOf<String?>(null) }
     var isGeneratingNote by remember { mutableStateOf(false) }
-    var showWriteNoteDirectly by rememberSaveable { mutableStateOf(false) }
 
     // ── Snippet mode state ──
     var snippetTranscripts by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -216,6 +215,8 @@ fun EncounterRecordScreen(
             } else {
                 extractionError = emptyResultMessage
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (fallbackEncounter != null) {
                 extractedEncounter = fallbackEncounter
@@ -250,7 +251,12 @@ fun EncounterRecordScreen(
         }
 
         try {
-            val noteResult = app.generateDraftNoteDirect(trimmed)
+            val noteResult = app.generateDraftNoteDirect(
+                transcript = trimmed,
+                patientId = patientId,
+                providerId = providerId,
+                facilityId = app.appConfig.facilityId
+            )
             if (noteResult != null) {
                 draftNote = noteResult.note
                 noteStrategyUsed = noteResult.strategyUsed
@@ -316,6 +322,8 @@ fun EncounterRecordScreen(
             } else {
                 extractionError = "Extraction returned no result. Try again."
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             extractionError = "Extraction failed: ${e.message}"
         } finally {
@@ -1074,7 +1082,7 @@ fun EncounterRecordScreen(
                     if (!isRecording && snippetCount == 0) {
                         OutlinedButton(onClick = {
                             showManualInput = true
-                            showWriteNoteDirectly = false
+
                         }) {
                             Text(stringResource(R.string.type_manually_instead))
                         }
@@ -1625,6 +1633,9 @@ fun EncounterRecordScreen(
                                     ).show()
                                 }
                                 onEncounterSaved(savedId)
+                            } catch (e: CancellationException) {
+                                isSaving = false
+                                throw e
                             } catch (e: Exception) {
                                 extractionError = "Save failed: ${e.message}"
                                 isSaving = false

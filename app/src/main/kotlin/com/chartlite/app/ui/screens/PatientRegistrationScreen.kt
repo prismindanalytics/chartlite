@@ -72,16 +72,16 @@ fun PatientRegistrationScreen(
     var linkLookupName by remember { mutableStateOf<String?>(null) }
 
     // Form fields
-    var firstName by remember { mutableStateOf("") }
-    var lastName by remember { mutableStateOf("") }
-    var dateOfBirth by remember { mutableStateOf("") }
-    var ageYears by remember { mutableStateOf("") }
+    var firstName by rememberSaveable { mutableStateOf("") }
+    var lastName by rememberSaveable { mutableStateOf("") }
+    var dateOfBirth by rememberSaveable { mutableStateOf("") }
+    var ageYears by rememberSaveable { mutableStateOf("") }
     var gender by rememberSaveable { mutableStateOf("male") }
-    var phoneNumber by remember { mutableStateOf("") }
-    var nationalId by remember { mutableStateOf("") }
+    var phoneNumber by rememberSaveable { mutableStateOf("") }
+    var nationalId by rememberSaveable { mutableStateOf("") }
     // PIN must NOT survive config changes — use remember for security
     var pin by remember { mutableStateOf("") }
-    var allergies by remember { mutableStateOf(prefillAllergies ?: "") }
+    var allergies by rememberSaveable { mutableStateOf(prefillAllergies ?: "") }
     var consentGiven by rememberSaveable { mutableStateOf(false) }
     var generatedId by rememberSaveable { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }

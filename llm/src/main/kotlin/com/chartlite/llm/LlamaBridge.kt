@@ -105,7 +105,9 @@ object LlamaBridge {
             val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
             val w = (bitmap.width * scale).toInt()
             val h = (bitmap.height * scale).toInt()
-            Bitmap.createScaledBitmap(bitmap, w, h, true).also { bitmap.recycle() }
+            val result = Bitmap.createScaledBitmap(bitmap, w, h, true)
+            if (result !== bitmap) bitmap.recycle()
+            result
         } else bitmap
 
         // Extract RGB bytes (no alpha)

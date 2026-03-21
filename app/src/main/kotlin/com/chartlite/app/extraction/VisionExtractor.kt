@@ -123,6 +123,7 @@ class VisionExtractor(
             }
 
             val vitals = (obj.getAsJsonArray("vitals") ?: obj.getAsJsonArray("vital"))?.mapNotNull { elem ->
+                if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
                 val name = o.get("name")?.asString ?: return@mapNotNull null
                 val value = o.get("value")?.asString ?: return@mapNotNull null
@@ -131,6 +132,7 @@ class VisionExtractor(
             } ?: emptyList()
 
             val investigations = (obj.getAsJsonArray("investigations") ?: obj.getAsJsonArray("investigation"))?.mapNotNull { elem ->
+                if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
                 val test = o.get("test")?.asString ?: return@mapNotNull null
                 val result = o.get("result")?.asString ?: return@mapNotNull null
@@ -159,6 +161,7 @@ class VisionExtractor(
             }
 
             val medications = (obj.getAsJsonArray("medications") ?: obj.getAsJsonArray("mediications") ?: obj.getAsJsonArray("medication"))?.mapNotNull { elem ->
+                if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
                 val name = o.get("name")?.asString ?: return@mapNotNull null
                 MedicationInfo(name, o.get("dose")?.asString, o.get("form")?.asString, o.get("expiry")?.asString)

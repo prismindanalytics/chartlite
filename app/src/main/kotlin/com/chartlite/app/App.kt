@@ -92,9 +92,15 @@ class App : Application() {
     @Volatile private var llmModelManagerBacking: LlmModelManager? = null
     private val extractionInitLock = Any()
     @Volatile private var extractionServicesBacking: ExtractionServices? = null
+    private val extractionKnowledgeLock = Any()
+    @Volatile private var extractionKnowledgeBacking: ExtractionKnowledge? = null
+    @Volatile private var extractionKnowledgeCountryCode: String? = null
+    private val noteGenerationInitLock = Any()
+    @Volatile private var noteGenerationCache: NoteGenerationCache? = null
     private val _extractionServicesReady = MutableStateFlow(false)
     val extractionServicesReady: StateFlow<Boolean> = _extractionServicesReady
     private var deferredExtractionWarmupJob: Job? = null
+    private var deferredKnowledgeWarmupJob: Job? = null
 
     val llmModelManager: LlmModelManager
         get() = llmModelManagerBacking ?: synchronized(llmInitLock) {
@@ -119,9 +125,22 @@ class App : Application() {
      * Immediate draft-note path used by recording screens.
      * This avoids building the full extraction pipeline just to get a draft note.
      */
-    suspend fun generateDraftNoteDirect(transcript: String): ExtractionOrchestrator.NoteGenerationResult? =
+    suspend fun generateDraftNoteDirect(
+        transcript: String,
+        patientId: String,
+        providerId: String,
+        facilityId: String
+    ): ExtractionOrchestrator.NoteGenerationResult? =
         withContext(Dispatchers.Default) {
-            buildNoteGenerationOrchestrator().generateNote(transcript)
+            if (shouldPreferStructuredDraftNoteOnLowRam()) {
+                generateStructuredDraftNoteFromExtraction(
+                    transcript = transcript,
+                    patientId = patientId,
+                    providerId = providerId,
+                    facilityId = facilityId
+                )?.let { return@withContext it }
+            }
+            getOrCreateNoteGenerationOrchestrator().generateNote(transcript)
         }
 
     /**
@@ -185,6 +204,10 @@ class App : Application() {
         val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         return (am.isLowRamDevice || totalRamGb() <= 3.5) && aiModeCanUseOnDeviceFallback(mode)
     }
+
+    private fun shouldPreferStructuredDraftNoteOnLowRam(): Boolean =
+        shouldUseStrictLowRamSerialization() &&
+            fastActiveLlmTier() == LlmModelManager.ModelTier.SMALL
 
     private fun isOnDeviceNoteWorkActive(): Boolean {
         if (!shouldUseStrictLowRamSerialization()) return false
@@ -418,6 +441,7 @@ class App : Application() {
         applyCountryPresentationConfig()
         if (appConfig.isSetupComplete) {
             scheduleDeferredExtractionWarmup()
+            scheduleDeferredKnowledgeWarmup()
         }
 
         // ASR model loading is deferred to first use (ASREngine.startListening)
@@ -435,6 +459,7 @@ class App : Application() {
     fun loadCountryData(deferExtraction: Boolean = false) {
         applyCountryPresentationConfig()
         facilityDirectory.invalidate()
+        clearKnowledgeCaches()
         if (deferExtraction) {
             // Defer heavy extraction pipeline build to avoid OOM on low-RAM devices
             // during setup completion when memory is already constrained.
@@ -442,10 +467,12 @@ class App : Application() {
         } else {
             getOrCreateExtractionServices(forceReload = true)
         }
+        scheduleDeferredKnowledgeWarmup()
     }
 
     /** Rebuild the extraction pipeline (e.g., after changing AI mode or cloud key mode). */
     fun rebuildExtractionPipeline() {
+        noteGenerationCache = null
         getOrCreateExtractionServices(forceReload = true)
     }
 
@@ -499,24 +526,125 @@ class App : Application() {
         val icd10: ICD10Index
     )
 
-    private fun loadExtractionKnowledge(): ExtractionKnowledge {
-        val formulary = try {
-            configLoader.loadFormulary("formulary/${appConfig.countryCode}_formulary.json")
-        } catch (_: Exception) {
-            Formulary("1.0", appConfig.countryCode, emptyList())
+    private fun getOrCreateExtractionKnowledge(forceReload: Boolean = false): ExtractionKnowledge {
+        val countryCode = appConfig.countryCode
+        if (!forceReload) {
+            extractionKnowledgeBacking?.takeIf { extractionKnowledgeCountryCode == countryCode }?.let { return it }
         }
 
-        val icd10 = try {
-            configLoader.loadICD10("icd10/phc_top300.json")
-        } catch (_: Exception) {
-            ICD10Index("1.0", emptyList())
+        return synchronized(extractionKnowledgeLock) {
+            if (!forceReload) {
+                extractionKnowledgeBacking?.takeIf { extractionKnowledgeCountryCode == countryCode }?.let { return@synchronized it }
+            }
+
+            val formulary = try {
+                configLoader.loadFormulary("formulary/${countryCode}_formulary.json")
+            } catch (_: Exception) {
+                Formulary("1.0", countryCode, emptyList())
+            }
+
+            val icd10 = try {
+                configLoader.loadICD10("icd10/phc_top300.json")
+            } catch (_: Exception) {
+                ICD10Index("1.0", emptyList())
+            }
+
+            ExtractionKnowledge(formulary = formulary, icd10 = icd10).also {
+                extractionKnowledgeBacking = it
+                extractionKnowledgeCountryCode = countryCode
+            }
+        }
+    }
+
+    private fun currentNoteGenerationCacheKey(): String = buildString {
+        append(appConfig.countryCode)
+        append('|')
+        append(appConfig.aiMode)
+        append('|')
+        append(appConfig.cloudNotesModel)
+        append('|')
+        append(appConfig.cloudKeyMode)
+    }
+
+    private fun getOrCreateNoteGenerationOrchestrator(forceReload: Boolean = false): ExtractionOrchestrator {
+        val cacheKey = currentNoteGenerationCacheKey()
+        if (!forceReload) {
+            noteGenerationCache?.takeIf { it.key == cacheKey }?.orchestrator?.let { return it }
         }
 
-        return ExtractionKnowledge(formulary = formulary, icd10 = icd10)
+        return synchronized(noteGenerationInitLock) {
+            if (!forceReload) {
+                noteGenerationCache?.takeIf { it.key == cacheKey }?.orchestrator?.let { return@synchronized it }
+            }
+            buildNoteGenerationOrchestrator().also {
+                noteGenerationCache = NoteGenerationCache(cacheKey, it)
+            }
+        }
+    }
+
+    private fun clearKnowledgeCaches() {
+        synchronized(extractionKnowledgeLock) {
+            extractionKnowledgeBacking = null
+            extractionKnowledgeCountryCode = null
+        }
+        synchronized(noteGenerationInitLock) {
+            noteGenerationCache = null
+        }
+    }
+
+    private fun buildStructuredDraftExtractionOrchestrator(): ExtractionOrchestrator {
+        val knowledge = getOrCreateExtractionKnowledge()
+        val promptBuilder = ExtractionPromptBuilder(knowledge.icd10, knowledge.formulary)
+        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary)
+        val strategies = mutableListOf<ExtractionStrategy>()
+        val lowRamInferencePreflight: (suspend () -> Boolean)? =
+            if (shouldUseStrictLowRamSerialization()) {
+                { prepareOnDeviceNoteProcessingForLowRam() }
+            } else {
+                null
+            }
+
+        if (aiModeCanUseOnDeviceFallback() && fastActiveLlmTier() == LlmModelManager.ModelTier.SMALL) {
+            strategies.add(
+                QwenExtractionStrategy(
+                    modelManagerProvider = { llmModelManager },
+                    promptBuilder = promptBuilder,
+                    responseParser = responseParser,
+                    prepareForLowRamInference = lowRamInferencePreflight
+                )
+            )
+        }
+
+        return ExtractionOrchestrator(
+            strategies,
+            transcriptValidator = TranscriptValidator()
+        )
+    }
+
+    private suspend fun generateStructuredDraftNoteFromExtraction(
+        transcript: String,
+        patientId: String,
+        providerId: String,
+        facilityId: String
+    ): ExtractionOrchestrator.NoteGenerationResult? {
+        val extractionResult = buildStructuredDraftExtractionOrchestrator().extract(
+            transcript = transcript,
+            patientId = patientId,
+            providerId = providerId,
+            facilityId = facilityId
+        )
+        if (!extractionResult.strategyUsed.contains("(on-device)")) return null
+        val renderedNote = StructuredDraftNoteRenderer.render(extractionResult.encounter)
+            ?: return null
+        return ExtractionOrchestrator.NoteGenerationResult(
+            note = renderedNote,
+            strategyUsed = "${extractionResult.strategyUsed} (structured draft)",
+            fallbacksAttempted = extractionResult.fallbacksAttempted
+        )
     }
 
     private fun buildNoteGenerationOrchestrator(): ExtractionOrchestrator {
-        val knowledge = loadExtractionKnowledge()
+        val knowledge = getOrCreateExtractionKnowledge()
         val promptBuilder = ExtractionPromptBuilder(knowledge.icd10, knowledge.formulary)
         val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary)
         val strategies = mutableListOf<ExtractionStrategy>()
@@ -597,7 +725,7 @@ class App : Application() {
     }
 
     private fun buildExtractionServices(): ExtractionServices {
-        val knowledge = loadExtractionKnowledge()
+        val knowledge = getOrCreateExtractionKnowledge()
         val formulary = knowledge.formulary
         val icd10 = knowledge.icd10
 
@@ -761,6 +889,22 @@ class App : Application() {
         }
     }
 
+    private fun scheduleDeferredKnowledgeWarmup() {
+        deferredKnowledgeWarmupJob?.cancel()
+        if (!appConfig.isSetupComplete) return
+        deferredKnowledgeWarmupJob = appScope.launch(Dispatchers.IO) {
+            delay(DEFERRED_KNOWLEDGE_WARMUP_MS)
+            runCatching {
+                getOrCreateExtractionKnowledge()
+                cdss.preload()
+                protocolEngine.preload()
+                facilityDirectory.preloadCurrentCountry()
+            }.onFailure {
+                Log.w(TAG, "Deferred knowledge warm-up failed", it)
+            }
+        }
+    }
+
     private fun getOrCreatePassphrase(): ByteArray {
         // Use EncryptedSharedPreferences to store the random DB passphrase securely
         val masterKey = androidx.security.crypto.MasterKey.Builder(this)
@@ -804,9 +948,15 @@ class App : Application() {
         }
     }
 
+    private data class NoteGenerationCache(
+        val key: String,
+        val orchestrator: ExtractionOrchestrator
+    )
+
     companion object {
         private const val TAG = "App"
         private const val DEFERRED_EXTRACTION_WARMUP_MS = 1_500L
+        private const val DEFERRED_KNOWLEDGE_WARMUP_MS = 3_000L
         private const val ASR_PREPARATION_TIMEOUT_MS = 30_000L
     }
 }

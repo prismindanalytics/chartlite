@@ -32,6 +32,10 @@ class StaticCDSS(private val context: Context) {
         if (!rulesLoaded) loadRules()
     }
 
+    fun preload() {
+        ensureRulesLoaded()
+    }
+
     private fun loadAllergyRules() {
         try {
             val json = context.assets.open("cdss/allergy_interactions.json")

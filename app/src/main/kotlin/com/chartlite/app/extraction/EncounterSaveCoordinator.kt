@@ -210,11 +210,45 @@ object EncounterSaveCoordinator {
                             emptyList()
                         }
 
+                        // Fetch growth + immunization data so the V4 SMS includes full patient history
+                        val latestGrowth = try {
+                            app.growthRepository.getByPatient(encounter.patientId)
+                                .maxByOrNull { it.measuredAt }
+                                ?.let { g ->
+                                    com.chartlite.app.sms.PatientHealthSummaryBuilder.GrowthData(
+                                        weightKg = g.weight?.toInt() ?: 0,
+                                        heightCm = g.height?.toInt() ?: 0,
+                                        weightZScore = g.weightForAgeZ ?: 0f,
+                                        heightZScore = g.heightForAgeZ ?: 0f
+                                    )
+                                }
+                        } catch (_: Exception) { null }
+
+                        val immunizationRecords = try {
+                            app.immunizationRepository.getByPatient(encounter.patientId)
+                                .groupBy { it.vaccineCode.uppercase() }
+                                .map { (code, records) ->
+                                    com.chartlite.app.sms.ImmunizationRecord(
+                                        vaccineCode = code,
+                                        doseNumber = records.maxOf { it.doseNumber }
+                                    )
+                                }
+                        } catch (_: Exception) { emptyList() }
+
+                        // Merge patient-level allergies into encounter so the current-encounter
+                        // allergy byte (V4 byte 32) reflects all known allergies, not just
+                        // what the LLM extracted from this session's transcript.
+                        val encounterForSms = encounter.copy(
+                            allergies = (encounter.allergies + allergiesForSms).distinct()
+                        )
+
                         val result = app.smsSender.sendEncryptedSMS(
-                            encounter = encounter,
+                            encounter = encounterForSms,
                             patient = p,
                             allEncounters = allEncounters,
-                            patientAllergies = allergiesForSms
+                            patientAllergies = allergiesForSms,
+                            growthData = latestGrowth,
+                            immunizationRecords = immunizationRecords
                         )
                         app.encounterRepository.updateSmsStatus(savedId, result.status)
                         try {

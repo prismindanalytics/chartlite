@@ -1221,4 +1221,18 @@
     <string name="scan_button_label">Scan Lab / RDT / Vitals</string>
     <string name="content_desc_scan">Scan clinical document</string>
     <string name="scan_result_prefix">Scanned: %1$s</string>
+
+    <!-- Patient Timeline extras -->
+    <string name="upcoming_follow_ups">Upcoming Follow-ups</string>
+    <string name="follow_up_due_format">%1$s — due %2$s</string>
+    <string name="follow_up_overdue">OVERDUE</string>
+    <string name="from_visit_format">From visit on %1$s</string>
+    <string name="clinical_alerts">Clinical Alerts</string>
+    <string name="problem_list">Problem List</string>
+    <string name="chronic">Chronic</string>
+    <string name="recent_label">Recent</string>
+    <string name="referral_history">Referral History</string>
+    <string name="dose_format">Dose %1$d</string>
+    <string name="overdue">Overdue</string>
+    <string name="no_follow_ups">No follow-ups scheduled</string>
 </resources>

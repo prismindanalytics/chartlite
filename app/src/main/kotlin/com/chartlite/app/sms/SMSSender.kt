@@ -45,7 +45,9 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
         encounter: StructuredEncounter,
         patient: PatientEntity,
         allEncounters: List<StructuredEncounter>? = null,
-        patientAllergies: List<String>? = null
+        patientAllergies: List<String>? = null,
+        growthData: PatientHealthSummaryBuilder.GrowthData? = null,
+        immunizationRecords: List<ImmunizationRecord> = emptyList()
     ): SendResult {
         val phoneNumber = patient.phoneNumber
             ?: return SendResult(SMSStatus.FAILED, "No phone number on file")
@@ -57,7 +59,9 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
             val payload = if (allEncounters != null) {
                 val summary = PatientHealthSummaryBuilder.buildSummary(
                     allEncounters = allEncounters,
-                    patientAllergies = patientAllergies ?: emptyList()
+                    patientAllergies = patientAllergies ?: emptyList(),
+                    growthData = growthData,
+                    immunizationRecords = immunizationRecords
                 )
                 BinaryEncoder.encodeV4(encounter, encounter.patientId, summary)
             } else {

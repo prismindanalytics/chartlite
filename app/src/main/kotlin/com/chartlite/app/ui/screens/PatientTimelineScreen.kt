@@ -24,9 +24,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.chartlite.app.App
 import com.chartlite.app.database.entity.EncounterEntity
+import com.chartlite.app.database.entity.ImmunizationEntity
 import com.chartlite.app.database.entity.PatientEntity
+import com.chartlite.app.database.entity.ReferralEntity
 import com.chartlite.app.database.entity.effectiveEncounterTimeMillis
 import com.chartlite.app.database.entity.normalizedReferralOrNull
+import com.chartlite.app.model.CDSSAlert
 import com.chartlite.app.model.Diagnosis
 import com.chartlite.app.model.Medication
 import com.chartlite.app.model.VitalSigns
@@ -62,6 +65,8 @@ fun PatientTimelineScreen(
     val scope = rememberCoroutineScope()
     var patient by remember { mutableStateOf<PatientEntity?>(null) }
     var encounters by remember { mutableStateOf<List<EncounterEntity>>(emptyList()) }
+    var referrals by remember { mutableStateOf<List<ReferralEntity>>(emptyList()) }
+    var immunizations by remember { mutableStateOf<List<ImmunizationEntity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var alreadyCheckedIn by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -70,6 +75,8 @@ fun PatientTimelineScreen(
     LaunchedEffect(patientId) {
         patient = app.patientRepository.getById(patientId)
         encounters = app.encounterRepository.getByPatientId(patientId)
+        referrals = try { app.referralRepository.getByPatient(patientId) } catch (_: Exception) { emptyList() }
+        immunizations = try { app.immunizationRepository.getByPatient(patientId) } catch (_: Exception) { emptyList() }
         if (onCheckIn != null) {
             alreadyCheckedIn = app.visitRepository.getTodayVisitForPatient(patientId) != null
         }
@@ -143,6 +150,37 @@ fun PatientTimelineScreen(
             patient?.let { extractAllergies(encounters, it, gson) } ?: emptyList()
         }
         val vitalHistory = remember(encounters) { extractVitalHistory(encounters, gson) }
+
+        // Follow-up schedule: compute future follow-up dates from encounters
+        val upcomingFollowUps = remember(encounters) {
+            val now = System.currentTimeMillis()
+            encounters
+                .filter { it.followUpDays != null && it.followUpDays!! > 0 }
+                .mapNotNull { enc ->
+                    val encTime = enc.effectiveEncounterTimeMillis() ?: return@mapNotNull null
+                    val dueMs = encTime + (enc.followUpDays!! * 86_400_000L)
+                    Triple(enc.followUpReason ?: "Follow-up", dueMs, encTime)
+                }
+                .sortedBy { it.second }
+                .take(5)
+        }
+
+        // CDSS alerts from latest encounter
+        val latestCdssAlerts = remember(encounters) {
+            encounters.firstOrNull()?.cdssAlerts?.let { json ->
+                try {
+                    gson.fromJson<List<CDSSAlert>>(json, object : TypeToken<List<CDSSAlert>>() {}.type)
+                        ?.filter { !(encounters.firstOrNull()?.cdssAcknowledged ?: false) }
+                } catch (_: Exception) { null }
+            } ?: emptyList()
+        }
+
+        // Split diagnoses into chronic (≥2 encounters) and acute
+        val (chronicDx, acuteDx) = remember(diagnosisSummary) {
+            val chronic = diagnosisSummary.filter { it.second >= 2 }
+            val acute = diagnosisSummary.filter { it.second < 2 }
+            chronic to acute
+        }
 
         LazyColumn(
             modifier = Modifier
@@ -314,6 +352,122 @@ fun PatientTimelineScreen(
                 }
             }
 
+            // ── Upcoming Follow-ups ──
+            if (upcomingFollowUps.isNotEmpty()) {
+                item(key = "followup_section") {
+                    SummarySection(stringResource(R.string.upcoming_follow_ups))
+                }
+                item(key = "followup_card") {
+                    val now = System.currentTimeMillis()
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            upcomingFollowUps.forEach { (reason, dueMs, visitMs) ->
+                                val overdue = dueMs < now
+                                val dueStr = dateFormat.format(Date(dueMs))
+                                val visitStr = dateFormat.format(Date(visitMs))
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Event,
+                                        contentDescription = null,
+                                        tint = if (overdue) AlertRed else BrandGreen,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            reason,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            stringResource(R.string.from_visit_format, visitStr),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Neutral500
+                                        )
+                                    }
+                                    if (overdue) {
+                                        Surface(
+                                            color = AlertRed.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                stringResource(R.string.follow_up_overdue),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = AlertRed
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            dueStr,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = BrandGreen
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── CDSS Clinical Alerts ──
+            if (latestCdssAlerts.isNotEmpty()) {
+                item(key = "cdss_alerts") {
+                    SummarySection(stringResource(R.string.clinical_alerts))
+                }
+                item(key = "cdss_alerts_card") {
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = WarningAmber.copy(alpha = 0.08f)
+                        )
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            latestCdssAlerts.forEach { alert ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = when (alert.severity.name) {
+                                            "HIGH" -> AlertRed
+                                            "MEDIUM" -> WarningAmber
+                                            else -> InfoBlue
+                                        },
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            alert.message,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            alert.category,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Neutral500
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Latest Vitals (compact chips) ──
             if (vitalHistory.isNotEmpty()) {
                 item(key = "vitals_section") {
@@ -426,10 +580,10 @@ fun PatientTimelineScreen(
                 }
             }
 
-            // ── Active Conditions (only if non-empty) ──
+            // ── Problem List (chronic + acute) ──
             if (diagnosisSummary.isNotEmpty()) {
                 item(key = "conditions_header") {
-                    SummarySection(stringResource(R.string.active_conditions))
+                    SummarySection(stringResource(R.string.problem_list))
                 }
                 item(key = "conditions_card") {
                     Card(
@@ -438,7 +592,41 @@ fun PatientTimelineScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
                     ) {
                         Column(Modifier.padding(16.dp)) {
-                            diagnosisSummary.take(8).forEach { (diagnosis, count) ->
+                            // Chronic conditions first (≥2 encounters)
+                            chronicDx.take(8).forEach { (diagnosis, count) ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(diagnosis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Surface(
+                                            color = AlertRed.copy(alpha = 0.1f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                stringResource(R.string.chronic),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = AlertRed
+                                            )
+                                        }
+                                        Badge { Text("$count") }
+                                    }
+                                }
+                            }
+                            // Acute / recent diagnoses
+                            if (chronicDx.isNotEmpty() && acuteDx.isNotEmpty()) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    color = Neutral200
+                                )
+                            }
+                            acuteDx.take(6).forEach { (diagnosis, count) ->
                                 Row(
                                     Modifier.fillMaxWidth().padding(vertical = 3.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -447,7 +635,7 @@ fun PatientTimelineScreen(
                                     Text(diagnosis,
                                         style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.weight(1f))
-                                    Badge { Text("$count") }
+                                    Badge(containerColor = Neutral200) { Text("$count") }
                                 }
                             }
                         }
@@ -478,6 +666,130 @@ fun PatientTimelineScreen(
                                     Text("\u00d7$count",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Neutral500)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Immunization Summary ──
+            if (immunizations.isNotEmpty()) {
+                item(key = "immunizations_header") {
+                    SummarySection(stringResource(R.string.immunizations))
+                }
+                item(key = "immunizations_card") {
+                    val grouped = remember(immunizations) {
+                        immunizations
+                            .sortedByDescending { it.administeredAt }
+                            .groupBy { it.vaccineCode.uppercase() }
+                            .entries.toList()
+                            .take(10)
+                    }
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            grouped.forEach { (code, records) ->
+                                val latest = records.first()
+                                val dateStr = dateFormat.format(Date(latest.administeredAt))
+                                val overdue = latest.nextDoseDueDate?.let { it < System.currentTimeMillis() } ?: false
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            latest.vaccineName.ifBlank { code },
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            "${stringResource(R.string.dose_format, latest.doseNumber)} · $dateStr",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Neutral500
+                                        )
+                                    }
+                                    if (overdue) {
+                                        Surface(
+                                            color = AlertRed.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                stringResource(R.string.overdue),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = AlertRed
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Referral History ──
+            if (referrals.isNotEmpty()) {
+                item(key = "referrals_header") {
+                    SummarySection(stringResource(R.string.referral_history))
+                }
+                item(key = "referrals_card") {
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            referrals.sortedByDescending { it.referredAt }.take(5).forEach { ref ->
+                                val dateStr = dateFormat.format(Date(ref.referredAt))
+                                val urgencyColor = when (ref.urgency.uppercase()) {
+                                    "EMERGENCY" -> AlertRed
+                                    "URGENT" -> WarningAmber
+                                    else -> BrandGreen
+                                }
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        color = urgencyColor.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            ref.urgency.uppercase().take(6),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = urgencyColor
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            ref.toFacility,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            ref.reason,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Neutral600,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        dateStr,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Neutral500
+                                    )
                                 }
                             }
                         }

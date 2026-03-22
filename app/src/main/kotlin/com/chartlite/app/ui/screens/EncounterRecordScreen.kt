@@ -3,6 +3,7 @@ package com.chartlite.app.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import java.util.concurrent.CancellationException
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -1672,7 +1673,6 @@ fun EncounterRecordScreen(
                         noteStrategyUsed = null
                         transcript = ""
                         showManualInput = false
-                        showWriteNoteDirectly = false
                         extractionError = null
                         if (snippetCount > 0) {
                             // Go back to snippet accumulation (keep snippets)

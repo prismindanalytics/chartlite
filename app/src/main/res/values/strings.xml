@@ -1232,7 +1232,5 @@
     <string name="chronic">Chronic</string>
     <string name="recent_label">Recent</string>
     <string name="referral_history">Referral History</string>
-    <string name="dose_format">Dose %1$d</string>
-    <string name="overdue">Overdue</string>
     <string name="no_follow_ups">No follow-ups scheduled</string>
 </resources>

@@ -13,20 +13,25 @@ import kotlin.math.sqrt
  * (~6,000 tokens, 80% of the 8K context window), we embed them into lightweight vectors
  * and retrieve only the top-K most relevant entries per transcript.
  *
- * This implementation uses TF-IDF bag-of-words embeddings — no neural model required,
- * zero additional APK size, runs in <50ms on a Galaxy A03. A neural embedder (e.g.,
- * all-MiniLM-L6-v2 via ONNX) can replace the vectorization method later without
- * changing the retrieval interface.
- *
- * Token budget impact:
- * - Before: ~6,000 tokens (all 815 entries, condensed)
- * - After:  ~400-800 tokens (15-25 relevant entries, with full detail)
- * - Frees ~5,000 tokens for longer transcripts and better generation
+ * Uses sparse TF-IDF vectors — each entry stores only its non-zero dimensions (typically
+ * 3-10 out of 500-1500 vocabulary terms), saving ~2.5 MB vs dense FloatArrays on 3GB devices.
  */
 class ClinicalVectorStore(
     private val icd10: ICD10Index,
     private val formulary: Formulary
 ) {
+
+    // ── Sparse vector representation ─────────────────────────────────────
+
+    /**
+     * Sparse vector: stores only non-zero (index, value) pairs.
+     * For a typical clinical entry with 5 tokens, this is ~40 bytes vs ~4 KB dense.
+     */
+    class SparseVector(val indices: IntArray, val values: FloatArray) {
+        companion object {
+            val EMPTY = SparseVector(IntArray(0), FloatArray(0))
+        }
+    }
 
     // ── Indexed entries ─────────────────────────────────────────────────
 
@@ -36,7 +41,7 @@ class ClinicalVectorStore(
         val name: String,
         val fullDetail: String,      // Rich text for prompt (includes keywords, aliases, routes)
         val searchableText: String,   // Lowercased, normalized for matching
-        val vector: FloatArray        // TF-IDF vector
+        val vector: SparseVector      // Sparse TF-IDF vector
     ) {
         enum class EntryType { ICD10, DRUG }
 
@@ -85,7 +90,7 @@ class ClinicalVectorStore(
                 name = entry.description,
                 fullDetail = fullDetail,
                 searchableText = searchable,
-                vector = floatArrayOf() // placeholder, computed below
+                vector = SparseVector.EMPTY // placeholder, computed below
             ))
         }
 
@@ -108,7 +113,7 @@ class ClinicalVectorStore(
                 name = drug.name,
                 fullDetail = fullDetail,
                 searchableText = searchable,
-                vector = floatArrayOf()
+                vector = SparseVector.EMPTY
             ))
         }
 
@@ -143,14 +148,13 @@ class ClinicalVectorStore(
             kotlin.math.ln((totalDocs + 1f) / (df + 1f)) + 1f
         }
 
-        // Compute TF-IDF vectors for each entry
+        // Compute sparse TF-IDF vectors for each entry
         entries = allEntries.mapIndexed { i, entry ->
-            val vector = computeTfIdfVector(tokenized[i])
-            entry.copy(vector = vector)
+            entry.copy(vector = computeSparseVector(tokenized[i]))
         }
 
         indexed = true
-        Log.d(TAG, "Vector store indexed: ${entries.size} entries, vocabulary size: $vocabSize")
+        Log.d(TAG, "Vector store indexed: ${entries.size} entries, vocabulary size: $vocabSize (sparse)")
     }
 
     // ── Retrieval ───────────────────────────────────────────────────────
@@ -170,11 +174,11 @@ class ClinicalVectorStore(
     ): RetrievalResult {
         if (!indexed) buildIndex()
 
-        val queryVector = computeTfIdfVector(tokenize(transcript.lowercase(Locale.ROOT)))
+        val queryVector = computeSparseVector(tokenize(transcript.lowercase(Locale.ROOT)))
 
-        // Score all entries by cosine similarity
+        // Score all entries by cosine similarity (sparse dot product)
         val scored = entries.map { entry ->
-            entry to cosineSimilarity(queryVector, entry.vector)
+            entry to sparseDot(queryVector, entry.vector)
         }
 
         val icd10Matches = scored
@@ -201,40 +205,61 @@ class ClinicalVectorStore(
         val totalEntries get() = icd10Entries.size + drugEntries.size
     }
 
-    // ── TF-IDF computation ──────────────────────────────────────────────
+    // ── Sparse TF-IDF computation ────────────────────────────────────────
 
-    private fun computeTfIdfVector(tokens: List<String>): FloatArray {
-        val vocabSize = vocabulary.size
-        if (vocabSize == 0) return floatArrayOf()
+    private fun computeSparseVector(tokens: List<String>): SparseVector {
+        if (vocabulary.isEmpty()) return SparseVector.EMPTY
 
-        val tf = FloatArray(vocabSize)
+        // Count term frequencies (only for tokens in our vocabulary)
+        val tf = mutableMapOf<Int, Float>()
         val totalTokens = tokens.size.toFloat().coerceAtLeast(1f)
-
         for (token in tokens) {
             val idx = vocabulary[token] ?: continue
-            tf[idx] += 1f / totalTokens
+            tf[idx] = (tf[idx] ?: 0f) + 1f / totalTokens
+        }
+        if (tf.isEmpty()) return SparseVector.EMPTY
+
+        // Compute TF-IDF and L2 norm in one pass
+        val nonZero = mutableListOf<Pair<Int, Float>>()
+        var normSq = 0.0
+        for ((idx, tfVal) in tf) {
+            val tfidf = tfVal * idfWeights[idx]
+            if (tfidf > 0f) {
+                nonZero.add(idx to tfidf)
+                normSq += (tfidf * tfidf).toDouble()
+            }
         }
 
-        // TF-IDF = TF * IDF
-        val tfidf = FloatArray(vocabSize) { i -> tf[i] * idfWeights[i] }
+        val norm = sqrt(normSq).toFloat()
+        if (norm <= 0f) return SparseVector.EMPTY
 
-        // L2 normalize
-        val norm = sqrt(tfidf.sumOf { (it * it).toDouble() }).toFloat()
-        if (norm > 0f) {
-            for (i in tfidf.indices) tfidf[i] /= norm
-        }
+        // Sort by index for efficient merge in sparseDot
+        nonZero.sortBy { it.first }
 
-        return tfidf
+        return SparseVector(
+            indices = IntArray(nonZero.size) { nonZero[it].first },
+            values = FloatArray(nonZero.size) { nonZero[it].second / norm }
+        )
     }
 
-    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
-        if (a.isEmpty() || b.isEmpty()) return 0f
-        val len = minOf(a.size, b.size)
+    /**
+     * Sparse dot product between two L2-normalized sparse vectors.
+     * Uses sorted-merge for O(n+m) where n,m are the non-zero counts.
+     */
+    private fun sparseDot(a: SparseVector, b: SparseVector): Float {
+        val aIdx = a.indices; val aVal = a.values
+        val bIdx = b.indices; val bVal = b.values
+        if (aIdx.isEmpty() || bIdx.isEmpty()) return 0f
+
         var dot = 0f
-        for (i in 0 until len) {
-            dot += a[i] * b[i]
+        var i = 0; var j = 0
+        while (i < aIdx.size && j < bIdx.size) {
+            when {
+                aIdx[i] == bIdx[j] -> { dot += aVal[i] * bVal[j]; i++; j++ }
+                aIdx[i] < bIdx[j] -> i++
+                else -> j++
+            }
         }
-        // Vectors are already L2-normalized, so dot product = cosine similarity
         return dot
     }
 

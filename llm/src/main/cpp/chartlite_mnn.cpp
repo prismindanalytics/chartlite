@@ -71,10 +71,12 @@ static void apply_params() {
     g_llm->set_config(config);
 }
 
-// Custom output stream buffer that checks cancellation
+// Custom output stream buffer that checks cancellation.
+// Pre-reserves 16 KB to avoid O(n^2) reallocation from char-by-char overflow() calls.
 class CancelCheckBuf : public std::streambuf {
 public:
     std::string result;
+    CancelCheckBuf() { result.reserve(16384); }
 protected:
     int overflow(int c) override {
         if (g_cancel_generation.load()) return EOF;
@@ -330,9 +332,9 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     env->ReleaseStringUTFChars(jUserMessage, usrRaw);
 
     // Convert RGB byte array to MNN VARP tensor [1, height, width, 3] UINT8
+    // Use GetPrimitiveArrayCritical for zero-copy access — avoids ~2.6 MB duplicate
+    // native buffer that GetByteArrayElements would create for a 960x960 image.
     jsize dataLen = env->GetArrayLength(jRgbData);
-    jbyte *rgbBytes = env->GetByteArrayElements(jRgbData, nullptr);
-    if (!rgbBytes) return nullptr;
 
     LOGi("GenerateVision: system=%zu chars, user=%zu chars, image=%dx%d (%d bytes)",
          sysStr.size(), usrStr.size(), (int)width, (int)height, (int)dataLen);
@@ -340,10 +342,13 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     // Create MNN VARP from raw RGB data
     auto imageVar = MNN::Express::_Input({1, (int)height, (int)width, 3}, MNN::Express::NHWC, halide_type_of<uint8_t>());
     auto imagePtr = imageVar->writeMap<uint8_t>();
-    memcpy(imagePtr, rgbBytes, dataLen);
-    imageVar->unMap();
 
-    env->ReleaseByteArrayElements(jRgbData, rgbBytes, JNI_ABORT);
+    jbyte *rgbBytes = (jbyte*)env->GetPrimitiveArrayCritical(jRgbData, nullptr);
+    if (!rgbBytes) { imageVar->unMap(); return nullptr; }
+    memcpy(imagePtr, rgbBytes, dataLen);
+    env->ReleasePrimitiveArrayCritical(jRgbData, rgbBytes, JNI_ABORT);
+
+    imageVar->unMap();
 
     // Build MultimodalPrompt with image data in the images map
     MultimodalPrompt mp;

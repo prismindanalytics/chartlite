@@ -171,22 +171,27 @@ class App : Application() {
         }
     }
 
-    private fun totalRamGb(): Double {
+    // Cache total RAM — it never changes at runtime. Avoids repeated
+    // ActivityManager.getMemoryInfo() calls with MemoryInfo allocation.
+    private val cachedTotalRamGb: Double by lazy { computeTotalRamGb() }
+    private val cachedIsLowRamDevice: Boolean by lazy {
+        (getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
+    }
+
+    private fun computeTotalRamGb(): Double {
         val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         val memInfo = android.app.ActivityManager.MemoryInfo()
         am.getMemoryInfo(memInfo)
         return memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
     }
 
-    private fun shouldAggressivelySerializeAsrAndLlm(): Boolean {
-        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        return am.isLowRamDevice || totalRamGb() <= 4.0
-    }
+    private fun totalRamGb(): Double = cachedTotalRamGb
 
-    fun shouldForceBatchNoteProcessing(): Boolean {
-        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        return am.isLowRamDevice || totalRamGb() <= 3.5
-    }
+    private fun shouldAggressivelySerializeAsrAndLlm(): Boolean =
+        cachedIsLowRamDevice || cachedTotalRamGb <= 4.0
+
+    fun shouldForceBatchNoteProcessing(): Boolean =
+        cachedIsLowRamDevice || cachedTotalRamGb <= 3.5
 
     /**
      * Modes that can execute the local Qwen fallback should inherit low-RAM

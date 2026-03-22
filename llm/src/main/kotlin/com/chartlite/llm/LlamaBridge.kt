@@ -110,17 +110,21 @@ object LlamaBridge {
             result
         } else bitmap
 
-        // Extract RGB bytes (no alpha)
+        // Extract RGB bytes row-by-row to avoid allocating a full IntArray(w*h)
+        // which would peak at ~3.5 MB for a 960x960 image. Row-by-row cuts this to ~4 KB.
         val w = scaled.width
         val h = scaled.height
         val rgbBytes = ByteArray(w * h * 3)
-        val pixels = IntArray(w * h)
-        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
-        for (i in pixels.indices) {
-            val px = pixels[i]
-            rgbBytes[i * 3] = (px shr 16 and 0xFF).toByte()     // R
-            rgbBytes[i * 3 + 1] = (px shr 8 and 0xFF).toByte()  // G
-            rgbBytes[i * 3 + 2] = (px and 0xFF).toByte()         // B
+        val rowPixels = IntArray(w) // One row at a time instead of full image
+        for (y in 0 until h) {
+            scaled.getPixels(rowPixels, 0, w, 0, y, w, 1)
+            val rowOffset = y * w * 3
+            for (x in 0 until w) {
+                val px = rowPixels[x]
+                rgbBytes[rowOffset + x * 3] = (px shr 16 and 0xFF).toByte()
+                rgbBytes[rowOffset + x * 3 + 1] = (px shr 8 and 0xFF).toByte()
+                rgbBytes[rowOffset + x * 3 + 2] = (px and 0xFF).toByte()
+            }
         }
         scaled.recycle()
 

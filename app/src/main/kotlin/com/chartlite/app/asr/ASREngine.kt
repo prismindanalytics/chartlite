@@ -425,6 +425,7 @@ class ASREngine(private val context: Context) {
         if (_isListening.value || _isPreparing.value || !sherpaPipeline.isLoaded.value) return
         asrScope.launch {
             sherpaPipeline.release()
+            System.gc() // Help OS see freed ~400 MB native ONNX memory sooner
         }
     }
 

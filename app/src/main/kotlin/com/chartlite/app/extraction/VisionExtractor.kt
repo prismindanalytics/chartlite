@@ -91,7 +91,6 @@ class VisionExtractor(
         val jsonStr = cleaned.substring(jsonStart, jsonEnd + 1)
 
         return try {
-            val gson = Gson()
             val obj = gson.fromJson(jsonStr, JsonObject::class.java)
 
             // Fuzzy field lookup — small models produce typos like "categoriess", "mediications"
@@ -258,5 +257,6 @@ class VisionExtractor(
 
     companion object {
         private const val TAG = "VisionExtractor"
+        private val gson = Gson() // Reuse across calls instead of allocating per parse
     }
 }

@@ -607,7 +607,7 @@ class ExtractionQueue(
     companion object {
         private const val TAG = "ExtractionQueue"
         /** Maximum number of cached note results before eviction. */
-        private const val MAX_NOTE_RESULTS = 100
+        private const val MAX_NOTE_RESULTS = 20
         /** Unload LLM every N batch items to prevent OOM from KV-cache fragmentation. */
         private const val BATCH_UNLOAD_INTERVAL = 3
         /** Max bytes for SMS free-text in BinaryEncoder V4. */

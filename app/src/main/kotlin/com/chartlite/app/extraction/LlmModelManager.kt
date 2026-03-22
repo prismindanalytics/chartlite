@@ -61,10 +61,25 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     val state: StateFlow<ModelState> = _state
 
     private val modelsDir = File(context.noBackupFilesDir, "llm_models").apply { mkdirs() }
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .build()
+
+    // Lazy OkHttpClient — only created when a download starts, avoids ~1-3 MB of idle
+    // connection pool + thread pool memory when no download is in progress.
+    private var clientBacking: OkHttpClient? = null
+    private val client: OkHttpClient
+        get() = clientBacking ?: OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .build()
+            .also { clientBacking = it }
+
+    /** Release OkHttpClient resources after download completes (frees idle threads + connections). */
+    private fun releaseHttpClient() {
+        clientBacking?.let { c ->
+            c.dispatcher.executorService.shutdown()
+            c.connectionPool.evictAll()
+        }
+        clientBacking = null
+    }
 
     private var downloadJob: Job? = null
     @Volatile private var activeCall: Call? = null
@@ -544,6 +559,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 }
                 modelLoaded = false
                 warmLeaseUntilMs = 0L
+                System.gc() // Help OS see freed ~390 MB native MNN memory sooner
                 Log.d(TAG, "Model unloaded (avail=${availableRamMb()}MB)")
             }
         } finally {
@@ -914,6 +930,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 _state.value = ModelState.Error(e.message ?: "Download failed")
             } catch (e: Exception) {
                 _state.value = ModelState.Error(toUserFacingDownloadError(e))
+            } finally {
+                releaseHttpClient() // Free connection pool + threads after download finishes
             }
         }
     }

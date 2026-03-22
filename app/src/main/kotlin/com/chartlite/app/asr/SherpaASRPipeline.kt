@@ -95,8 +95,10 @@ class SherpaASRPipeline {
     // Inference channel: segments are queued here and processed serially to preserve ordering.
     // Using a channel instead of launching concurrent coroutines ensures VAD segments
     // commit to committedSegments in capture order, not finish order.
+    // Bounded to 8 segments to prevent unbounded memory growth on slow 3GB devices
+    // where VAD may produce segments faster than inference can consume them.
     private val inferenceChannel = kotlinx.coroutines.channels.Channel<FloatArray>(
-        capacity = kotlinx.coroutines.channels.Channel.UNLIMITED
+        capacity = 8
     )
     private var inferenceConsumerJob: Job? = null
 

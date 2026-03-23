@@ -633,65 +633,70 @@ fun PatientRegistrationScreen(
                 onClick = {
                     saving = true
                     scope.launch {
-                        // Only use linkPatientId when it's a valid ID from an intentional
-                        // link flow (e.g., patient not found locally → register with that ID).
-                        // The linkPatientId is cleared when the user manually switches to
-                        // Register New mode, preventing stale IDs from being reused.
-                        val linkId = linkPatientId
-                            .takeIf { it.isNotBlank() && PatientIdGenerator.isValid(PatientIdGenerator.normalize(it)) }
-                            ?.let { PatientIdGenerator.normalize(it) }
-                        val patientId = linkId ?: PatientIdGenerator.generateUnique { id ->
-                            app.patientRepository.getById(id) != null
-                        }
-                        val allergyList = allergies.split(",")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-
-                        val patient = PatientEntity(
-                            id = patientId,
-                            firstName = firstName.trim(),
-                            lastName = lastName.trim(),
-                            dateOfBirth = dateOfBirth.takeIf { it.isNotBlank() },
-                            ageYears = ageYears.toIntOrNull(),
-                            gender = gender,
-                            phoneNumber = phoneNumber.takeIf { it.isNotBlank() },
-                            nationalId = nationalId.takeIf { it.isNotBlank() },
-                            pin = pin.takeIf { it.isNotBlank() },
-                            allergies = Gson().toJson(allergyList),
-                            consentGiven = consentGiven,
-                            consentTimestamp = if (consentGiven) System.currentTimeMillis() else null
-                        )
-                        app.patientRepository.register(patient)
-
-                        app.auditLogger.log(
-                            "CREATE_PATIENT",
-                            targetType = "PATIENT",
-                            targetId = patientId
-                        )
-
-                        if (app.appConfig.isMultiStation) {
-                            app.visitRepository.createVisit(
-                                patientId = patientId,
-                                facilityId = app.appConfig.facilityId,
-                                providerId = app.sessionManager.currentSession?.userId ?: app.appConfig.providerId
-                            )
-                        }
-
-                        // Import full health record from decoded SMS if available
-                        app.pendingSmsImport?.let { decoded ->
-                            try {
-                                EncounterSaveCoordinator.importFromDecodedSms(
-                                    app, patientId, decoded
-                                )
-                            } catch (e: Exception) {
-                                android.util.Log.w("PatientReg", "SMS import failed", e)
-                            } finally {
-                                app.pendingSmsImport = null
+                        try {
+                            // Only use linkPatientId when it's a valid ID from an intentional
+                            // link flow (e.g., patient not found locally → register with that ID).
+                            // The linkPatientId is cleared when the user manually switches to
+                            // Register New mode, preventing stale IDs from being reused.
+                            val linkId = linkPatientId
+                                .takeIf { it.isNotBlank() && PatientIdGenerator.isValid(PatientIdGenerator.normalize(it)) }
+                                ?.let { PatientIdGenerator.normalize(it) }
+                            val patientId = linkId ?: PatientIdGenerator.generateUnique { id ->
+                                app.patientRepository.getById(id) != null
                             }
-                        }
+                            val allergyList = allergies.split(",")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
 
-                        generatedId = patientId
-                        saving = false
+                            val patient = PatientEntity(
+                                id = patientId,
+                                firstName = firstName.trim(),
+                                lastName = lastName.trim(),
+                                dateOfBirth = dateOfBirth.takeIf { it.isNotBlank() },
+                                ageYears = ageYears.toIntOrNull(),
+                                gender = gender,
+                                phoneNumber = phoneNumber.takeIf { it.isNotBlank() },
+                                nationalId = nationalId.takeIf { it.isNotBlank() },
+                                pin = pin.takeIf { it.isNotBlank() },
+                                allergies = Gson().toJson(allergyList),
+                                consentGiven = consentGiven,
+                                consentTimestamp = if (consentGiven) System.currentTimeMillis() else null
+                            )
+                            app.patientRepository.register(patient)
+
+                            app.auditLogger.log(
+                                "CREATE_PATIENT",
+                                targetType = "PATIENT",
+                                targetId = patientId
+                            )
+
+                            if (app.appConfig.isMultiStation) {
+                                app.visitRepository.createVisit(
+                                    patientId = patientId,
+                                    facilityId = app.appConfig.facilityId,
+                                    providerId = app.sessionManager.currentSession?.userId ?: app.appConfig.providerId
+                                )
+                            }
+
+                            // Import full health record from decoded SMS if available
+                            app.pendingSmsImport?.let { decoded ->
+                                try {
+                                    EncounterSaveCoordinator.importFromDecodedSms(
+                                        app, patientId, decoded
+                                    )
+                                } catch (e: Exception) {
+                                    android.util.Log.w("PatientReg", "SMS import failed", e)
+                                } finally {
+                                    app.pendingSmsImport = null
+                                }
+                            }
+
+                            generatedId = patientId
+                        } catch (e: Exception) {
+                            android.util.Log.e("PatientReg", "Registration failed", e)
+                        } finally {
+                            saving = false
+                        }
                     }
                 },
                 enabled = firstName.isNotBlank() && lastName.isNotBlank() && consentGiven && !saving

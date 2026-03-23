@@ -501,7 +501,7 @@ private fun SummaryTab(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    vitalsGrid.chunked((vitalsGrid.size + 1) / 2).forEach { column ->
+                    vitalsGrid.chunked(((vitalsGrid.size + 1) / 2).coerceAtLeast(1)).forEach { column ->
                         Column(modifier = Modifier.weight(1f)) {
                             column.forEach { (label, value) ->
                                 Row(

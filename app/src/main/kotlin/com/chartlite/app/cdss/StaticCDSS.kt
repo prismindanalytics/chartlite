@@ -137,15 +137,18 @@ class StaticCDSS(private val context: Context) {
 
     private fun checkDrugInteractions(medications: List<Medication>): List<CDSSAlert> {
         val alerts = mutableListOf<CDSSAlert>()
-        val codes = medications.map { it.formularyCode }.toSet()
+        // Exclude empty codes — EncounterMerger can produce "" for ungrounded meds,
+        // and many interaction rules also have empty drug codes. "" in codes would
+        // match EVERY such rule, producing dozens of false positive alerts.
+        val codes = medications.mapNotNull { it.formularyCode.ifBlank { null } }.toSet()
         val names = medications.map { it.name.lowercase() }.toSet()
 
         for (interaction in drugInteractions) {
-            // Match by formulary code OR drug name
-            val match1 = interaction.drug1 in codes ||
-                interaction.drugName1?.let { dn -> names.any { it.contains(dn.lowercase()) } } == true
-            val match2 = interaction.drug2 in codes ||
-                interaction.drugName2?.let { dn -> names.any { it.contains(dn.lowercase()) } } == true
+            // Match by formulary code (if non-empty) OR drug name
+            val match1 = (interaction.drug1.isNotBlank() && interaction.drug1 in codes) ||
+                interaction.drugName1?.let { dn -> dn.isNotBlank() && names.any { it.contains(dn.lowercase()) } } == true
+            val match2 = (interaction.drug2.isNotBlank() && interaction.drug2 in codes) ||
+                interaction.drugName2?.let { dn -> dn.isNotBlank() && names.any { it.contains(dn.lowercase()) } } == true
 
             if (match1 && match2) {
                 val severity = when (interaction.severity) {

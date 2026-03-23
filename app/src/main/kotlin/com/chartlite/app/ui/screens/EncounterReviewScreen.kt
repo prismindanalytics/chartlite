@@ -72,6 +72,7 @@ fun EncounterReviewScreen(
     var examFindings by remember { mutableStateOf<List<String>>(emptyList()) }
     var investigations by remember { mutableStateOf<List<Investigation>>(emptyList()) }
     var planItems by remember { mutableStateOf<List<String>>(emptyList()) }
+    var immunizationsList by remember { mutableStateOf<List<ExtractedImmunization>>(emptyList()) }
     var socialHistory by remember { mutableStateOf<List<String>>(emptyList()) }
     var suggestedDiagnoses by remember { mutableStateOf<List<Diagnosis>>(emptyList()) }
 
@@ -90,6 +91,7 @@ fun EncounterReviewScreen(
         planItems = gson.parseListOrEmpty(enc.plan)
         socialHistory = gson.parseListOrEmpty(enc.socialHistory)
         suggestedDiagnoses = gson.parseListOrEmpty(enc.suggestedDiagnoses)
+        immunizationsList = gson.parseListOrEmpty(enc.immunizations)
 
         // Load patient name
         val patient = app.patientRepository.getById(enc.patientId)
@@ -482,6 +484,36 @@ private fun SummaryTab(
 
                 // Send to Pharmacy card
                 PharmacyOrderCard(medications = medications)
+            }
+        }
+
+        // Immunizations
+        if (immunizationsList.isNotEmpty()) {
+            SectionCard(icon = Icons.Default.Vaccines, title = stringResource(R.string.immunizations)) {
+                immunizationsList.forEach { imm ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            imm.vaccineName.ifBlank { imm.vaccineCode },
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                stringResource(R.string.dose_format, imm.doseNumber),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
             }
         }
 

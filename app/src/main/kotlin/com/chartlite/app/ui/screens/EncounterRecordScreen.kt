@@ -1148,6 +1148,11 @@ fun EncounterRecordScreen(
                         "${med.name} ${med.dose ?: ""}${med.unit ?: ""} ${med.frequency ?: ""}".trim()
                     })
                 }
+                var editImmunizations by remember(enc) {
+                    mutableStateOf(enc.immunizations.joinToString("\n") { imm ->
+                        "${imm.vaccineName.ifBlank { imm.vaccineCode }} dose ${imm.doseNumber}"
+                    })
+                }
                 var editVitals by remember(enc) {
                     val v = enc.vitals
                     mutableStateOf(
@@ -1403,6 +1408,19 @@ fun EncounterRecordScreen(
                             onValueChange = { editMedications = it },
                             displayPrefix = "· "
                         )
+
+                        // Immunizations (only show if any were extracted)
+                        if (editImmunizations.isNotBlank()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            EditableSection(
+                                title = stringResource(R.string.immunizations),
+                                value = editImmunizations,
+                                isEditing = editingSection == "immunizations",
+                                onEditToggle = { editingSection = if (editingSection == "immunizations") null else "immunizations" },
+                                onValueChange = { editImmunizations = it },
+                                displayPrefix = "· "
+                            )
+                        }
 
                         // Vitals
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))

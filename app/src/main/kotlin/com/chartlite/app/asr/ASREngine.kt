@@ -447,7 +447,9 @@ class ASREngine(private val context: Context) {
     suspend fun unloadOfflineModelAndWait() {
         if (!sherpaPipeline.isLoaded.value) return
         val unloadStartedAt = System.currentTimeMillis()
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        // Use IO dispatcher — release() uses Thread.sleep polling which blocks.
+        // Default dispatcher has only 2 threads on 3GB; blocking one starves LLM.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             sherpaPipeline.release()
         }
         // Give the GC a nudge to reclaim native memory before LLM loads

@@ -209,9 +209,13 @@ object SMSEncryption {
      * Check if a string looks like an encrypted clinical SMS.
      */
     fun looksLikeClinicalSMS(text: String): Boolean {
-        if (text.length < 100 || text.length > 200) return false
+        val trimmed = text.trim()
+        if (trimmed.length < 100 || trimmed.length > 200) return false
+        // Quick check: clinical SMS is pure Base64 (A-Z, a-z, 0-9, +, /, =)
+        if (!trimmed.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }) return false
         return try {
-            val decoded = Base64.getDecoder().decode(text)
+            // Use MIME decoder which is lenient with padding
+            val decoded = Base64.getMimeDecoder().decode(trimmed)
             decoded.size > GCM_NONCE_LENGTH + 16
         } catch (_: Exception) {
             false

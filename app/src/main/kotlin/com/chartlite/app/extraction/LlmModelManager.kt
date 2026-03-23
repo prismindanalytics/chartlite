@@ -432,18 +432,19 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         timedOutLoadCleanupJob?.cancel()
         timedOutLoadCleanupJob = scope.launch(Dispatchers.IO) {
             try {
-                runCatching { loadTask.await() }
+                // CRITICAL: timeout the await — if native load hangs in OOM/page reclaim,
+                // an untimed await() holds loadMutex forever via the finally block,
+                // blocking all future loadModel() calls permanently.
+                withTimeoutOrNull(timeoutMs + 10_000L) { loadTask.await() }
             } finally {
-                loadMutex.withLock {
-                    try {
-                        LlamaBridge.shutdown()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error cleaning up timed-out model load", e)
-                    }
-                    modelLoaded = false
-                    loadCleanupPending = false
-                    timedOutLoadCleanupJob = null
+                try {
+                    LlamaBridge.shutdown()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error cleaning up timed-out model load", e)
                 }
+                modelLoaded = false
+                loadCleanupPending = false
+                timedOutLoadCleanupJob = null
             }
         }
         throw IllegalStateException("On-device model load timed out after ${timeoutMs / 1000}s")
@@ -486,7 +487,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
         }
 
-        loadMutex.withLock {
+        // Timeout on mutex acquisition — prevents hanging forever if a previous
+        // load is stuck in native code (OOM/page reclaim on 3GB devices).
+        val acquired = withTimeoutOrNull(modelLoadTimeoutMs() + 15_000L) {
+            loadMutex.lock()
+            true
+        }
+        if (acquired == null) {
+            throw IllegalStateException("Timed out waiting for model load lock — previous load may be stuck")
+        }
+
+        try {
             // Re-check after acquiring lock
             if (modelLoaded) return
             if (loadCleanupPending) {
@@ -532,6 +543,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                         "(avail=${availableRamMb()}MB)"
                 )
             }
+        } finally {
+            loadMutex.unlock()
         }
     }
 

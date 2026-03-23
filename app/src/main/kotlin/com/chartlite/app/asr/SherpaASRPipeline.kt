@@ -390,8 +390,14 @@ class SherpaASRPipeline {
      * item and the consumer incrementing the counter.
      */
     private fun enqueueInference(samples: FloatArray) {
-        inFlightInference.incrementAndGet()
-        inferenceChannel.trySend(samples)
+        val result = inferenceChannel.trySend(samples)
+        if (result.isSuccess) {
+            inFlightInference.incrementAndGet()
+        } else {
+            // Channel full (capacity=8) — drop this segment rather than leaking the counter.
+            // This only happens on extremely slow devices where VAD outpaces inference.
+            Log.w(TAG, "Inference channel full, dropping ${samples.size} samples to prevent hang")
+        }
     }
 
     /**

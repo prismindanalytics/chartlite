@@ -265,6 +265,6 @@ class VisionExtractor(
         private val POSITIVE_RESULT_REGEX = Regex("result[:\\s]+(is )?positive|test is positive|\\breactive\\b")
         private val NO_LINE_AT_T_REGEX = Regex("no.{0,20}(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE)
         private val LINE_AT_T_REGEX = Regex("(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE)
-        private val DEVICE_NAME_REGEX = Regex("(?i)(binaxnow|sd bioline|first response|determine|uni-gold|oraquick|sure check|accutest)", RegexOption.IGNORE_CASE)
+        private val DEVICE_NAME_REGEX = Regex("(binaxnow|sd bioline|first response|determine|uni-gold|oraquick|sure check|accutest)", RegexOption.IGNORE_CASE)
     }
 }

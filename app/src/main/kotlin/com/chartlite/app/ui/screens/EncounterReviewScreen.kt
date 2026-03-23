@@ -159,7 +159,7 @@ fun EncounterReviewScreen(
             when (selectedTab) {
                 0 -> SummaryTab(
                     enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
-                    examFindings, investigations, planItems, socialHistory, suggestedDiagnoses,
+                    examFindings, investigations, planItems, socialHistory, suggestedDiagnoses, immunizationsList,
                     onConfirmDiagnosis = { dx ->
                         val confirmed = dx.copy(source = "clinician", isPrimary = diagnoses.isEmpty())
                         val newDiagnoses = diagnoses + confirmed
@@ -197,6 +197,7 @@ private fun SummaryTab(
     planItems: List<String> = emptyList(),
     socialHistory: List<String> = emptyList(),
     suggestedDiagnoses: List<Diagnosis> = emptyList(),
+    immunizations: List<ExtractedImmunization> = emptyList(),
     onConfirmDiagnosis: (Diagnosis) -> Unit = {}
 ) {
     val displayTimeMillis = remember(enc.timestamp, enc.createdAt) {
@@ -488,9 +489,9 @@ private fun SummaryTab(
         }
 
         // Immunizations
-        if (immunizationsList.isNotEmpty()) {
+        if (immunizations.isNotEmpty()) {
             SectionCard(icon = Icons.Default.Vaccines, title = stringResource(R.string.immunizations)) {
-                immunizationsList.forEach { imm ->
+                immunizations.forEach { imm ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,

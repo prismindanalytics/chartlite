@@ -44,6 +44,36 @@ class PatientDemographicsExtractor {
             }
             return if (result > 0) result else null
         }
+
+        // Pre-compiled regex for compound number matching (e.g., "twenty three")
+        private val TENS = listOf("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+        private val ONES = listOf("one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+        private val COMPOUND_REGEX = Regex(
+            "\\b(${TENS.joinToString("|")})\\s+(${ONES.joinToString("|")})\\b"
+        )
+        private val SINGLE_WORD_REGEX = Regex(
+            "\\b(${WORD_TO_NUMBER.keys.joinToString("|")})\\b"
+        )
+
+        /**
+         * Replace all spoken number words in text with digit equivalents.
+         * Handles compounds ("twenty three" → "23") and singles ("three" → "3").
+         * Applied as preprocessing so all downstream regex patterns work with digits.
+         */
+        fun normalizeNumberWords(text: String): String {
+            // First pass: compounds like "twenty three" → "23"
+            var result = COMPOUND_REGEX.replace(text) { match ->
+                val tens = WORD_TO_NUMBER[match.groupValues[1]] ?: 0
+                val ones = WORD_TO_NUMBER[match.groupValues[2]] ?: 0
+                (tens + ones).toString()
+            }
+            // Second pass: remaining single words like "three" → "3"
+            result = SINGLE_WORD_REGEX.replace(result) { match ->
+                val n = WORD_TO_NUMBER[match.groupValues[1]]
+                n?.toString() ?: match.value
+            }
+            return result
+        }
     }
 
     data class Demographics(
@@ -58,7 +88,9 @@ class PatientDemographicsExtractor {
     )
 
     fun extract(transcript: String): Demographics {
-        val lower = transcript.lowercase()
+        // Preprocess: replace spoken number words with digits so all regex patterns
+        // work regardless of whether ASR outputs "three" or "3".
+        val lower = normalizeNumberWords(transcript.lowercase())
 
         return Demographics(
             firstName = extractFirstName(lower),
@@ -113,33 +145,18 @@ class PatientDemographicsExtractor {
     }
 
     private fun extractAge(text: String): Int? {
-        // Digit-based patterns
-        val digitPatterns = listOf(
+        // Text is already preprocessed by normalizeNumberWords() — "three" → "3" etc.
+        val patterns = listOf(
             Regex("""(?:age|aged)\s+(?:is\s+)?(\d{1,3})(?:\s+years?)?"""),
             Regex("""(\d{1,3})\s+years?\s+old"""),
             Regex("""(\d{1,3})\s*(?:year|yr)s?\s*(?:of\s+age)?"""),
             Regex("""(?:he|she|patient)\s+is\s+(\d{1,3})""")
         )
-        for (p in digitPatterns) {
+        for (p in patterns) {
             val match = p.find(text) ?: continue
             val age = match.groupValues[1].toIntOrNull()
             if (age != null && age in 0..150) return age
         }
-
-        // Word-number patterns: "three year old", "age is twenty five", etc.
-        val wordNum = WORD_TO_NUMBER.keys.joinToString("|")
-        val wordPatterns = listOf(
-            Regex("""(?:age|aged)\s+(?:is\s+)?($wordNum(?:\s+$wordNum)?)(?:\s+years?)?"""),
-            Regex("""($wordNum(?:\s+$wordNum)?)\s+years?\s+old"""),
-            Regex("""($wordNum(?:\s+$wordNum)?)\s*(?:year|yr)s?\s*(?:of\s+age)?"""),
-            Regex("""(?:he|she|patient)\s+is\s+($wordNum(?:\s+$wordNum)?)(?:\s|$)""")
-        )
-        for (p in wordPatterns) {
-            val match = p.find(text) ?: continue
-            val age = parseSpokenNumber(match.groupValues[1])
-            if (age != null && age in 0..150) return age
-        }
-
         return null
     }
 

@@ -203,6 +203,22 @@ class LlmResponseParser(
             val confidences = medications.map { it.confidence } + suggestedDiagnoses.map { it.confidence }
             val overallConfidence = if (confidences.isEmpty()) 0.5f else confidences.average().toFloat()
 
+            // Rescue: LLMs sometimes put vaccines in "medications" instead of "immunizations".
+            // Scan medications for vaccine-like names and move them to immunizations.
+            val rescuedImmunizations = mutableListOf<ExtractedImmunization>()
+            val filteredMedications = medications.filter { med ->
+                val grounded = groundVaccine(med.name)
+                if (grounded != null) {
+                    rescuedImmunizations.add(ExtractedImmunization(
+                        vaccineCode = grounded.first,
+                        vaccineName = grounded.second,
+                        doseNumber = 1
+                    ))
+                    false // Remove from medications
+                } else true
+            }
+            val allImmunizations = (immunizations + rescuedImmunizations).distinctBy { it.vaccineCode }
+
             ParseAttempt(
                 encounter = StructuredEncounter(
                     id = UUID.randomUUID().toString(),
@@ -211,7 +227,7 @@ class LlmResponseParser(
                     facilityId = facilityId,
                     timestamp = Instant.now(),
                     transcript = transcript,
-                    medications = medications,
+                    medications = filteredMedications,
                     diagnoses = emptyList(), // Clinician-selected only
                     vitals = vitals,
                     allergies = allergies,
@@ -224,7 +240,7 @@ class LlmResponseParser(
                     plan = plan,
                     socialHistory = socialHistory,
                     suggestedDiagnoses = suggestedDiagnoses,
-                    immunizations = immunizations,
+                    immunizations = allImmunizations,
                     smsSummary = smsSummary
                 )
             )

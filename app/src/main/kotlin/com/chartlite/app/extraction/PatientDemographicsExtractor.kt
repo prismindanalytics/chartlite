@@ -9,6 +9,43 @@ package com.chartlite.app.extraction
  */
 class PatientDemographicsExtractor {
 
+    companion object {
+        /** Map spoken number words to digits — ASR often outputs "three" instead of "3". */
+        private val WORD_TO_NUMBER = mapOf(
+            "zero" to 0, "one" to 1, "two" to 2, "three" to 3, "four" to 4,
+            "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
+            "ten" to 10, "eleven" to 11, "twelve" to 12, "thirteen" to 13,
+            "fourteen" to 14, "fifteen" to 15, "sixteen" to 16, "seventeen" to 17,
+            "eighteen" to 18, "nineteen" to 19, "twenty" to 20, "thirty" to 30,
+            "forty" to 40, "fifty" to 50, "sixty" to 60, "seventy" to 70,
+            "eighty" to 80, "ninety" to 90, "hundred" to 100
+        )
+
+        /** Convert a number word or compound ("twenty three") to Int, or parse digits. */
+        fun parseSpokenNumber(text: String): Int? {
+            // Try direct digit parse first
+            text.trim().toIntOrNull()?.let { return it }
+
+            // Try single word
+            WORD_TO_NUMBER[text.trim().lowercase()]?.let { return it }
+
+            // Try compound: "twenty three" → 23, "one hundred" → 100
+            val words = text.trim().lowercase().split(Regex("[\\s-]+"))
+            if (words.isEmpty()) return null
+
+            var result = 0
+            for (w in words) {
+                val n = WORD_TO_NUMBER[w] ?: return null
+                if (n == 100) {
+                    result = if (result == 0) 100 else result * 100
+                } else {
+                    result += n
+                }
+            }
+            return if (result > 0) result else null
+        }
+    }
+
     data class Demographics(
         val firstName: String? = null,
         val lastName: String? = null,
@@ -76,17 +113,33 @@ class PatientDemographicsExtractor {
     }
 
     private fun extractAge(text: String): Int? {
-        val patterns = listOf(
+        // Digit-based patterns
+        val digitPatterns = listOf(
             Regex("""(?:age|aged)\s+(?:is\s+)?(\d{1,3})(?:\s+years?)?"""),
             Regex("""(\d{1,3})\s+years?\s+old"""),
             Regex("""(\d{1,3})\s*(?:year|yr)s?\s*(?:of\s+age)?"""),
             Regex("""(?:he|she|patient)\s+is\s+(\d{1,3})""")
         )
-        for (p in patterns) {
+        for (p in digitPatterns) {
             val match = p.find(text) ?: continue
             val age = match.groupValues[1].toIntOrNull()
             if (age != null && age in 0..150) return age
         }
+
+        // Word-number patterns: "three year old", "age is twenty five", etc.
+        val wordNum = WORD_TO_NUMBER.keys.joinToString("|")
+        val wordPatterns = listOf(
+            Regex("""(?:age|aged)\s+(?:is\s+)?($wordNum(?:\s+$wordNum)?)(?:\s+years?)?"""),
+            Regex("""($wordNum(?:\s+$wordNum)?)\s+years?\s+old"""),
+            Regex("""($wordNum(?:\s+$wordNum)?)\s*(?:year|yr)s?\s*(?:of\s+age)?"""),
+            Regex("""(?:he|she|patient)\s+is\s+($wordNum(?:\s+$wordNum)?)(?:\s|$)""")
+        )
+        for (p in wordPatterns) {
+            val match = p.find(text) ?: continue
+            val age = parseSpokenNumber(match.groupValues[1])
+            if (age != null && age in 0..150) return age
+        }
+
         return null
     }
 

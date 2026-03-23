@@ -625,6 +625,34 @@ object BinaryEncoder {
     )
     private val EPI_INDEX_TO_VACCINE = EPI_VACCINE_INDEX.entries.associate { (k, v) -> v to k }
 
+    /**
+     * Resolve a vaccine code to its EPI index, with fuzzy matching for common variants.
+     * ASR/LLM may output "PCV13", "Pcv-13", "pentavalent", "Hep B" etc.
+     */
+    private fun resolveVaccineIndex(code: String): Int {
+        val upper = code.uppercase().replace(Regex("[\\s_-]"), "")
+        // Exact match first
+        EPI_VACCINE_INDEX[upper]?.let { return it }
+        // Strip trailing digits: "PCV13" → "PCV", "OPV3" → "OPV", "PENTA3" → "PENTA"
+        val stripped = upper.replace(Regex("\\d+$"), "")
+        EPI_VACCINE_INDEX[stripped]?.let { return it }
+        // Common aliases
+        return when {
+            upper.startsWith("PNEUMO") || upper.contains("PCV") -> EPI_VACCINE_INDEX["PCV"] ?: 0
+            upper.startsWith("PENTA") || upper.contains("DPT") || upper.contains("DTAP") -> EPI_VACCINE_INDEX["PENTA"] ?: 0
+            upper.startsWith("ROTA") -> EPI_VACCINE_INDEX["ROTA"] ?: 0
+            upper.startsWith("MEASLE") || upper.startsWith("MR") || upper == "MMR" -> EPI_VACCINE_INDEX["MEASLES"] ?: 0
+            upper.startsWith("HEP") && upper.contains("B") -> EPI_VACCINE_INDEX["HEP_B"] ?: 0
+            upper.startsWith("HEPB") -> EPI_VACCINE_INDEX["HEP_B"] ?: 0
+            upper.startsWith("YF") || upper.contains("YELLOW") -> EPI_VACCINE_INDEX["YELLOW_FEVER"] ?: 0
+            upper.startsWith("TT") || upper.startsWith("TETANUS") -> EPI_VACCINE_INDEX["TT"] ?: 0
+            upper.startsWith("COVID") || upper.contains("SARS") -> EPI_VACCINE_INDEX["COVID"] ?: 0
+            upper.startsWith("FLU") || upper.startsWith("INFLUEN") -> EPI_VACCINE_INDEX["INFLUENZA"] ?: 0
+            upper.startsWith("VARICELLA") || upper.startsWith("CHICKEN") -> EPI_VACCINE_INDEX["VARICELLA"] ?: 0
+            else -> 0
+        }
+    }
+
     // ── RR Coding Table (3 bits) ──
     // 0=unknown, 1=<12, 2=12-15, 3=16-19, 4=20-24(normal), 5=25-29, 6=30-39, 7=≥40
     private fun encodeRR(rr: Int?): Int = when {
@@ -673,8 +701,14 @@ object BinaryEncoder {
 
         // Bytes 1-2: Encounter date (days since 2024-01-01, uint16)
         val encounterDate = encounter.timestamp.atZone(ZoneOffset.UTC).toLocalDate()
-        val daysSinceEpoch = ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
-            .coerceIn(0, 65535)  // Guard: negative days (timestamp=0 → 1970) wraps to ~2149
+        val rawDays = ChronoUnit.DAYS.between(EPOCH, encounterDate).toInt()
+        // If encounter timestamp is epoch-zero (1970) or otherwise before 2024,
+        // use today's date as fallback — prevents date showing as 2024-01-01.
+        val daysSinceEpoch = if (rawDays <= 0) {
+            ChronoUnit.DAYS.between(EPOCH, java.time.LocalDate.now()).toInt().coerceIn(1, 65535)
+        } else {
+            rawDays.coerceIn(0, 65535)
+        }
         buffer.putShort(daysSinceEpoch.toShort())
 
         // Bytes 3-5: Provider hash (12b) + Facility hash (12b)
@@ -832,7 +866,7 @@ object BinaryEncoder {
         for (i in 0 until 3) {
             if (i < numImmunizations) {
                 val imm = summary.recentImmunizations[i]
-                val vaccineIndex = EPI_VACCINE_INDEX[imm.vaccineCode.uppercase()] ?: 0
+                val vaccineIndex = resolveVaccineIndex(imm.vaccineCode)
                 buffer.put(vaccineIndex.toByte())
                 buffer.put(((imm.doseNumber and 0xF) shl 4).toByte())
             } else {

@@ -379,8 +379,14 @@ fun SMSDecryptScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
                         DetailRow("Date", enc.date.format(DateTimeFormatter.ISO_LOCAL_DATE))
-                        DetailRow("BP", "${enc.systolicBP}/${enc.diastolicBP} mmHg")
-                        DetailRow("Temperature", "${"%.1f".format(enc.temperature)}°C")
+                        // Only show vitals that were actually recorded — skip encoding defaults.
+                        // BinaryEncoder uses 120/80 for null BP and 37.0 for null temp.
+                        if (enc.systolicBP != 120 || enc.diastolicBP != 80) {
+                            DetailRow("BP", "${enc.systolicBP}/${enc.diastolicBP} mmHg")
+                        }
+                        if (enc.temperature != 37.0f && enc.temperature > 0f) {
+                            DetailRow("Temperature", "${"%.1f".format(enc.temperature)}°C")
+                        }
                         if (enc.pulse > 0) DetailRow("Pulse", "${enc.pulse} bpm")
                         if (enc.weight > 0) DetailRow("Weight", "${enc.weight} kg")
 

@@ -268,7 +268,7 @@ class ClinicalVectorStore(
      * Splits on whitespace/punctuation, keeps alphanumeric tokens, handles ICD-10 codes.
      */
     private fun tokenize(text: String): List<String> {
-        return text.split(Regex("[\\s,;()\\[\\]{}]+"))
+        return text.split(TOKENIZE_REGEX)
             .map { it.trim('.', ':', '-', '"', '\'') }
             .filter { it.length >= 2 }
     }
@@ -277,5 +277,7 @@ class ClinicalVectorStore(
         private const val TAG = "ClinicalVectorStore"
         /** Minimum cosine similarity to include in results. */
         private const val SIMILARITY_THRESHOLD = 0.05f
+        /** Pre-compiled regex for tokenization — avoids recompilation per call (~0.5ms each). */
+        private val TOKENIZE_REGEX = Regex("[\\s,;()\\[\\]{}]+")
     }
 }

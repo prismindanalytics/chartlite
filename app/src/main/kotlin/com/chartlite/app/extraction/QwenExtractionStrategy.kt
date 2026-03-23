@@ -53,7 +53,7 @@ class QwenExtractionStrategy(
         patientId: String,
         providerId: String,
         facilityId: String
-    ): StructuredEncounter? = withContext(Dispatchers.IO) {
+    ): StructuredEncounter? = withContext(Dispatchers.Default) { // CPU-bound inference — Default, not IO
         try {
             if (prepareForLowRamInference?.invoke() == false) {
                 Log.w(TAG, "Skipping Qwen extraction: ASR is active or still preparing")
@@ -196,6 +196,7 @@ class QwenExtractionStrategy(
 
         /** Regex to match <think>...</think> blocks (including multi-line). */
         private val THINK_TAG_REGEX = Regex("""<think>[\s\S]*?</think>""")
+        private val WHITESPACE_REGEX = Regex("""\s+""")
 
         /**
          * Strip all thinking blocks from model output. Handles both:
@@ -343,7 +344,7 @@ class QwenExtractionStrategy(
             text: String,
             maxChars: Int = 1800
         ): String = text
-            .replace(Regex("""\s+"""), " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim()
             .take(maxChars)
 
@@ -352,7 +353,7 @@ class QwenExtractionStrategy(
             maxChars: Int = 500
         ): String = text
             .takeLast(maxChars)
-            .replace(Regex("""\s+"""), " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim()
 
         /**
@@ -425,7 +426,7 @@ class QwenExtractionStrategy(
      * Generate a draft clinical note from transcript via on-device Qwen inference.
      * Returns plain text (not JSON) — the clinician reviews/edits this before extraction.
      */
-    override suspend fun generateNote(transcript: String): String? = withContext(Dispatchers.IO) {
+    override suspend fun generateNote(transcript: String): String? = withContext(Dispatchers.Default) { // CPU-bound
         try {
             if (prepareForLowRamInference?.invoke() == false) {
                 Log.w(TAG, "Skipping Qwen note generation: ASR is active or still preparing")

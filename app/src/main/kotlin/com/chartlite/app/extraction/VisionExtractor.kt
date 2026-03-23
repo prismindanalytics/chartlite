@@ -75,7 +75,7 @@ class VisionExtractor(
 
     private fun parseVisionJson(raw: String): VisionResult? {
         // Strip thinking blocks — handle both closed and unclosed (token cutoff)
-        var cleaned = raw.replace(Regex("<think>[\\s\\S]*?</think>"), "")
+        var cleaned = raw.replace(THINK_BLOCK_REGEX, "")
         // Handle unclosed <think> block (model ran out of tokens mid-thinking)
         val unclosedIdx = cleaned.indexOf("<think>")
         if (unclosedIdx >= 0) cleaned = cleaned.substring(0, unclosedIdx)
@@ -111,7 +111,7 @@ class VisionExtractor(
             val contentType = when {
                 rawContentType.contains("rdt") || rawContentType.contains("lab_report") ||
                     rawContentType.contains("vital") || rawContentType.contains("medication") ||
-                    rawContentType.contains("referral") -> rawContentType.replace(Regex("s+$"), "")
+                    rawContentType.contains("referral") -> rawContentType.replace(TRAILING_S_REGEX, "")
                 combined.contains("cassette") || combined.contains("rapid test") || combined.contains("rdt") -> "rdt_result"
                 combined.contains("lab") || combined.contains("cbc") || combined.contains("hemoglobin") -> "lab_report"
                 combined.contains("thermometer") || combined.contains("blood pressure") ||
@@ -229,20 +229,20 @@ class VisionExtractor(
             val result = when {
                 lower.contains("no c line") || lower.contains("no control") -> "invalid"
                 // Explicit positive/negative statements (but not from surrounding paper text)
-                Regex("result[:\\s]+(is )?negative|test is negative|non-reactive|nonreactive").containsMatchIn(lower) ||
+                NEGATIVE_RESULT_REGEX.containsMatchIn(lower) ||
                     lower.contains("only c line") || lower.contains("only the c") || lower.contains("c line only") ||
                     lower.contains("only one line") || lower.contains("one colored line") ||
-                    Regex("no.{0,20}(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE).containsMatchIn(lower) ||
+                    NO_LINE_AT_T_REGEX.containsMatchIn(lower) ||
                     lower.contains("no line next to t") || lower.contains("no colored line next to t") -> "negative"
-                Regex("result[:\\s]+(is )?positive|test is positive|\\breactive\\b").containsMatchIn(lower) ||
+                POSITIVE_RESULT_REGEX.containsMatchIn(lower) ||
                     lower.contains("c and t") || lower.contains("both lines") ||
                     lower.contains("two colored line") || lower.contains("2 colored line") ||
-                    Regex("(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE).containsMatchIn(lower) ||
+                    LINE_AT_T_REGEX.containsMatchIn(lower) ||
                     lower.contains("line next to t") || lower.contains("colored line next to t") -> "positive"
                 else -> "unknown"
             }
             // Extract device/brand if mentioned
-            val deviceMatch = Regex("(?i)(binaxnow|sd bioline|first response|determine|uni-gold|oraquick|sure check|accutest)", RegexOption.IGNORE_CASE).find(text)
+            val deviceMatch = DEVICE_NAME_REGEX.find(text)
             val details = deviceMatch?.value?.let { "Device: $it" }
             RdtResult(testType, result, details)
         } else null
@@ -257,6 +257,14 @@ class VisionExtractor(
 
     companion object {
         private const val TAG = "VisionExtractor"
-        private val gson = Gson() // Reuse across calls instead of allocating per parse
+        private val gson = Gson()
+        // Pre-compiled regexes — avoids ~1-2ms of recompilation per parse call
+        private val THINK_BLOCK_REGEX = Regex("<think>[\\s\\S]*?</think>")
+        private val TRAILING_S_REGEX = Regex("s+$")
+        private val NEGATIVE_RESULT_REGEX = Regex("result[:\\s]+(is )?negative|test is negative|non-reactive|nonreactive")
+        private val POSITIVE_RESULT_REGEX = Regex("result[:\\s]+(is )?positive|test is positive|\\breactive\\b")
+        private val NO_LINE_AT_T_REGEX = Regex("no.{0,20}(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE)
+        private val LINE_AT_T_REGEX = Regex("(colored |visible )?(line|band).{0,10}(next to|at|near|beside) t", RegexOption.IGNORE_CASE)
+        private val DEVICE_NAME_REGEX = Regex("(?i)(binaxnow|sd bioline|first response|determine|uni-gold|oraquick|sure check|accutest)", RegexOption.IGNORE_CASE)
     }
 }

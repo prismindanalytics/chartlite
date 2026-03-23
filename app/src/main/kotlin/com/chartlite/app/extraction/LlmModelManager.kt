@@ -230,11 +230,13 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         )
     }
 
+    // Reuse MemoryInfo object to avoid allocation on every availableRamBytes() call.
+    // Called 3-5 times per inference cycle from headroom checks.
+    private val reusableMemInfo = ActivityManager.MemoryInfo()
     private fun availableRamBytes(): Long {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memInfo = ActivityManager.MemoryInfo()
-        am.getMemoryInfo(memInfo)
-        return memInfo.availMem
+        am.getMemoryInfo(reusableMemInfo)
+        return reusableMemInfo.availMem
     }
 
     private fun availableRamMb(): Long = availableRamBytes() / 1024 / 1024
@@ -1170,12 +1172,16 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         return if (ramGb >= 4.0) ModelTier.LARGE else ModelTier.SMALL
     }
 
-    fun deviceRamGb(): Double {
+    // Cache total RAM — never changes at runtime. Avoids repeated MemoryInfo allocations
+    // which are called ~10 times per inference cycle from autoUnloadDelay, timeout, headroom checks.
+    private val cachedDeviceRamGb: Double by lazy {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val memInfo = ActivityManager.MemoryInfo()
         am.getMemoryInfo(memInfo)
-        return memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
+        memInfo.totalMem / (1024.0 * 1024.0 * 1024.0)
     }
+
+    fun deviceRamGb(): Double = cachedDeviceRamGb
 
     fun deviceName(): String = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
 

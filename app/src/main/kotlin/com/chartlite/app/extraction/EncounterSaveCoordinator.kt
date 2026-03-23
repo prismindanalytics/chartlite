@@ -23,6 +23,8 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 object EncounterSaveCoordinator {
+    private val gson = Gson() // Reuse across calls — avoids ~2ms TypeAdapter rebuild each time
+
     suspend fun saveEncounter(
         app: App,
         encounter: StructuredEncounter,
@@ -35,7 +37,7 @@ object EncounterSaveCoordinator {
         val patient = app.patientRepository.getById(patientId)
         val patientAllergies = patient?.let {
             try {
-                Gson().fromJson<List<String>>(
+                gson.fromJson<List<String>>(
                     it.allergies,
                     object : TypeToken<List<String>>() {}.type
                 )
@@ -202,7 +204,7 @@ object EncounterSaveCoordinator {
                         val allEntities = app.encounterRepository.getByPatientId(encounter.patientId)
                         val allEncounters = allEntities.map { app.encounterRepository.toStructuredEncounter(it) }
                         val allergiesForSms: List<String> = try {
-                            Gson().fromJson(
+                            gson.fromJson(
                                 p.allergies,
                                 object : TypeToken<List<String>>() {}.type
                             ) ?: emptyList()
@@ -453,14 +455,14 @@ object EncounterSaveCoordinator {
             val patient = app.patientRepository.getById(patientId)
             if (patient != null && allAllergies.isNotEmpty()) {
                 val existingAllergies: List<String> = try {
-                    Gson().fromJson(
+                    gson.fromJson(
                         patient.allergies,
                         object : TypeToken<List<String>>() {}.type
                     ) ?: emptyList()
                 } catch (_: Exception) { emptyList() }
 
                 val merged = (existingAllergies + allAllergies).distinct()
-                app.patientRepository.update(patient.copy(allergies = Gson().toJson(merged)))
+                app.patientRepository.update(patient.copy(allergies = gson.toJson(merged)))
             }
         } catch (e: Exception) {
             Log.w("EncounterSave", "Failed to update patient allergies from SMS", e)

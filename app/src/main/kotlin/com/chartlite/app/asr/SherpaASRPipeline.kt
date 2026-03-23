@@ -55,6 +55,7 @@ class SherpaASRPipeline {
 
     // ── State ──
     private val committedSegments = mutableListOf<String>()
+    private val transcriptBuilder = StringBuilder() // Incremental — avoids joinToString() O(n) on every segment
     private val sessionGeneration = AtomicLong(0L)
     @Volatile private var isRunning = false
     private val lastFailureReasonRef = AtomicReference<String?>(null)
@@ -198,7 +199,15 @@ class SherpaASRPipeline {
         vocabFile: File
     ): OfflineRecognizerConfig {
         val tokensPath = vocabFile.absolutePath
-        val numThreads = 2 // Balance latency vs power on mobile
+        // Dynamic thread count: use more cores on flagship devices for faster ASR.
+        // Galaxy A03 (3GB, 8 cores): 2 threads (conservative for memory).
+        // Flagship (8+ cores, 4GB+): 4 threads to utilize big cores.
+        val cpuCount = Runtime.getRuntime().availableProcessors()
+        val numThreads = when {
+            cpuCount >= 8 -> 4  // Flagship: use big cores
+            cpuCount >= 6 -> 3  // Mid-range
+            else -> 2           // Low-end
+        }
 
         val modelConfig = OfflineModelConfig().apply {
             tokens = tokensPath
@@ -416,10 +425,10 @@ class SherpaASRPipeline {
                         if (generationId == sessionGeneration.get() && text.isNotBlank()) {
                             synchronized(committedSegments) {
                                 committedSegments.add(text)
+                                if (transcriptBuilder.isNotEmpty()) transcriptBuilder.append(". ")
+                                transcriptBuilder.append(text)
                             }
-                            _transcript.value = synchronized(committedSegments) {
-                                committedSegments.joinToString(". ")
-                            }
+                            _transcript.value = transcriptBuilder.toString()
                         }
                     } finally {
                         stream.release()
@@ -497,7 +506,7 @@ class SherpaASRPipeline {
 
     fun start() {
         sessionGeneration.incrementAndGet()
-        synchronized(committedSegments) { committedSegments.clear() }
+        synchronized(committedSegments) { committedSegments.clear(); transcriptBuilder.clear() }
         _transcript.value = ""
         lastFailureReasonRef.set(null)
         clearBuffer()
@@ -731,7 +740,7 @@ class SherpaASRPipeline {
         }
 
         _isLoaded.value = false
-        synchronized(committedSegments) { committedSegments.clear() }
+        synchronized(committedSegments) { committedSegments.clear(); transcriptBuilder.clear() }
         _transcript.value = ""
     }
 

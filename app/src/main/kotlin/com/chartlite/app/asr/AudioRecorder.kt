@@ -110,11 +110,13 @@ class AudioRecorder(private val context: Context) {
         _recordingDurationMs.value = 0L
 
         recordingJob = scope.launch {
+            // Elevate thread priority for real-time audio capture — prevents
+            // buffer overruns and dropped frames on loaded CPUs (Galaxy A03).
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+
             val chunkBuffer = ShortArray(SAMPLE_RATE / 4) // 0.25 second chunks for faster inference triggering
             var silenceStartMs: Long? = null
             val startTime = System.currentTimeMillis()
-            // Keep only last chunk for amplitude display; avoid unbounded list growth.
-            // Full audio is reconstructed from ONNX pipeline segments, not raw samples.
             var totalSamplesRecorded = 0
 
             while (isActive && _isRecording.value) {
@@ -126,22 +128,22 @@ class AudioRecorder(private val context: Context) {
 
                 _recordingDurationMs.value = System.currentTimeMillis() - startTime
 
-                // Compute amplitude for UI visualization
+                // Single-pass: compute amplitude + RMS together to avoid iterating chunk twice
                 var maxAmp = 0
-                for (sample in chunk) {
-                    val amplitude = abs(sample.toInt())
-                    if (amplitude > maxAmp) maxAmp = amplitude
+                var sumSquares = 0.0
+                for (s in chunk) {
+                    val absVal = abs(s.toInt())
+                    if (absVal > maxAmp) maxAmp = absVal
+                    sumSquares += s.toDouble() * s.toDouble()
                 }
                 _amplitude.value = (maxAmp / Short.MAX_VALUE.toFloat()).coerceIn(0f, 1f)
 
                 // Send chunk for streaming transcription
                 onChunkReady?.invoke(chunk)
 
-                // Silence detection (use manual loop to avoid allocating a List<Double>).
+                // Silence detection using pre-computed RMS from above.
                 // Disabled for ambient mode to preserve natural conversation pauses.
                 if (silenceAutoStopEnabled) {
-                    var sumSquares = 0.0
-                    for (s in chunk) { sumSquares += s.toDouble() * s.toDouble() }
                     val rms = kotlin.math.sqrt(sumSquares / chunk.size)
                     if (rms < SILENCE_THRESHOLD) {
                         if (silenceStartMs == null) silenceStartMs = System.currentTimeMillis()

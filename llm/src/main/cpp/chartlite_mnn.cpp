@@ -132,8 +132,33 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
         return JNI_FALSE;
     }
 
-    // Configure threading based on available CPUs
+    // Configure threading with big.LITTLE awareness — count performance cores
+    // by reading max frequency from sysfs and only counting cores within 80% of peak.
     int n_cpu = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int n_big_cores = 0;
+    {
+        long max_freq = 0;
+        long freqs[16] = {};
+        int core_count = 0;
+        for (int i = 0; i < 16 && i < n_cpu; i++) {
+            char path[128];
+            snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+            FILE* f = fopen(path, "r");
+            if (!f) break;
+            long freq = 0;
+            if (fscanf(f, "%ld", &freq) == 1) {
+                freqs[i] = freq;
+                if (freq > max_freq) max_freq = freq;
+                core_count++;
+            }
+            fclose(f);
+        }
+        for (int i = 0; i < core_count; i++) {
+            if (freqs[i] >= (long)(max_freq * 0.8)) n_big_cores++;
+        }
+        if (n_big_cores == 0) n_big_cores = n_cpu; // Fallback: symmetric SoC
+        LOGi("CPU topology: %d total cores, %d big cores (max freq=%ldkHz)", n_cpu, n_big_cores, max_freq);
+    }
 
     // Get total RAM for logging
     long page_count = sysconf(_SC_PHYS_PAGES);
@@ -144,9 +169,10 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     }
     const bool low_ram_device = total_ram_gb <= 3.5;
     const bool can_push_three_threads = low_ram_device && total_ram_gb >= 2.5 && n_cpu >= 6;
+    // Use big core count for thread allocation — ensures MNN runs on performance cores only.
     const int n_threads = low_ram_device
         ? (can_push_three_threads ? 3 : 2)
-        : std::max(2, std::min(4, n_cpu - 2));
+        : std::max(2, std::min(n_big_cores, 4));
     const int attention_mode = low_ram_device ? 10 : 8;
 
     // Use the MNN-documented runtime keys so low-RAM tuning is actually applied.

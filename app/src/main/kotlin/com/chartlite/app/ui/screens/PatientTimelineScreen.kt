@@ -74,17 +74,17 @@ fun PatientTimelineScreen(
 
     LaunchedEffect(patientId) {
         // Run all DB queries in parallel — saves 50-200ms on Galaxy A03 vs sequential
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val patientDef = kotlinx.coroutines.async { app.patientRepository.getById(patientId) }
-            val encountersDef = kotlinx.coroutines.async { app.encounterRepository.getByPatientId(patientId) }
-            val referralsDef = kotlinx.coroutines.async {
+        kotlinx.coroutines.coroutineScope {
+            val patientDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { app.patientRepository.getById(patientId) }
+            val encountersDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { app.encounterRepository.getByPatientId(patientId) }
+            val referralsDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
                 try { app.referralRepository.getByPatient(patientId) } catch (_: Exception) { emptyList() }
             }
-            val immunizationsDef = kotlinx.coroutines.async {
+            val immunizationsDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
                 try { app.immunizationRepository.getByPatient(patientId) } catch (_: Exception) { emptyList() }
             }
             val checkedInDef = if (onCheckIn != null) {
-                kotlinx.coroutines.async { app.visitRepository.getTodayVisitForPatient(patientId) != null }
+                kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { app.visitRepository.getTodayVisitForPatient(patientId) != null }
             } else null
 
             patient = patientDef.await()

@@ -1335,15 +1335,20 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val ULTRA_LOW_RAM_MAX_SNIPPET_OUTPUT_TOKENS = 256
         private const val SMALL_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 320
         private const val LARGE_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 448
-        private const val ULTRA_LOW_RAM_AUTO_UNLOAD_DELAY_MS = 5_000L
-        private const val LOW_RAM_AUTO_UNLOAD_DELAY_MS = 8_000L
+        // Keep model warm longer — each reload costs 5-15s on eMMC. The memory pressure
+        // handler (onTrimMemory) still unloads if the system truly needs RAM.
+        private const val ULTRA_LOW_RAM_AUTO_UNLOAD_DELAY_MS = 15_000L
+        private const val LOW_RAM_AUTO_UNLOAD_DELAY_MS = 15_000L
         private const val MID_RAM_AUTO_UNLOAD_DELAY_MS = 15_000L
         private const val DEFAULT_AUTO_UNLOAD_DELAY_MS = 30_000L
-        private const val ULTRA_LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 25_000L
-        private const val LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 35_000L
+        // With mmap disabled on ≤3GB, full model load from eMMC takes longer.
+        private const val ULTRA_LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 45_000L
+        private const val LOW_RAM_MODEL_LOAD_TIMEOUT_MS = 45_000L
         private const val DEFAULT_MODEL_LOAD_TIMEOUT_MS = 45_000L
-        private const val ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS = 60_000L
-        private const val LOW_RAM_INFERENCE_TIMEOUT_MS = 75_000L
+        // At ~2-3 tok/s on Cortex-A53, 512 tokens takes ~170-256s. Allow enough time
+        // to complete rather than timing out mid-generation on slow eMMC phones.
+        private const val ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS = 120_000L
+        private const val LOW_RAM_INFERENCE_TIMEOUT_MS = 90_000L
         private const val DEFAULT_INFERENCE_TIMEOUT_MS = 90_000L
         private const val CANCEL_WAIT_TIMEOUT_MS = 5_000L
         private const val DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS = 15_000L

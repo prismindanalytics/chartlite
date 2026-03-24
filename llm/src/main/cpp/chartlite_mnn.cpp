@@ -168,14 +168,39 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
         total_ram_gb = (double)page_count * (double)page_size / (1024.0 * 1024.0 * 1024.0);
     }
     const bool low_ram_device = total_ram_gb <= 3.5;
-    const bool can_push_three_threads = low_ram_device && total_ram_gb >= 2.5 && n_cpu >= 6;
-    // Use big core count for thread allocation — ensures MNN runs on performance cores only.
-    const int n_threads = low_ram_device
-        ? (can_push_three_threads ? 3 : 2)
-        : std::max(2, std::min(n_big_cores, 4));
+    const bool ultra_low_ram = total_ram_gb <= 3.0;
+    const bool symmetric_soc = (n_big_cores == n_cpu); // All cores same speed (e.g., Helio P35)
+
+    // Thread count: on symmetric SoCs (all Cortex-A53), use more threads since individual
+    // cores are weak. On big.LITTLE, limit to big cores. On ultra-low-RAM, be conservative.
+    int n_threads;
+    if (low_ram_device) {
+        if (symmetric_soc && n_cpu >= 6) {
+            // Symmetric SoC like Helio P35: weak cores, need parallelism.
+            // Use up to 6 threads — individual A53 cores are slow, parallelism compensates.
+            n_threads = std::min(n_cpu, 6);
+        } else if (n_cpu >= 6) {
+            n_threads = 3; // big.LITTLE low-RAM: conservative
+        } else {
+            n_threads = 2;
+        }
+    } else {
+        n_threads = std::max(2, std::min(n_big_cores, 4));
+    }
     const int attention_mode = low_ram_device ? 10 : 8;
 
     // Use the MNN-documented runtime keys so low-RAM tuning is actually applied.
+    //
+    // On ultra-low-RAM (≤3GB): disable mmap to prevent page thrashing. The 390MB INT4
+    // model gets demand-paged from slow eMMC, and the kernel aggressively reclaims clean
+    // mmap pages under memory pressure, causing repeated page faults during decode.
+    // Loading into committed memory trades slower initial load for stable decode speed.
+    //
+    // KV cache disk offloading: on low-RAM devices, spill KV cache to tmp_path so model
+    // weights stay in RAM. Each decode token only touches the hot KV tail.
+    const bool use_mmap = !ultra_low_ram;  // Disable mmap on ≤3GB
+    const bool kvcache_to_disk = low_ram_device && !tmpPath.empty();
+
     std::ostringstream config;
     config << "{"
            << "\"async\":false,"
@@ -184,10 +209,13 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
            << "\"precision\":\"low\","
            << "\"memory\":\"low\","
            << "\"power\":\"high\","
-           << "\"use_mmap\":true,"
-           << "\"use_cached_mmap\":true,";
+           << "\"use_mmap\":" << (use_mmap ? "true" : "false") << ","
+           << "\"use_cached_mmap\":" << (use_mmap ? "true" : "false") << ",";
     if (!tmpPath.empty()) {
         config << "\"tmp_path\":\"" << escape_json_string(tmpPath) << "\",";
+    }
+    if (kvcache_to_disk) {
+        config << "\"kvcache_mmap\":true,";
     }
     config << "\"attention_mode\":" << attention_mode << ","
            << "\"jinja\":{\"context\":{\"enable_thinking\":false}}"
@@ -207,20 +235,24 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     // Apply current sampling parameters
     apply_params();
 
-    // Low-RAM devices reload the model more often because ASR and LLM are serialized.
-    // Skip encoder tuning there to cut reload latency and reduce peak memory pressure.
+    // Tune prefill chunk size: benchmark different encoder sizes to find the optimal
+    // value for this SoC. On low-RAM, use a smaller candidate set to save time.
     if (!low_ram_device) {
         g_llm->tuning(OP_ENCODER_NUMBER, {1, 32, 64, 128});
     } else {
-        LOGi("Skipping MNN tuning on low-RAM device to reduce reload latency");
+        // Minimal tuning (~1s) — still finds a good chunk size for slow A53 cores.
+        g_llm->tuning(OP_ENCODER_NUMBER, {1, 16, 32});
     }
 
     LOGi(
-        "MNN model loaded: ram=%.1fGB, threads=%d, attention=%d, low_ram=%d",
+        "MNN model loaded: ram=%.1fGB, threads=%d, attention=%d, low_ram=%d, mmap=%d, kv_disk=%d, symmetric=%d",
         total_ram_gb,
         n_threads,
         attention_mode,
-        low_ram_device ? 1 : 0
+        low_ram_device ? 1 : 0,
+        use_mmap ? 1 : 0,
+        kvcache_to_disk ? 1 : 0,
+        symmetric_soc ? 1 : 0
     );
     return JNI_TRUE;
 }
@@ -260,9 +292,13 @@ static jstring generate_internal_jni(JNIEnv *env, jstring jPrompt) {
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {
-        LOGi("Generate metrics: prompt=%d tokens, decode=%d tokens, first_token_ms=%.1f, total_decode_ms=%.1f",
-             ctx->prompt_len, ctx->gen_seq_len,
-             ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
+        double prefill_ms = ctx->prefill_us / 1000.0;
+        double decode_ms = ctx->decode_us / 1000.0;
+        double prefill_tok_s = ctx->prompt_len > 0 && prefill_ms > 0 ? ctx->prompt_len / (prefill_ms / 1000.0) : 0;
+        double decode_tok_s = ctx->gen_seq_len > 0 && decode_ms > 0 ? ctx->gen_seq_len / (decode_ms / 1000.0) : 0;
+        LOGi("Generate metrics: prompt=%d tok (%.1f tok/s, %.0fms), decode=%d tok (%.1f tok/s, %.0fms)",
+             ctx->prompt_len, prefill_tok_s, prefill_ms,
+             ctx->gen_seq_len, decode_tok_s, decode_ms);
     }
     if (g_cancel_generation.load()) LOGw("Generation was cancelled");
     if (buf.result.empty()) return nullptr;
@@ -313,9 +349,13 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
 
     const auto *ctx = g_llm->getContext();
     if (ctx) {
-        LOGi("GenerateChat metrics: prompt=%d tokens, decode=%d tokens, first_token_ms=%.1f, total_decode_ms=%.1f",
-             ctx->prompt_len, ctx->gen_seq_len,
-             ctx->prefill_us / 1000.0, ctx->decode_us / 1000.0);
+        double prefill_ms = ctx->prefill_us / 1000.0;
+        double decode_ms = ctx->decode_us / 1000.0;
+        double prefill_tok_s = ctx->prompt_len > 0 && prefill_ms > 0 ? ctx->prompt_len / (prefill_ms / 1000.0) : 0;
+        double decode_tok_s = ctx->gen_seq_len > 0 && decode_ms > 0 ? ctx->gen_seq_len / (decode_ms / 1000.0) : 0;
+        LOGi("GenerateChat metrics: prompt=%d tok (%.1f tok/s, %.0fms), decode=%d tok (%.1f tok/s, %.0fms)",
+             ctx->prompt_len, prefill_tok_s, prefill_ms,
+             ctx->gen_seq_len, decode_tok_s, decode_ms);
     }
 
     if (g_cancel_generation.load()) {

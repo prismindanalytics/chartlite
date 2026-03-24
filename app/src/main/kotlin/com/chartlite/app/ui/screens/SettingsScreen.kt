@@ -385,13 +385,15 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // v1: only Essentials + AI/Speech. Operations, Regions, Admin hidden (see ROADMAP.md).
             val visibleCategories = remember(currentRole) {
                 buildList {
                     add(SettingsCategory.ESSENTIALS)
                     add(SettingsCategory.AI_SPEECH)
-                    add(SettingsCategory.OPERATIONS)
-                    add(SettingsCategory.REGIONS)
-                    if (currentRole?.canManageUsers == true) add(SettingsCategory.ADMIN)
+                    // v2:
+                    // add(SettingsCategory.OPERATIONS)
+                    // add(SettingsCategory.REGIONS)
+                    // if (currentRole?.canManageUsers == true) add(SettingsCategory.ADMIN)
                 }
             }
             val activeCategory = remember(selectedCategory, visibleCategories) {

@@ -99,9 +99,9 @@ fun EncounterReviewScreen(
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
+    // v1: Summary + SOAP Note only. Claim Preview hidden for v1 (see ROADMAP.md).
     val tabs = listOf(
         stringResource(R.string.review_tab_summary),
-        stringResource(R.string.review_tab_claim_preview),
         stringResource(R.string.review_tab_soap_note)
     )
 
@@ -171,8 +171,8 @@ fun EncounterReviewScreen(
                         }
                     }
                 )
-                1 -> ClaimPreviewTab(enc, diagnoses, medications, vitals, context, patientName)
-                2 -> SOAPNoteTab(enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
+                // v1: tab 1 = SOAP Note (Claim Preview hidden, see ROADMAP.md)
+                1 -> SOAPNoteTab(enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
                     examFindings, investigations, planItems, socialHistory, suggestedDiagnoses)
             }
         }

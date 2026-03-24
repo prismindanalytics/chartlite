@@ -368,24 +368,21 @@ fun HomeScreen(
                         Spacer(Modifier.height(12.dp))
                         // ── Secondary: compact 4-column grid ──
                         data class ActionItem(val icon: ImageVector, val label: String, val onClick: () -> Unit, val badge: Int = 0)
+                        // v1: focused core actions only. See ROADMAP.md for v2 features.
                         val secondaryActions = buildList {
-                            add(ActionItem(Icons.Default.CalendarMonth, stringResource(R.string.appointments), onAppointments, appointmentBadge))
-                            add(ActionItem(Icons.Default.MedicalInformation, stringResource(R.string.protocols), onClinicalProtocols))
-                            if (currentRole?.canConsult == true) {
-                                add(ActionItem(Icons.AutoMirrored.Filled.Send, stringResource(R.string.referrals), onReferrals, referralBadge))
-                            }
                             add(ActionItem(Icons.Default.Sms, stringResource(R.string.read_sms), onReadSMS, smsBadge))
-                            if (currentRole?.canDispense == true) {
-                                add(ActionItem(Icons.Default.Inventory, stringResource(R.string.stock), onStockManagement, stockBadge))
-                            }
-                            add(ActionItem(Icons.Default.NotificationsActive, stringResource(R.string.reminders), onAppointmentReminders, reminderBadge))
-                            if (currentRole?.canViewDashboard == true) {
-                                add(ActionItem(Icons.Default.Dashboard, stringResource(R.string.dashboard), onDashboard))
-                            }
+                            add(ActionItem(Icons.Default.Settings, stringResource(R.string.settings), onSettings))
                             if (currentRole?.canSync == true) {
                                 add(ActionItem(Icons.Default.Sync, stringResource(R.string.sync), onSync))
                             }
-                            add(ActionItem(Icons.Default.LocalHospital, stringResource(R.string.facilities), onFacilityDirectory))
+                            // v2 features — hidden for v1 to keep the UI focused:
+                            // add(ActionItem(Icons.Default.CalendarMonth, stringResource(R.string.appointments), onAppointments, appointmentBadge))
+                            // add(ActionItem(Icons.Default.MedicalInformation, stringResource(R.string.protocols), onClinicalProtocols))
+                            // add(ActionItem(Icons.AutoMirrored.Filled.Send, stringResource(R.string.referrals), onReferrals, referralBadge))
+                            // add(ActionItem(Icons.Default.Inventory, stringResource(R.string.stock), onStockManagement, stockBadge))
+                            // add(ActionItem(Icons.Default.NotificationsActive, stringResource(R.string.reminders), onAppointmentReminders, reminderBadge))
+                            // add(ActionItem(Icons.Default.Dashboard, stringResource(R.string.dashboard), onDashboard))
+                            // add(ActionItem(Icons.Default.LocalHospital, stringResource(R.string.facilities), onFacilityDirectory))
                         }
                         // ── Wrap grid so all actions are visible ──
                         val columns = 5
@@ -414,6 +411,7 @@ fun HomeScreen(
                 }
             }
 
+            // v2: Extraction queue / batch processing — hidden for v1. See ROADMAP.md.
             item(key = "extraction_queue") {
                 val queuedCount = extractionItems.count {
                     it.status == com.chartlite.app.extraction.ExtractionQueueRepository.QueueStatus.QUEUED ||
@@ -426,7 +424,7 @@ fun HomeScreen(
                 val hasItems = queuedCount > 0 || readyCount > 0 || failedCount > 0
                 val isProcessing = extractionQueueState == com.chartlite.app.extraction.ExtractionQueue.QueueState.PROCESSING
 
-                if (hasItems || isProcessing) {
+                if (false && (hasItems || isProcessing)) { // v1: hidden
                     // Full card when there are items or processing
                     Card(
                         modifier = Modifier

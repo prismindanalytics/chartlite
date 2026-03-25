@@ -1,10 +1,12 @@
 package com.chartlite.app
 
 import com.chartlite.app.model.*
+import com.chartlite.app.sms.BinaryDecodeLookup
 import com.chartlite.app.sms.BinaryEncoder
+import com.chartlite.app.sms.ImmunizationRecord
+import com.chartlite.app.sms.PatientHealthSummary
 import com.chartlite.app.sms.PatientHealthSummaryBuilder
 import com.chartlite.app.sms.PatientHealthSummaryBuilder.GrowthData
-import com.chartlite.app.sms.PatientHealthSummaryBuilder.ImmunizationRecord
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -58,7 +60,7 @@ class BinaryEncoderV4Test {
         allergies: List<String> = listOf("penicillin"),
         growthData: GrowthData? = null,
         immunizationRecords: List<ImmunizationRecord> = emptyList()
-    ): PatientHealthSummaryBuilder.PatientHealthSummary {
+    ): PatientHealthSummary {
         return PatientHealthSummaryBuilder.buildSummary(
             encounters, allergies, growthData, immunizationRecords
         )
@@ -143,7 +145,7 @@ class BinaryEncoderV4Test {
         val bytes = BinaryEncoder.encodeV4(enc, enc.patientId, summary)
         val decoded = BinaryEncoder.decodeV4(bytes)
 
-        val allergyLabels = BinaryEncoder.allergyLabels(decoded.encounter.allergyFlags)
+        val allergyLabels = BinaryDecodeLookup.allergyLabels(decoded.encounter.allergyFlags)
         assertTrue("Should contain Penicillin", allergyLabels.any { it.contains("Penicillin", ignoreCase = true) })
         assertTrue("Should contain NSAID", allergyLabels.any { it.contains("NSAID", ignoreCase = true) })
     }
@@ -297,15 +299,15 @@ class BinaryEncoderV4Test {
         val summary = buildSummary(listOf(enc), allergies = allAllergies)
         val bytes = BinaryEncoder.encodeV4(enc, enc.patientId, summary)
         val decoded = BinaryEncoder.decodeV4(bytes)
-        val labels = BinaryEncoder.allergyLabels(decoded.encounter.allergyFlags)
+        val labels = BinaryDecodeLookup.allergyLabels(decoded.encounter.allergyFlags)
         assertTrue("All 8 allergy flags should be set", labels.size >= 7)
     }
 
     @Test
     fun `V4 dose and frequency labels are correct`() {
-        assertEquals("500mg", BinaryEncoder.doseLabel(5))
-        assertEquals("OD", BinaryEncoder.freqLabel(1))
-        assertEquals("BD", BinaryEncoder.freqLabel(2))
-        assertEquals("TDS", BinaryEncoder.freqLabel(3))
+        assertEquals("500mg", BinaryDecodeLookup.doseLabel(5))
+        assertEquals("OD", BinaryDecodeLookup.freqLabel(1))
+        assertEquals("BD", BinaryDecodeLookup.freqLabel(2))
+        assertEquals("TDS", BinaryDecodeLookup.freqLabel(3))
     }
 }

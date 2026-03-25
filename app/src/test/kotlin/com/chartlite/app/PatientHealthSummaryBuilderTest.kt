@@ -1,8 +1,9 @@
 package com.chartlite.app
 
 import com.chartlite.app.model.*
+import com.chartlite.app.sms.ImmunizationRecord
 import com.chartlite.app.sms.PatientHealthSummaryBuilder
-import com.chartlite.app.sms.PatientHealthSummaryBuilder.*
+import com.chartlite.app.sms.PatientHealthSummaryBuilder.GrowthData
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant

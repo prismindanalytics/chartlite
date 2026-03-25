@@ -1,9 +1,14 @@
 package com.chartlite.app
 
+import android.content.Context
+import android.content.res.AssetManager
 import com.chartlite.app.cdss.StaticCDSS
 import com.chartlite.app.model.*
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.IOException
 import java.time.Instant
 
 /**
@@ -15,7 +20,13 @@ import java.time.Instant
  */
 class StaticCDSSTest {
 
-    private val cdss = StaticCDSS()
+    // Mock Context so loadRules() falls back to hardcoded defaults
+    private val mockContext: Context = mockk {
+        val mockAssets = mockk<AssetManager>()
+        every { assets } returns mockAssets
+        every { mockAssets.open(any()) } throws IOException("test — using hardcoded defaults")
+    }
+    private val cdss = StaticCDSS(mockContext)
 
     private fun encounter(
         medications: List<Medication> = emptyList(),

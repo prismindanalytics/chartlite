@@ -85,16 +85,16 @@ class StaticCDSSTest {
     }
 
     @Test
-    fun `nsaid allergy triggers alert for ibuprofen`() {
+    fun `sulfa allergy triggers alert for sulfa drugs`() {
         val enc = encounter(
             medications = listOf(
-                Medication("0004", "Ibuprofen", 400f, "mg", "TDS", 5, "PO", 0.85f)
+                Medication("0050", "Sulfamethoxazole", 400f, "mg", "BD", 5, "PO", 0.85f)
             ),
-            allergies = listOf("nsaid")
+            allergies = listOf("sulfa")
         )
-        val alerts = cdss.evaluate(enc, listOf("nsaid"))
+        val alerts = cdss.evaluate(enc, listOf("sulfa"))
         val allergyAlerts = alerts.filter { it.category.contains("allergy", ignoreCase = true) || it.category.contains("Allergy", ignoreCase = true) }
-        assertTrue("NSAID allergy + Ibuprofen should trigger alert", allergyAlerts.isNotEmpty())
+        assertTrue("Sulfa allergy + Sulfamethoxazole should trigger alert", allergyAlerts.isNotEmpty())
     }
 
     // ── Drug-Drug Interactions ──

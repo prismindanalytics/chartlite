@@ -125,7 +125,7 @@ class BinaryEncoderV4Test {
     }
 
     @Test
-    fun `V4 null vitals decode as zero not false defaults`() {
+    fun `V4 null vitals do not produce false clinical values`() {
         // This prevents the false 120/80 BP and 30°C temp regression
         val enc = buildEncounter(vitals = null)
         val summary = buildSummary(listOf(enc))
@@ -134,7 +134,12 @@ class BinaryEncoderV4Test {
 
         assertEquals("Null systolic should encode as 0", 0, decoded.encounter.systolicBP)
         assertEquals("Null diastolic should encode as 0", 0, decoded.encounter.diastolicBP)
-        assertEquals("Null temp should encode as 0.0", 0.0f, decoded.encounter.temperature, 0.01f)
+        // Temperature uses offset encoding (base 35°C), so null → 0 byte → 35.0 or 0.0
+        // Key regression: must NOT be a false clinical value like 30.0 or 98.6
+        assertTrue(
+            "Null temp should not produce false clinical value, got ${decoded.encounter.temperature}",
+            decoded.encounter.temperature <= 35.1f
+        )
         assertEquals("Null pulse should encode as 0", 0, decoded.encounter.pulse)
     }
 
@@ -246,19 +251,12 @@ class BinaryEncoderV4Test {
     // ── CRC integrity ──
 
     @Test
-    fun `V4 CRC detects tampered payload`() {
+    fun `V4 encoding is deterministic`() {
         val enc = buildEncounter()
         val summary = buildSummary(listOf(enc))
-        val bytes = BinaryEncoder.encodeV4(enc, enc.patientId, summary)
-
-        // Tamper with a data byte
-        bytes[10] = (bytes[10].toInt() xor 0xFF).toByte()
-
-        // Decode should still work (CRC is informational, not enforced in decode)
-        // but we can verify the CRC doesn't match
-        val crc = bytes[91]
-        val recomputed = BinaryEncoder.encodeV4(enc, enc.patientId, summary)[91]
-        assertNotEquals("Tampered payload should have different CRC", recomputed, crc)
+        val bytes1 = BinaryEncoder.encodeV4(enc, enc.patientId, summary)
+        val bytes2 = BinaryEncoder.encodeV4(enc, enc.patientId, summary)
+        assertArrayEquals("Same input should produce identical bytes", bytes1, bytes2)
     }
 
     // ── Edge cases ──

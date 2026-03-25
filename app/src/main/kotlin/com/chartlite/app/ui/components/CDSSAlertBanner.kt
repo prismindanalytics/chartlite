@@ -42,7 +42,7 @@ fun CDSSAlertBanner(
         )
     }
 
-    var expanded by remember { mutableStateOf(alert.severity == AlertSeverity.CRITICAL) }
+    var expanded by remember(alert.message) { mutableStateOf(alert.severity == AlertSeverity.CRITICAL) }
 
     Surface(
         modifier = modifier

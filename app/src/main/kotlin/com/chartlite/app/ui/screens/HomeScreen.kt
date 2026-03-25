@@ -385,7 +385,8 @@ fun HomeScreen(
                             // add(ActionItem(Icons.Default.LocalHospital, stringResource(R.string.facilities), onFacilityDirectory))
                         }
                         // ── Wrap grid so all actions are visible ──
-                        val columns = 5
+                        // Use fewer columns on narrow phones to avoid overflow
+                        val columns = if (secondaryActions.size <= 3) secondaryActions.size.coerceAtLeast(1) else 4
                         secondaryActions.chunked(columns).forEach { rowItems ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

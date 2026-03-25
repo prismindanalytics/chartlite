@@ -75,7 +75,7 @@ fun TierIndicator() {
     }
 
     val (dotColor, label) = when (tier) {
-        ConnectivityTier.OFFLINE -> AlertRed to "Offline \u2014 Local only"
+        ConnectivityTier.OFFLINE -> AlertRed to "Offline. Local only"
         ConnectivityTier.BLUETOOTH -> WarningAmber to "Bluetooth available"
         ConnectivityTier.CONNECTED -> BrandGreen to "Connected"
     }

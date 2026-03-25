@@ -58,7 +58,7 @@ fun LockScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(48.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

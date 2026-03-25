@@ -110,7 +110,7 @@ fun EncounterCard(
                         diagnoses.joinToString(" | ") { it.description },
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

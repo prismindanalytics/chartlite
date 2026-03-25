@@ -113,7 +113,9 @@ fun EncounterReviewScreen(
                         Text(stringResource(R.string.encounter_review))
                         Text(patientName,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 },
                 navigationIcon = {

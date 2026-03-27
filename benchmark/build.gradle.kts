@@ -69,10 +69,11 @@ dependencies {
     // OkHttp for model downloads
     implementation(libs.okhttp)
 
-    // Optional engines (add these to enable LiteRT-LM, MediaPipe, ExecuTorch):
-    // implementation("com.google.ai.edge.litertlm:litertlm-android:<version>")
-    // implementation("com.google.mediapipe:tasks-genai:<version>")
-    // implementation("org.pytorch:executorch-android:<version>")
+    // Optional engines — uncomment to enable (engines use reflection so app compiles without them):
+    // implementation("com.google.ai.edge.litertlm:litertlm-android:<version>")  // LiteRT-LM
+    // implementation("com.google.mediapipe:tasks-genai:<version>")               // MediaPipe
+    // implementation("org.pytorch:executorch-android:<version>")                  // ExecuTorch
+    // implementation(project(":mlc4j"))                                           // MLC LLM (local subproject)
 
     debugImplementation(libs.compose.ui.tooling)
 }

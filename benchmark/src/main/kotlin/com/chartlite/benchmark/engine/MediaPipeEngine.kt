@@ -6,11 +6,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * MediaPipe LLM Inference API engine — runs Qwen via TFLite/GPU delegate.
+ * MediaPipe LLM Inference API engine — runs Qwen 3.5 0.8B via TFLite/GPU delegate.
  *
- * Uses Google's MediaPipe Tasks GenAI runtime. Model must be in MediaPipe-compatible
- * TFLite format. Since Qwen 3.5 0.8B is not officially distributed in this format,
- * this engine uses ai_edge_torch to convert the GGUF to TFLite.
+ * Uses Google's MediaPipe Tasks GenAI runtime. Model must be in .task format.
+ *
+ * Convert locally:
+ *   pip install ai-edge-torch mediapipe
+ *   python -m ai_edge_torch.generative.examples.qwen export \
+ *       --ckpt_path Qwen3.5-0.8B/ --output qwen3.5-0.8b-int4.task
+ *   adb push qwen3.5-0.8b-int4.task /data/local/tmp/
  *
  * Requires: com.google.mediapipe:tasks-genai dependency
  */
@@ -20,7 +24,7 @@ class MediaPipeEngine(private val context: Context) : BenchmarkEngine {
     override val modelFormat = "TFLite INT4"
 
     private val modelDir = File(context.noBackupFilesDir, "benchmark_models/mediapipe")
-    val modelFile = File(modelDir, "qwen3-0.6b-int4.task")
+    val modelFile = File(modelDir, "qwen3.5-0.8b-int4.task")
     private var lastMetrics = EngineMetrics()
     private var inference: Any? = null // LlmInference instance via reflection
 

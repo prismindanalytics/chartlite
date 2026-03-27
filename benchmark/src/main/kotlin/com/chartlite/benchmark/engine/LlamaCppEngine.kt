@@ -15,7 +15,7 @@ class LlamaCppEngine(private val context: Context) : BenchmarkEngine {
     override val modelFormat = "GGUF Q4_K_M"
 
     private val modelDir = File(context.noBackupFilesDir, "benchmark_models/llamacpp")
-    val modelFile = File(modelDir, "qwen3.5-0.8b-q4_k_m.gguf")
+    val modelFile = File(modelDir, "Qwen3.5-0.8B-Q4_K_M.gguf")
     private var lastMetrics = EngineMetrics()
 
     override fun isModelReady(): Boolean = modelFile.exists() && modelFile.length() > 100_000_000
@@ -55,9 +55,9 @@ class LlamaCppEngine(private val context: Context) : BenchmarkEngine {
     }
 
     companion object {
-        /** HuggingFace URL for Qwen 3.5 0.8B Q4_K_M GGUF */
+        /** HuggingFace URL for Qwen 3.5 0.8B Q4_K_M GGUF (unsloth quantization) */
         const val MODEL_URL =
-            "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/qwen3-0.6b-q4_k_m.gguf"
-        const val MODEL_SIZE_MB = 490
+            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
+        const val MODEL_SIZE_MB = 550
     }
 }

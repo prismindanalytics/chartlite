@@ -2,7 +2,13 @@ package com.chartlite.benchmark.engine
 
 /**
  * Common interface for LLM inference engines in the benchmark.
- * Each engine loads the same Qwen 3.5 0.8B model in its own format.
+ * Each engine loads Qwen 3.5 0.8B in its own format for apples-to-apples comparison:
+ *   - MNN:        INT4 (.mnn)          — auto-download from HuggingFace
+ *   - llama.cpp:  GGUF Q4_K_M (.gguf)  — auto-download from HuggingFace
+ *   - MLC LLM:    q4f16_1 (.bin)       — compile locally with mlc_llm
+ *   - LiteRT-LM:  .litertlm            — convert locally with ai_edge_torch
+ *   - MediaPipe:  .task (TFLite)       — convert locally with ai_edge_torch
+ *   - ExecuTorch: .pte (XNNPACK)       — convert locally with executorch
  */
 interface BenchmarkEngine {
     val name: String

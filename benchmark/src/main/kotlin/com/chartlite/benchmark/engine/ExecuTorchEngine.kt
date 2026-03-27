@@ -7,10 +7,18 @@ import java.io.File
 
 /**
  * ExecuTorch engine — Meta's on-device inference runtime.
- * Runs Qwen via .pte (ExecuTorch) format with XNNPACK delegate.
+ * Runs Qwen 3.5 0.8B via .pte (ExecuTorch) format with XNNPACK delegate.
  *
  * Requires: org.pytorch:executorch-android dependency + model in .pte format.
- * Model conversion: python -m executorch.examples.models.llama.export --model qwen --checkpoint <path>
+ *
+ * Convert locally:
+ *   pip install executorch
+ *   python -m executorch.examples.models.llama.export_llama \
+ *       --model qwen3.5 --checkpoint Qwen3.5-0.8B/ \
+ *       --params Qwen3.5-0.8B/config.json \
+ *       -kv --use_sdpa_with_kv_cache -X -qmode 8da4w \
+ *       --output qwen3.5-0.8b-xnnpack.pte
+ *   adb push qwen3.5-0.8b-xnnpack.pte /data/local/tmp/
  */
 class ExecuTorchEngine(private val context: Context) : BenchmarkEngine {
 
@@ -18,7 +26,7 @@ class ExecuTorchEngine(private val context: Context) : BenchmarkEngine {
     override val modelFormat = "PTE XNNPACK"
 
     private val modelDir = File(context.noBackupFilesDir, "benchmark_models/executorch")
-    val modelFile = File(modelDir, "qwen3-0.6b-xnnpack.pte")
+    val modelFile = File(modelDir, "qwen3.5-0.8b-xnnpack.pte")
     private var lastMetrics = EngineMetrics()
     private var module: Any? = null
 

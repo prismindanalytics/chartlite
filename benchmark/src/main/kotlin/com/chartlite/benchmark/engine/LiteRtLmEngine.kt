@@ -10,14 +10,20 @@ import java.io.File
  * Uses .litertlm model format with CPU/GPU/NPU backends.
  *
  * Requires: com.google.ai.edge.litertlm:litertlm-android dependency
+ *
+ * No pre-built Qwen 3.5 0.8B .litertlm exists. Convert locally:
+ *   pip install ai-edge-torch
+ *   python -m ai_edge_torch.generative.examples.qwen export \
+ *       --ckpt_path Qwen3.5-0.8B/ --output qwen3.5-0.8b.litertlm
+ *   adb push qwen3.5-0.8b.litertlm /data/local/tmp/
  */
 class LiteRtLmEngine(private val context: Context) : BenchmarkEngine {
 
     override val name = "LiteRT-LM"
-    override val modelFormat = "LiteRT INT8"
+    override val modelFormat = "LiteRT"
 
     private val modelDir = File(context.noBackupFilesDir, "benchmark_models/litertlm")
-    val modelFile = File(modelDir, "qwen2.5-1.5b-instruct.litertlm")
+    val modelFile = File(modelDir, "qwen3.5-0.8b.litertlm")
     private var lastMetrics = EngineMetrics()
     private var engine: Any? = null
     private var conversation: Any? = null
@@ -97,9 +103,8 @@ class LiteRtLmEngine(private val context: Context) : BenchmarkEngine {
     }
 
     companion object {
-        // Qwen 2.5 1.5B Instruct from HuggingFace litert-community
-        const val MODEL_URL =
-            "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct.litertlm"
-        const val MODEL_SIZE_MB = 1524
+        // No pre-built Qwen 3.5 0.8B .litertlm — must convert locally. See class header.
+        const val MODEL_URL = ""
+        const val MODEL_SIZE_MB = 500
     }
 }

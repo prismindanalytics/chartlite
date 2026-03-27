@@ -52,6 +52,7 @@ fun BenchmarkScreen(context: Context) {
         listOf(
             MnnEngine(context),
             LlamaCppEngine(context),
+            MlcLlmEngine(context),
             LiteRtLmEngine(context),
             MediaPipeEngine(context),
             ExecuTorchEngine(context),
@@ -158,6 +159,8 @@ fun BenchmarkScreen(context: Context) {
 fun EngineCard(engine: BenchmarkEngine, downloadProgress: Int?, onDownload: () -> Unit) {
     val ready = engine.isModelReady()
     val hasModelUrl = when (engine) {
+        is MlcLlmEngine -> MlcLlmEngine.MODEL_URL.isNotBlank()
+        is LiteRtLmEngine -> LiteRtLmEngine.MODEL_URL.isNotBlank()
         is MediaPipeEngine -> MediaPipeEngine.MODEL_URL.isNotBlank()
         is ExecuTorchEngine -> ExecuTorchEngine.MODEL_URL.isNotBlank()
         else -> true
@@ -332,10 +335,17 @@ private suspend fun downloadModel(
                 onProgress(it.percent)
             }
         }
+        is MlcLlmEngine -> {
+            false // MLC models must be compiled locally and pushed via adb
+        }
         is LiteRtLmEngine -> {
-            engine.modelFile.parentFile?.mkdirs()
-            ModelDownloader.download(LiteRtLmEngine.MODEL_URL, engine.modelFile) {
-                onProgress(it.percent)
+            if (LiteRtLmEngine.MODEL_URL.isBlank()) {
+                false
+            } else {
+                engine.modelFile.parentFile?.mkdirs()
+                ModelDownloader.download(LiteRtLmEngine.MODEL_URL, engine.modelFile) {
+                    onProgress(it.percent)
+                }
             }
         }
         is MediaPipeEngine -> {

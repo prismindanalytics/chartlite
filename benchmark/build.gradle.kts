@@ -65,8 +65,5 @@ dependencies {
     // OkHttp for model downloads
     implementation(libs.okhttp)
 
-    // MLC LLM engine (prebuilt native runtime + OpenCL GPU)
-    implementation(project(":mlc4j"))
-
     debugImplementation(libs.compose.ui.tooling)
 }

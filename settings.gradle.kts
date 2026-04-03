@@ -17,5 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "chartlite"
 include(":app")
 include(":llm")
-include(":mlc4j")
 include(":benchmark")

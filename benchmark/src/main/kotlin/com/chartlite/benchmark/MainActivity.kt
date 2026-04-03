@@ -48,8 +48,6 @@ private const val BENCHMARK_PROMPT = """45 year old male presenting with cough f
 private fun createEngines(context: Context): List<BenchmarkEngine> = listOf(
     MnnEngine(context),
     LlamaCppEngine(context),
-    MlcLlmEngine(context),
-    ExecuTorchEngine(context),
 )
 
 @Composable
@@ -225,8 +223,6 @@ fun EngineCard(
     val sizeMb = when (engine) {
         is MnnEngine -> MnnEngine.MODEL_SIZE_MB
         is LlamaCppEngine -> LlamaCppEngine.MODEL_SIZE_MB
-        is MlcLlmEngine -> MlcLlmEngine.MODEL_SIZE_MB
-        is ExecuTorchEngine -> ExecuTorchEngine.MODEL_SIZE_MB
         else -> 0
     }
 
@@ -442,24 +438,6 @@ private suspend fun downloadModel(
         is LlamaCppEngine -> {
             engine.modelFile.parentFile?.mkdirs()
             ModelDownloader.download(LlamaCppEngine.MODEL_URL, engine.modelFile) {
-                onProgress(it.percent / 100f)
-            }
-        }
-        is MlcLlmEngine -> {
-            val zipFile = File(context.noBackupFilesDir, "benchmark_models/mlc/model.zip")
-            zipFile.parentFile?.mkdirs()
-            val success = ModelDownloader.download(MlcLlmEngine.MODEL_URL, zipFile) {
-                onProgress(it.percent / 100f)
-            }
-            if (success) {
-                // Zip contains files at root — extract directly into the modelDir subdirectory
-                val destDir = File(context.noBackupFilesDir, "benchmark_models/mlc/Qwen3.5-0.8B-q4f16_1-MLC")
-                ModelDownloader.extractZip(zipFile, destDir)
-            } else false
-        }
-        is ExecuTorchEngine -> {
-            engine.modelFile.parentFile?.mkdirs()
-            ModelDownloader.download(ExecuTorchEngine.MODEL_URL, engine.modelFile) {
                 onProgress(it.percent / 100f)
             }
         }

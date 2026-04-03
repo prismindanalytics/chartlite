@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #include "llama.h"
-#include "common.h"
+#include "ggml.h"
 
 #define TAG "LlamaCppBench"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -106,7 +106,7 @@ Java_com_chartlite_benchmark_engine_LlamaCppBridge_nativeGenerate(
     LOGi("Prompt: %d tokens, generating up to %d tokens", n_tokens, maxTokens);
 
     // Clear KV cache
-    llama_kv_cache_clear(g_ctx);
+    llama_memory_clear(llama_get_memory(g_ctx), true);
 
     // Prefill
     auto t_prefill = ggml_time_us();

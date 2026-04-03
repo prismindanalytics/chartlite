@@ -162,13 +162,8 @@ class App : Application() {
     private fun fastActiveLlmTier(): LlmModelManager.ModelTier {
         val override = appConfig.llmTierOverride.takeIf { it.isNotBlank() }
             ?.let { runCatching { LlmModelManager.ModelTier.valueOf(it) }.getOrNull() }
-        return override ?: run {
-            if (totalRamGb() >= 4.0) {
-                LlmModelManager.ModelTier.LARGE
-            } else {
-                LlmModelManager.ModelTier.SMALL
-            }
-        }
+            ?.let(LlmModelManager::normalizeSupportedTier)
+        return override ?: LlmModelManager.recommendedTierForRam(totalRamGb())
     }
 
     // Cache total RAM — it never changes at runtime. Avoids repeated
@@ -335,6 +330,7 @@ class App : Application() {
      * Used to hide camera actions when low-memory devices default to the text-only tier.
      */
     fun isLlmVisionModelDownloadedFast(): Boolean {
+        if (!LlmModelManager.ON_DEVICE_VISION_ENABLED) return false
         val tier = fastActiveLlmTier()
         if (!tier.supportsVision) return false
         val dir = File(noBackupFilesDir, "llm_models/${tier.dirName}")
@@ -498,7 +494,11 @@ class App : Application() {
         val savedTier = appConfig.llmTierOverride
         if (savedTier.isNotBlank()) {
             try {
-                manager.overrideTier = LlmModelManager.ModelTier.valueOf(savedTier)
+                val override = LlmModelManager.normalizeSupportedTier(LlmModelManager.ModelTier.valueOf(savedTier))
+                manager.overrideTier = override
+                if (override == null) {
+                    appConfig.llmTierOverride = ""
+                }
             } catch (_: IllegalArgumentException) {
                 appConfig.llmTierOverride = ""
             }
@@ -840,24 +840,28 @@ class App : Application() {
             unloadLlm = { releaseLlmForLowMemoryHandoff() }
         )
 
-        // Wire up photo processing for batch mode: analyze pending photos during batch
-        val visionExtractor = VisionExtractor(llmModelManager, promptBuilder)
-        val photoDao = database.clinicalPhotoDao()
-        extractionQueue.photoProcessor = { patientId, encounter ->
-            val pendingPhotos = photoDao.getByPatientAndType(patientId, "pending").first()
-            var merged = encounter
-            for (photo in pendingPhotos) {
-                try {
-                    val result = visionExtractor.extract(photo.filePath)
-                    if (result != null) {
-                        merged = EncounterMerger.mergeVisionResult(merged, result)
-                        photoDao.insert(photo.copy(contentType = result.contentType, extractedJson = result.rawJson))
+        if (LlmModelManager.ON_DEVICE_VISION_ENABLED) {
+            // Wire up photo processing for batch mode: analyze pending photos during batch
+            val visionExtractor = VisionExtractor(llmModelManager, promptBuilder)
+            val photoDao = database.clinicalPhotoDao()
+            extractionQueue.photoProcessor = { patientId, encounter ->
+                val pendingPhotos = photoDao.getByPatientAndType(patientId, "pending").first()
+                var merged = encounter
+                for (photo in pendingPhotos) {
+                    try {
+                        val result = visionExtractor.extract(photo.filePath)
+                        if (result != null) {
+                            merged = EncounterMerger.mergeVisionResult(merged, result)
+                            photoDao.insert(photo.copy(contentType = result.contentType, extractedJson = result.rawJson))
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w(TAG, "Vision failed for photo ${photo.id}: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    android.util.Log.w(TAG, "Vision failed for photo ${photo.id}: ${e.message}")
                 }
+                merged
             }
-            merged
+        } else {
+            extractionQueue.photoProcessor = null
         }
 
         return ExtractionServices(

@@ -55,9 +55,8 @@ class LlamaCppEngine(private val context: Context) : BenchmarkEngine {
     }
 
     companion object {
-        /** HuggingFace URL for Qwen 3.5 0.8B Q4_K_M GGUF (unsloth quantization) */
         const val MODEL_URL =
-            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
-        const val MODEL_SIZE_MB = 550
+            "https://huggingface.co/prismindanalytics/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
+        const val MODEL_SIZE_MB = 505
     }
 }

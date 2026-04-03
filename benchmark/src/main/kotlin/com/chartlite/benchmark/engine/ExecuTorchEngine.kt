@@ -7,26 +7,18 @@ import java.io.File
 
 /**
  * ExecuTorch engine — Meta's on-device inference runtime.
- * Runs Qwen 3.5 0.8B via .pte (ExecuTorch) format with XNNPACK delegate.
+ * Runs Qwen 3.5 0.8B via .pte format with XNNPACK delegate, 8da4w quantization.
+ * Model auto-downloads from prismindanalytics/Qwen3.5-0.8B-ExecuTorch (~1.3GB).
  *
- * Requires: org.pytorch:executorch-android dependency + model in .pte format.
- *
- * Convert locally:
- *   pip install executorch
- *   python -m executorch.examples.models.llama.export_llama \
- *       --model qwen3.5 --checkpoint Qwen3.5-0.8B/ \
- *       --params Qwen3.5-0.8B/config.json \
- *       -kv --use_sdpa_with_kv_cache -X -qmode 8da4w \
- *       --output qwen3.5-0.8b-xnnpack.pte
- *   adb push qwen3.5-0.8b-xnnpack.pte /data/local/tmp/
+ * Requires: org.pytorch:executorch-android dependency.
  */
 class ExecuTorchEngine(private val context: Context) : BenchmarkEngine {
 
     override val name = "ExecuTorch"
-    override val modelFormat = "PTE XNNPACK"
+    override val modelFormat = "PTE 8da4w XNNPACK"
 
     private val modelDir = File(context.noBackupFilesDir, "benchmark_models/executorch")
-    val modelFile = File(modelDir, "qwen3.5-0.8b-xnnpack.pte")
+    val modelFile = File(modelDir, "qwen3_5_0_8b_8da4w.pte")
     private var lastMetrics = EngineMetrics()
     private var module: Any? = null
 
@@ -80,8 +72,8 @@ class ExecuTorchEngine(private val context: Context) : BenchmarkEngine {
     }
 
     companion object {
-        // No official Qwen PTE model — placeholder
-        const val MODEL_URL = ""
-        const val MODEL_SIZE_MB = 500
+        const val MODEL_URL =
+            "https://huggingface.co/prismindanalytics/Qwen3.5-0.8B-ExecuTorch/resolve/main/qwen3_5_0_8b_8da4w.pte"
+        const val MODEL_SIZE_MB = 1300
     }
 }

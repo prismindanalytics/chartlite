@@ -1102,7 +1102,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                             if (aiMode == "on_device" || aiMode == "auto") {
                                 Spacer(Modifier.height(8.dp))
                                 Text(stringResource(R.string.settings_on_device_qwen_model), fontWeight = FontWeight.Medium)
-                                com.chartlite.app.extraction.LlmModelManager.ModelTier.entries.forEach { tier ->
+                                com.chartlite.app.extraction.LlmModelManager.supportedModelTiers().forEach { tier ->
                                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                                         RadioButton(selected = tier == selectedLlmTier, onClick = {
                                             if (tier != selectedLlmTier) { app.llmModelManager.deleteModel(); selectedLlmTier = tier

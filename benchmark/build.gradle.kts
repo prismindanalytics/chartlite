@@ -43,10 +43,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -69,11 +65,8 @@ dependencies {
     // OkHttp for model downloads
     implementation(libs.okhttp)
 
-    // Optional engines — uncomment to enable (engines use reflection so app compiles without them):
-    // implementation("com.google.ai.edge.litertlm:litertlm-android:<version>")  // LiteRT-LM
-    // implementation("com.google.mediapipe:tasks-genai:<version>")               // MediaPipe
-    // implementation("org.pytorch:executorch-android:<version>")                  // ExecuTorch
-    // implementation(project(":mlc4j"))                                           // MLC LLM (local subproject)
+    // MLC LLM engine (prebuilt native runtime + OpenCL GPU)
+    implementation(project(":mlc4j"))
 
     debugImplementation(libs.compose.ui.tooling)
 }

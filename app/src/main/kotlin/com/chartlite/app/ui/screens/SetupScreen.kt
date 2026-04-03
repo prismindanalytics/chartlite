@@ -1588,7 +1588,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             // ── LLM tier picker ──
                             if (aiMode == "on_device" || aiMode == "auto") {
                                 Text(stringResource(R.string.setup_on_device_model), fontWeight = FontWeight.Medium)
-                                LlmModelManager.ModelTier.entries.forEach { tier ->
+                                LlmModelManager.supportedModelTiers().forEach { tier ->
                                     val isSelected = tier.name == selectedLlmTier
                                     val isRecommended = tier == llmRecommended
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

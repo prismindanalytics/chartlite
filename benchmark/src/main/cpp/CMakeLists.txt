@@ -13,7 +13,7 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size
 include(FetchContent)
 
 # Pin to a specific release for reproducibility
-set(LLAMA_CPP_TAG "b5604")
+set(LLAMA_CPP_TAG "b8559")
 FetchContent_Declare(
     llama_cpp
     GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
@@ -30,7 +30,7 @@ set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
 # ABI-specific optimizations
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
+    set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
     set(GGML_OPENMP ON CACHE BOOL "" FORCE)
 elseif(ANDROID_ABI STREQUAL "x86_64")
     set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
@@ -46,13 +46,12 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${llama_cpp_SOURCE_DIR}/include
-    ${llama_cpp_SOURCE_DIR}/common
     ${llama_cpp_SOURCE_DIR}/ggml/include
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
     llama
-    common
+    ggml
     android
     log
 )

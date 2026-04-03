@@ -129,7 +129,9 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     var overrideTier: ModelTier? = null
 
     /** Active tier: user override if set, otherwise hardware-recommended. */
-    fun activeTier(): ModelTier = overrideTier ?: recommendedTier()
+    fun activeTier(): ModelTier = normalizeSupportedTier(overrideTier) ?: recommendedTier()
+
+    fun supportsOnDeviceVision(): Boolean = ON_DEVICE_VISION_ENABLED && activeTier().supportsVision
 
     /** Directory containing MNN model files for the active tier. */
     val modelDir: File get() = File(modelsDir, activeTier().dirName)
@@ -686,8 +688,14 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         imagePath: String,
         maxTokens: Int = recommendedOutputTokens(),
         config: GenerationConfig = GenerationConfig()
-    ): String? = executeInference("generateVision", maxTokens, config) {
+    ): String? {
+        if (!supportsOnDeviceVision()) {
+            Log.w(TAG, "On-device vision is disabled; skipping vision inference request")
+            return null
+        }
+        return executeInference("generateVision", maxTokens, config) {
         LlamaBridge.generateVision(systemPrompt, userMessage, imagePath)
+    }
     }
 
     /**
@@ -1178,12 +1186,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
-    fun recommendedTier(): ModelTier {
-        val ramGb = deviceRamGb()
-        // 4GB threshold: LARGE model (1.5GB mmap) needs ~2.5GB free for OS+apps.
-        // 3GB devices can't sustain this — they'd OOM under memory pressure.
-        return if (ramGb >= 4.0) ModelTier.LARGE else ModelTier.SMALL
-    }
+    fun recommendedTier(): ModelTier = recommendedTierForRam(deviceRamGb())
 
     // Cache total RAM — never changes at runtime. Avoids repeated MemoryInfo allocations
     // which are called ~10 times per inference cycle from autoUnloadDelay, timeout, headroom checks.
@@ -1316,6 +1319,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     companion object {
         private const val TAG = "LlmModelManager"
+        const val ON_DEVICE_VISION_ENABLED = false
         private const val ULTRA_LOW_RAM_DEVICE_GB = 3.0
         private const val LOW_RAM_DEVICE_GB = 3.5
         private const val CONSTRAINED_DEVICE_GB = 6.0
@@ -1352,6 +1356,25 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val DEFAULT_INFERENCE_TIMEOUT_MS = 90_000L
         private const val CANCEL_WAIT_TIMEOUT_MS = 5_000L
         private const val DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS = 15_000L
+
+        fun supportedModelTiers(): List<ModelTier> =
+            if (ON_DEVICE_VISION_ENABLED) {
+                ModelTier.entries
+            } else {
+                listOf(ModelTier.SMALL)
+            }
+
+        fun normalizeSupportedTier(tier: ModelTier?): ModelTier? =
+            tier?.takeIf { it in supportedModelTiers() }
+
+        fun recommendedTierForRam(ramGb: Double): ModelTier {
+            // 4GB threshold is only relevant when the 2B vision-capable package is enabled.
+            return if (ON_DEVICE_VISION_ENABLED && ramGb >= 4.0) {
+                ModelTier.LARGE
+            } else {
+                ModelTier.SMALL
+            }
+        }
 
         fun requiredModelFiles(tier: ModelTier): List<String> = buildList {
             add("llm_config.json")

@@ -31,7 +31,11 @@ class VisionExtractor(
     )
 
     suspend fun extract(imagePath: String, additionalContext: String = ""): VisionResult? {
-        if (!modelManager.activeTier().supportsVision) {
+        if (!LlmModelManager.ON_DEVICE_VISION_ENABLED) {
+            Log.w(TAG, "On-device vision is disabled; skipping vision extraction")
+            return null
+        }
+        if (!modelManager.supportsOnDeviceVision()) {
             Log.w(TAG, "Vision extraction requested for a text-only model tier")
             return null
         }

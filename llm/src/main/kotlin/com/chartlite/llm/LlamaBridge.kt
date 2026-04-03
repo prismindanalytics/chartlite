@@ -1,10 +1,7 @@
 package com.chartlite.llm
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Log
-import java.nio.ByteBuffer
 import java.io.File
 
 /**
@@ -84,52 +81,10 @@ object LlamaBridge {
         return nativeApplyChatTemplate(systemPrompt, userMessage, enableThinking)
     }
 
-    /**
-     * Generate a response from a clinical image using the vision-language model.
-     * The model auto-detects content type (lab report, RDT, vitals, medication, referral).
-     *
-     * @param imagePath absolute path to a JPEG/PNG file on device storage
-     */
     fun generateVision(systemPrompt: String, userMessage: String, imagePath: String): String? {
         check(initialized) { "LlamaBridge.initialize() not called" }
-
-        // Load image and convert to RGB byte array — MNN's native imread doesn't work on Android
-        val bitmap = BitmapFactory.decodeFile(imagePath) ?: run {
-            Log.e(TAG, "Failed to decode image: $imagePath")
-            return null
-        }
-
-        // Scale down large images to save memory (vision encoder typically uses 448x448 or similar)
-        val maxDim = 960
-        val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
-            val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
-            val w = (bitmap.width * scale).toInt()
-            val h = (bitmap.height * scale).toInt()
-            val result = Bitmap.createScaledBitmap(bitmap, w, h, true)
-            if (result !== bitmap) bitmap.recycle()
-            result
-        } else bitmap
-
-        // Extract RGB bytes row-by-row to avoid allocating a full IntArray(w*h)
-        // which would peak at ~3.5 MB for a 960x960 image. Row-by-row cuts this to ~4 KB.
-        val w = scaled.width
-        val h = scaled.height
-        val rgbBytes = ByteArray(w * h * 3)
-        val rowPixels = IntArray(w) // One row at a time instead of full image
-        for (y in 0 until h) {
-            scaled.getPixels(rowPixels, 0, w, 0, y, w, 1)
-            val rowOffset = y * w * 3
-            for (x in 0 until w) {
-                val px = rowPixels[x]
-                rgbBytes[rowOffset + x * 3] = (px shr 16 and 0xFF).toByte()
-                rgbBytes[rowOffset + x * 3 + 1] = (px shr 8 and 0xFF).toByte()
-                rgbBytes[rowOffset + x * 3 + 2] = (px and 0xFF).toByte()
-            }
-        }
-        scaled.recycle()
-
-        Log.i(TAG, "Vision image loaded: ${w}x${h} (${rgbBytes.size} bytes)")
-        return nativeGenerateVision(systemPrompt, userMessage, rgbBytes, w, h)
+        Log.w(TAG, "On-device vision is disabled; text-only MNN path in use")
+        return null
     }
 
     fun cancelGeneration() {

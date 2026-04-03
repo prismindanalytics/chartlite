@@ -1,9 +1,13 @@
 #include <jni.h>
 #include <android/log.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <string>
 #include <sstream>
 #include <atomic>
 #include <mutex>
+#include <vector>
 #include <unistd.h>
 
 #include <llm/llm.hpp>
@@ -16,6 +20,84 @@
 #define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 using namespace MNN::Transformer;
+
+namespace {
+
+struct CpuProfile {
+    int total_cores = 1;
+    int perf_cores = 1;
+    long max_freq_khz = 0;
+    long little_max_freq_khz = 0;
+    bool symmetric_soc = true;
+    std::vector<int> perf_core_ids;
+};
+
+static CpuProfile detect_cpu_profile() {
+    CpuProfile profile;
+    profile.total_cores = std::max(1, (int)sysconf(_SC_NPROCESSORS_ONLN));
+
+    std::vector<long> freqs(profile.total_cores, 0);
+    for (int i = 0; i < profile.total_cores; ++i) {
+        char path[128];
+        snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+        FILE* f = fopen(path, "r");
+        if (!f) {
+            continue;
+        }
+        long freq = 0;
+        if (fscanf(f, "%ld", &freq) == 1 && freq > 0) {
+            freqs[i] = freq;
+            profile.max_freq_khz = std::max(profile.max_freq_khz, freq);
+        }
+        fclose(f);
+    }
+
+    if (profile.max_freq_khz <= 0) {
+        profile.perf_cores = profile.total_cores;
+        profile.symmetric_soc = true;
+        for (int i = 0; i < profile.total_cores; ++i) {
+            profile.perf_core_ids.push_back(i);
+        }
+        return profile;
+    }
+
+    const long perf_threshold = std::max(1L, (long)std::lround(profile.max_freq_khz * 0.8));
+    for (int i = 0; i < profile.total_cores; ++i) {
+        if (freqs[i] >= perf_threshold) {
+            profile.perf_core_ids.push_back(i);
+        } else if (freqs[i] > profile.little_max_freq_khz) {
+            profile.little_max_freq_khz = freqs[i];
+        }
+    }
+
+    if (profile.perf_core_ids.empty()) {
+        for (int i = 0; i < profile.total_cores; ++i) {
+            if (freqs[i] == profile.max_freq_khz || freqs[i] == 0) {
+                profile.perf_core_ids.push_back(i);
+            }
+        }
+    }
+
+    if (profile.perf_core_ids.empty()) {
+        for (int i = 0; i < profile.total_cores; ++i) {
+            profile.perf_core_ids.push_back(i);
+        }
+    }
+
+    profile.perf_cores = std::max(1, (int)profile.perf_core_ids.size());
+    profile.symmetric_soc = profile.perf_cores == profile.total_cores || profile.little_max_freq_khz == 0;
+    return profile;
+}
+
+static int compute_littlecore_decrease_rate(const CpuProfile& profile) {
+    if (profile.symmetric_soc || profile.max_freq_khz <= 0 || profile.little_max_freq_khz <= 0) {
+        return 50;
+    }
+    const double ratio = (double)profile.little_max_freq_khz * 100.0 / (double)profile.max_freq_khz;
+    return std::max(35, std::min(85, (int)std::lround(ratio)));
+}
+
+} // namespace
 
 // Global state — single model at a time (singleton pattern)
 static Llm *g_llm = nullptr;
@@ -132,33 +214,8 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
         return JNI_FALSE;
     }
 
-    // Configure threading with big.LITTLE awareness — count performance cores
-    // by reading max frequency from sysfs and only counting cores within 80% of peak.
-    int n_cpu = (int)sysconf(_SC_NPROCESSORS_ONLN);
-    int n_big_cores = 0;
-    {
-        long max_freq = 0;
-        long freqs[16] = {};
-        int core_count = 0;
-        for (int i = 0; i < 16 && i < n_cpu; i++) {
-            char path[128];
-            snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
-            FILE* f = fopen(path, "r");
-            if (!f) break;
-            long freq = 0;
-            if (fscanf(f, "%ld", &freq) == 1) {
-                freqs[i] = freq;
-                if (freq > max_freq) max_freq = freq;
-                core_count++;
-            }
-            fclose(f);
-        }
-        for (int i = 0; i < core_count; i++) {
-            if (freqs[i] >= (long)(max_freq * 0.8)) n_big_cores++;
-        }
-        if (n_big_cores == 0) n_big_cores = n_cpu; // Fallback: symmetric SoC
-        LOGi("CPU topology: %d total cores, %d big cores (max freq=%ldkHz)", n_cpu, n_big_cores, max_freq);
-    }
+    const CpuProfile cpu_profile = detect_cpu_profile();
+    const int n_cpu = cpu_profile.total_cores;
 
     // Get total RAM for logging
     long page_count = sysconf(_SC_PHYS_PAGES);
@@ -169,25 +226,37 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     }
     const bool low_ram_device = total_ram_gb <= 3.5;
     const bool ultra_low_ram = total_ram_gb <= 3.0;
-    const bool symmetric_soc = (n_big_cores == n_cpu); // All cores same speed (e.g., Helio P35)
+    const bool symmetric_soc = cpu_profile.symmetric_soc;
 
-    // Thread count: on symmetric SoCs (all Cortex-A53), use more threads since individual
-    // cores are weak. On big.LITTLE, limit to big cores. On ultra-low-RAM, be conservative.
+    // Thread count:
+    // - asymmetric SoCs: stay on the performance cluster to avoid decode stalls from little cores
+    // - symmetric SoCs: use more threads because each core is weak, but keep ultra-low-RAM devices tighter
     int n_threads;
-    if (low_ram_device) {
-        if (symmetric_soc && n_cpu >= 6) {
-            // Symmetric SoC like Helio P35: weak cores, need parallelism.
-            // Use up to 6 threads — individual A53 cores are slow, parallelism compensates.
-            n_threads = std::min(n_cpu, 6);
-        } else if (n_cpu >= 6) {
-            n_threads = 3; // big.LITTLE low-RAM: conservative
-        } else {
-            n_threads = 2;
-        }
+    std::vector<int> pinned_core_ids;
+    if (!symmetric_soc && !cpu_profile.perf_core_ids.empty()) {
+        const int perf_cap = low_ram_device ? (ultra_low_ram ? 2 : 3) : 4;
+        n_threads = std::max(1, std::min(cpu_profile.perf_cores, perf_cap));
+        pinned_core_ids.assign(cpu_profile.perf_core_ids.begin(), cpu_profile.perf_core_ids.begin() + n_threads);
+    } else if (low_ram_device) {
+        n_threads = std::min(n_cpu, ultra_low_ram ? 4 : 6);
     } else {
-        n_threads = std::max(2, std::min(n_big_cores, 4));
+        n_threads = std::min(n_cpu, 4);
     }
+    if (n_cpu > 1 && (pinned_core_ids.empty() || pinned_core_ids.size() >= 2)) {
+        n_threads = std::max(2, n_threads);
+    } else if (!pinned_core_ids.empty()) {
+        n_threads = (int)pinned_core_ids.size();
+    }
+
+    const int init_threads = std::max(
+        1,
+        std::min(
+            ultra_low_ram ? 2 : (low_ram_device ? 2 : 4),
+            pinned_core_ids.empty() ? n_threads : (int)pinned_core_ids.size()
+        )
+    );
     const int attention_mode = low_ram_device ? 10 : 8;
+    const int littlecore_decrease_rate = compute_littlecore_decrease_rate(cpu_profile);
 
     // Use the MNN-documented runtime keys so low-RAM tuning is actually applied.
     //
@@ -205,12 +274,22 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     config << "{"
            << "\"async\":false,"
            << "\"thread_num\":" << n_threads << ","
+           << "\"init_thread_number\":" << init_threads << ","
            << "\"backend_type\":\"cpu\","
            << "\"precision\":\"low\","
            << "\"memory\":\"low\","
-           << "\"power\":\"high\","
+            << "\"power\":\"high\","
+           << "\"cpu_littlecore_decrease_rate\":" << littlecore_decrease_rate << ","
            << "\"use_mmap\":" << (use_mmap ? "true" : "false") << ","
            << "\"use_cached_mmap\":" << (use_mmap ? "true" : "false") << ",";
+    if (!pinned_core_ids.empty()) {
+        config << "\"cpu_core_ids\":[";
+        for (size_t i = 0; i < pinned_core_ids.size(); ++i) {
+            if (i > 0) config << ",";
+            config << pinned_core_ids[i];
+        }
+        config << "],";
+    }
     if (!tmpPath.empty()) {
         config << "\"tmp_path\":\"" << escape_json_string(tmpPath) << "\",";
     }
@@ -235,24 +314,21 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
     // Apply current sampling parameters
     apply_params();
 
-    // Tune prefill chunk size: benchmark different encoder sizes to find the optimal
-    // value for this SoC. On low-RAM, use a smaller candidate set to save time.
-    if (!low_ram_device) {
-        g_llm->tuning(OP_ENCODER_NUMBER, {1, 32, 64, 128});
-    } else {
-        // Minimal tuning (~1s) — still finds a good chunk size for slow A53 cores.
-        g_llm->tuning(OP_ENCODER_NUMBER, {1, 16, 32});
-    }
+    // Skip OP_ENCODER_NUMBER tuning on CPU. In this vendored MNN tree the hint is
+    // consumed by OpenCL / Metal backends, so the extra warm-up pass only adds load time.
 
     LOGi(
-        "MNN model loaded: ram=%.1fGB, threads=%d, attention=%d, low_ram=%d, mmap=%d, kv_disk=%d, symmetric=%d",
+        "MNN model loaded: ram=%.1fGB, threads=%d, init_threads=%d, perf_cores=%d, attention=%d, low_ram=%d, mmap=%d, kv_disk=%d, symmetric=%d, pinned=%d",
         total_ram_gb,
         n_threads,
+        init_threads,
+        cpu_profile.perf_cores,
         attention_mode,
         low_ram_device ? 1 : 0,
         use_mmap ? 1 : 0,
         kvcache_to_disk ? 1 : 0,
-        symmetric_soc ? 1 : 0
+        symmetric_soc ? 1 : 0,
+        pinned_core_ids.empty() ? 0 : 1
     );
     return JNI_TRUE;
 }

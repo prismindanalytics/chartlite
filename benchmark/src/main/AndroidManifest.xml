@@ -10,6 +10,11 @@
         android:theme="@style/Theme.Benchmark"
         android:largeHeap="true">
 
+        <!-- Allow loading GPU compute libraries for MLC LLM -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

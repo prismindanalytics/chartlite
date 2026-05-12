@@ -241,6 +241,9 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 
                     PinPad(
                         pin = pin,
+                        // Auto-submit at the user's actual PIN length so a
+                        // 4-digit-PIN doctor doesn't have to tap ✓ on every login.
+                        maxLength = app.appConfig.pinLength.coerceIn(4, 6),
                         onPinChange = { newPin ->
                             pin = newPin
                             if (lockoutSeconds <= 0) errorMessage = null
@@ -408,7 +411,9 @@ private fun JoinFacilityDialog(
                                         setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                                         setPrompt("Scan the join code QR from your admin")
                                         setBeepEnabled(false)
-                                        setOrientationLocked(false)
+                                        // Lock to current (portrait) so CAMERA permission
+                                        // dialog doesn't flip sideways. (#friction)
+                                        setOrientationLocked(true)
                                     }
                                 )
                             },

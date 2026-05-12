@@ -307,6 +307,11 @@
     <string name="auto_lock">Auto Lock</string>
     <string name="biometric">Biometric</string>
     <string name="about">About</string>
+    <string name="settings_acknowledgements">Acknowledgements</string>
+    <string name="settings_bodhi_title">BODHI Knowledge Graph</string>
+    <string name="settings_bodhi_subtitle">Clinical knowledge by Eka.Care \u2014 779 conditions, 1,186 drugs, 812 labs. Licensed under CC BY-NC 4.0.</string>
+    <string name="settings_bodhi_url">https://github.com/eka-care/BODHI</string>
+    <string name="cdss_powered_by_bodhi">Powered by BODHI (Eka.Care)</string>
     <string name="settings_tab_essentials">Essentials</string>
     <string name="settings_tab_ai_speech">AI &amp; Speech</string>
     <string name="settings_tab_operations">Operations</string>
@@ -437,23 +442,25 @@
     <string name="setup_clinical_note_ai">Clinical Note AI</string>
     <string name="setup_ai_instruction">How should transcripts be turned into structured clinical notes?</string>
     <string name="setup_cloud_ai">Cloud AI</string>
-    <string name="setup_cloud_ai_desc">Best accuracy. Requires internet.</string>
-    <string name="setup_on_device_ai_desc">Works fully offline.</string>
+    <string name="setup_cloud_ai_desc">Best note quality. Requires internet.</string>
+    <string name="setup_on_device_ai_desc">Works after a one-time download. Notes stay on this phone.</string>
     <string name="setup_auto">Auto</string>
-    <string name="setup_auto_desc">Cloud when online, on-device as fallback.</string>
+    <string name="setup_auto_desc">Uses internet when available and keeps working if the signal drops.</string>
     <string name="setup_claude_api_key">Claude API Key</string>
     <string name="setup_claude_api_placeholder">sk-ant-…</string>
     <string name="setup_claude_api_hint">Get a key at console.anthropic.com</string>
-    <string name="setup_on_device_model">On-Device Model</string>
+    <string name="setup_on_device_model">Notes AI Model</string>
     <string name="setup_download_model_format">Download %1$s</string>
     <string name="setup_downloading_size">Downloading: %1$s MB</string>
     <string name="setup_model_ready_format">%1$s ready</string>
-    <string name="setup_import_gguf">Import Model</string>
+    <string name="setup_import_gguf">Import Notes AI Model</string>
     <string name="setup_complete_setup">Complete Setup</string>
     <string name="setup_offline_models_warning">Offline models not yet downloaded</string>
     <string name="setup_offline_asr_needed">ASR model needed for offline voice. </string>
     <string name="setup_offline_llm_needed">Qwen model needed for on-device note extraction. </string>
     <string name="setup_offline_fallback">You can still complete setup — the app will use cloud/Google fallback until models are downloaded.</string>
+    <string name="setup_offline_models_downloading">Downloading models in the background</string>
+    <string name="setup_offline_downloading_detail">Tap Complete Setup to start using the app now — models will keep downloading.</string>
     <string name="setup_recommended_format">%1$s (%2$d MB) — Recommended</string>
     <string name="setup_note_processing">Note Processing</string>
 
@@ -462,8 +469,8 @@
     <string name="setup_uses_internet">Uses Internet</string>
     <string name="setup_voice_offline_desc">Models downloaded to your device. No internet needed during consultations.</string>
     <string name="setup_voice_internet_desc">Voice processed in the cloud. More accurate, but needs a data connection.</string>
-    <string name="setup_notes_offline_desc">Notes processed entirely on this device. Your data stays private.</string>
-    <string name="setup_notes_internet_desc">Notes processed securely in the cloud. Better accuracy for complex cases.</string>
+    <string name="setup_notes_offline_desc">Writes notes on this phone after a one-time download. Works without internet.</string>
+    <string name="setup_notes_internet_desc">Uses the internet for stronger note writing when a connection is available.</string>
     <string name="setup_downloads_required">Downloads Required</string>
     <string name="setup_no_downloads_needed">No downloads needed — you\'re ready to go!</string>
     <string name="setup_download_all">Download All Models</string>
@@ -485,9 +492,11 @@
     <string name="settings_clinical_notes_card">Clinical Notes AI</string>
     <string name="settings_processing_workflow">When to process notes?</string>
     <string name="settings_process_immediately">Real-time</string>
-    <string name="settings_process_immediately_desc">Notes generated right away. Best with fast devices or cloud.</string>
+    <string name="settings_process_immediately_desc">Notes are generated right away.</string>
     <string name="settings_process_batch">In batches</string>
-    <string name="settings_process_batch_desc">Queue notes and process together. Better for slower devices.</string>
+    <string name="settings_process_batch_desc">Save consultations first and generate notes later.</string>
+    <string name="settings_low_ram_processing_hint">On smaller phones, voice recording and note writing run one at a time to keep the app stable.</string>
+    <string name="settings_notes_ai_auto_choice">ChartLite chooses the right offline notes model for this phone automatically.</string>
     <string name="setup_immediate">Process immediately</string>
     <string name="setup_batch">Queue for batch</string>
     <string name="setup_recording_mode">Default Recording Mode</string>
@@ -625,6 +634,8 @@
     <string name="grant_microphone_access">Grant Microphone Access</string>
     <string name="generating_clinical_note">Generating clinical note…</string>
     <string name="ai_writing_draft">The AI is writing a draft note from your recording</string>
+    <string name="preparing_notes_ai">Preparing Notes AI…</string>
+    <string name="preparing_notes_ai_hint">This phone is getting Notes AI ready so processing starts faster.</string>
     <string name="processing_snippet">Processing snippet…</string>
     <string name="extracting_structured_data">Extracting structured data…</string>
     <string name="coding_from_note">Coding diagnoses, medications, and vitals from your note</string>
@@ -640,7 +651,11 @@
     <string name="listening_release_to_capture">Listening… Release to capture</string>
     <string name="recording_consultation">Recording consultation…</string>
     <string name="hold_to_add_more">Hold to add more · Tap Done to finish</string>
-    <string name="tap_to_scribe">Tap to scribe · Hold to dictate</string>
+    <!-- Recording helper. Single primary mode: tap to start, tap again to stop.
+         Hold-to-dictate is still supported for power users (snippet mode) but
+         not advertised — splitting the label across two modes was confusing
+         to first-time clinicians. -->
+    <string name="tap_to_scribe">Tap to record · Tap again to stop</string>
     <string name="done_recording">Done Recording</string>
     <string name="live_transcript_label">Live Transcript</string>
     <string name="queue_snippets_format">Queue %1$d Snippet%2$s</string>
@@ -726,13 +741,13 @@
     <string name="settings_note_processing_ai">Note Processing AI</string>
     <string name="settings_note_processing_ai_desc">Controls how clinical notes are extracted from transcripts.</string>
     <string name="settings_cloud_ai">Cloud (Internet)</string>
-    <string name="settings_cloud_ai_desc">Best accuracy. Requires internet connection.</string>
+    <string name="settings_cloud_ai_desc">Best note quality. Requires internet connection.</string>
     <string name="settings_on_device_qwen">On-Device (Offline)</string>
-    <string name="settings_on_device_qwen_desc">Works without internet. Private.</string>
+    <string name="settings_on_device_qwen_desc">Works after a one-time download. Notes stay on this phone.</string>
     <string name="settings_auto_mode">Automatic</string>
-    <string name="settings_auto_mode_desc">Uses internet when available, offline otherwise.</string>
+    <string name="settings_auto_mode_desc">Uses internet when available and keeps working if the signal drops.</string>
     <string name="settings_consultation_processing_workflow">Consultation Processing Workflow</string>
-    <string name="settings_batch_recommended">Batch recommended for this device.</string>
+    <string name="settings_batch_recommended">Batch mode is usually smoother on this phone.</string>
     <string name="settings_immediate">Immediate</string>
     <string name="settings_immediate_desc">Process notes right away.</string>
     <string name="settings_batch_queue">Batch Queue</string>
@@ -751,6 +766,7 @@
     <string name="settings_downloading_size_format">Downloading: %1$s / %2$s MB</string>
     <string name="settings_downloading_mb_only_format">Downloading: %1$s MB</string>
     <string name="settings_tier_ready_format">%1$s ready (%2$s MB)</string>
+    <string name="settings_notes_model_ready_format">Notes AI model ready (%1$s MB)</string>
     <string name="settings_delete_model">Delete Model</string>
     <string name="settings_download_paused">Download paused</string>
     <string name="settings_resume">Resume</string>
@@ -1216,11 +1232,44 @@
     <string name="content_desc_sim">SIM</string>
     <string name="content_desc_confirm">Confirm</string>
 
+    <!-- Patient timeline empty state -->
+    <string name="start_first_encounter_cta">Start first encounter</string>
+    <string name="start_first_encounter_sub">Tap here or the + button to record</string>
+
+    <!-- Patient registration optional-section disclosure -->
+    <string name="last_name_optional">Last name (optional)</string>
+    <string name="use_exact_dob">Use exact date of birth instead</string>
+    <string name="add_contact_details">+ Add contact details (ID, phone, PIN)</string>
+    <string name="nkda_label">No known drug allergies (NKDA)</string>
+    <string name="id_copied_clipboard">Patient ID copied to clipboard</string>
+
+    <!-- Voice search on Find Patient screen -->
+    <string name="voice_search_patient">Voice-search by name or ID</string>
+    <string name="voice_search_listening">Listening… say the name or ID</string>
+
+    <!-- Encounter review bulk actions -->
+    <string name="confirm_all_suggested">Confirm all %1$d suggested diagnoses</string>
+
     <!-- Camera scan -->
-    <string name="scan_analyzing">Analyzing…</string>
-    <string name="scan_button_label">Scan Lab / RDT / Vitals</string>
-    <string name="content_desc_scan">Scan clinical document</string>
-    <string name="scan_result_prefix">Scanned: %1$s</string>
+    <string name="scan_analyzing">Reading your image…</string>
+    <string name="scan_stage_choosing_tools">Choosing safety checks…</string>
+    <string name="scan_stage_running_tools">Running safety checks…</string>
+    <string name="scan_button_label">Capture clinical artifact</string>
+    <string name="content_desc_scan">Open camera to capture a clinical artifact</string>
+    <string name="scan_result_prefix">Captured: %1$s</string>
+    <string name="scan_setup_hint">Vision capture available — set up the model in Settings.</string>
+    <string name="scan_upgrade_hint">Photo capture (Gemma 4 vision) — switch to Gemma in Settings to enable.</string>
+    <string name="scan_failed_title">Couldn\'t read this image</string>
+    <string name="scan_failed_body">The model couldn\'t extract structured data. Common causes: low light, glare, partial framing, or the artifact is blurry.</string>
+    <string name="scan_retake">Retake photo</string>
+    <string name="scan_dismiss">Dismiss</string>
+    <!-- Multimodal capture / function-call trace -->
+    <string name="multimodal_tool_trace_title">Safety checks Gemma 4 chose to run</string>
+    <string name="multimodal_no_tool_calls">No interaction checks needed for this artifact.</string>
+    <string name="multimodal_safety_alerts_title">Safety alerts</string>
+    <string name="multimodal_no_safety_alerts">No safety alerts.</string>
+    <string name="multimodal_add_to_encounter">Add to encounter</string>
+    <string name="multimodal_discard">Discard</string>
 
     <!-- Patient Timeline extras -->
     <string name="upcoming_follow_ups">Upcoming Follow-ups</string>

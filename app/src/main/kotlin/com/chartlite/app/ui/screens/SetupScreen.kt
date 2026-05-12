@@ -106,6 +106,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
 
     var step by rememberSaveable { mutableIntStateOf(0) }
     var country by rememberSaveable { mutableStateOf("za") }
+    var language by rememberSaveable { mutableStateOf(app.appConfig.language) }
     var providerName by rememberSaveable { mutableStateOf("") }
     var qualification by rememberSaveable { mutableStateOf("") }
     var facilityName by rememberSaveable { mutableStateOf("") }
@@ -322,7 +323,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
 
                 val imported = app.llmModelManager.importModelFile(
                     sourceFile = tmpModel,
-                    expectedSha256 = app.llmModelManager.activeTier().sha256
+                    expectedSha256 = app.llmModelManager.activeExpectedSha256()
                 )
                 tmpModel.delete()
                 if (imported) {
@@ -405,7 +406,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                     setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                                     setPrompt("Scan the invitation QR from the admin's phone")
                                     setBeepEnabled(false)
-                                    setOrientationLocked(false)
+                                    // Lock to current (portrait) orientation so the runtime
+                                    // CAMERA permission dialog doesn't flip sideways when
+                                    // launched from the welcome screen. (#friction)
+                                    setOrientationLocked(true)
                                 }
                             )
                         },
@@ -423,12 +427,28 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                         Triple("za", "\uD83C\uDDFF\uD83C\uDDE6", "South Africa"),
                         Triple("us", "\uD83C\uDDFA\uD83C\uDDF8", "United States"),
                         Triple("et", "\uD83C\uDDEA\uD83C\uDDF9", "Ethiopia"),
-                        Triple("mw", "\uD83C\uDDF2\uD83C\uDDFC", "Malawi")
+                        Triple("mw", "\uD83C\uDDF2\uD83C\uDDFC", "Malawi"),
+                        Triple("ke", "\uD83C\uDDF0\uD83C\uDDEA", "Kenya"),
+                        Triple("ng", "\uD83C\uDDF3\uD83C\uDDEC", "Nigeria")
+                    )
+                    val languagesByCountry = mapOf(
+                        "za" to listOf("en" to "English", "zu" to "isiZulu", "xh" to "isiXhosa", "fr" to "Français"),
+                        "et" to listOf("en" to "English", "am" to "Amharic", "fr" to "Français"),
+                        "mw" to listOf("en" to "English", "ny" to "Chichewa", "fr" to "Français"),
+                        "ke" to listOf("en" to "English", "sw" to "Kiswahili", "fr" to "Français"),
+                        "ng" to listOf("en" to "English", "yo" to "Yorùbá", "ha" to "Hausa", "fr" to "Français"),
+                        "us" to listOf("en" to "English", "fr" to "Français")
                     )
                     countries.forEach { (code, flag, name) ->
                         val isSelected = country == code
                         ElevatedCard(
-                            onClick = { country = code },
+                            onClick = {
+                                country = code
+                                val options = languagesByCountry[code].orEmpty()
+                                if (options.none { it.first == language }) {
+                                    language = options.firstOrNull()?.first ?: "en"
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
@@ -455,6 +475,23 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                     else MaterialTheme.colorScheme.onSurface
                                 )
                             }
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Text(stringResource(R.string.language_settings), style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    (languagesByCountry[country] ?: listOf("en" to "English")).forEach { (code, name) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { language = code }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = language == code, onClick = { language = code })
+                            Spacer(Modifier.width(8.dp))
+                            Text(name, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
 
@@ -510,47 +547,17 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                 }
 
                 3 -> {
-                    Text(stringResource(R.string.setup_facility_details), style = MaterialTheme.typography.headlineMedium)
-                    Spacer(Modifier.height(16.dp))
-
+                    // Mode is already chosen on the welcome screen (step 0). Don't re-ask.
+                    // To switch, the user can use the Back button to step 0.
                     val selectedMode = FacilitySetupMode.valueOf(facilityMode)
 
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                "Setup Mode",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = selectedMode == FacilitySetupMode.CREATE_NEW,
-                                    onClick = { facilityMode = FacilitySetupMode.CREATE_NEW.name }
-                                )
-                                Text(stringResource(R.string.setup_create_new), modifier = Modifier.weight(1f))
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = selectedMode == FacilitySetupMode.JOIN_EXISTING,
-                                    onClick = { facilityMode = FacilitySetupMode.JOIN_EXISTING.name }
-                                )
-                                Text(stringResource(R.string.setup_join_existing), modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-
+                    Text(
+                        when (selectedMode) {
+                            FacilitySetupMode.CREATE_NEW -> stringResource(R.string.setup_facility_details)
+                            FacilitySetupMode.JOIN_EXISTING -> stringResource(R.string.setup_join_existing)
+                        },
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
                     Spacer(Modifier.height(16.dp))
 
                     if (selectedMode == FacilitySetupMode.CREATE_NEW) {
@@ -623,7 +630,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                         setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                                         setPrompt("Scan invitation QR from the admin's phone")
                                         setBeepEnabled(false)
-                                        setOrientationLocked(false)
+                                        // Lock to current (portrait) orientation so the runtime
+                                    // CAMERA permission dialog doesn't flip sideways when
+                                    // launched from the welcome screen. (#friction)
+                                    setOrientationLocked(true)
                                     }
                                 )
                             },
@@ -820,14 +830,17 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     // Auto-select best models for this device
                     val deviceRam = remember { app.asr.modelDownloader.deviceRamGb() }
                     val deviceName = remember { app.asr.modelDownloader.deviceName() }
-                    val rankedTiers = remember(app.appConfig.language) {
-                        app.asr.modelDownloader.rankTiersForDevice(app.appConfig.language)
+                    val rankedTiers = remember(language) {
+                        app.asr.modelDownloader.rankTiersForDevice(language)
                     }
                     val bestAsrTier = remember(rankedTiers) {
                         rankedTiers.firstOrNull { it.isCompatible }?.tier
                             ?: ModelDownloader.ModelTier.MOONSHINE_TINY
                     }
                     val llmRecommended = remember { app.llmModelManager.recommendedTier() }
+                    val supportedLlmTiers = remember { LlmModelManager.supportedModelTiers() }
+                    val showLlmTierPicker = supportedLlmTiers.size > 1
+                    val llmDeviceRamGb = remember { app.llmModelManager.deviceRamGb() }
                     val llmAbiSupported = remember { app.llmModelManager.isSupportedAbi() }
 
                     // Simple mode choices
@@ -850,6 +863,9 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     val selectedLlmTierEntry = remember(selectedLlmTier) {
                         LlmModelManager.ModelTier.entries.firstOrNull { it.name == selectedLlmTier }
                             ?: llmRecommended
+                    }
+                    val notesModelSizeMb = remember(selectedLlmTierEntry, llmDeviceRamGb) {
+                        LlmModelManager.modelSizeMbFor(selectedLlmTierEntry, llmDeviceRamGb)
                     }
 
                     // Download states
@@ -1202,6 +1218,12 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     val needsAsrDownload = voiceOffline && !asrReady
                     val needsLlmDownload = notesOffline && !llmReady
                     val needsAnyDownload = needsAsrDownload || needsLlmDownload
+                    val downloadRequiredLabel = when {
+                        needsAsrDownload && needsLlmDownload -> stringResource(R.string.setup_download_all)
+                        needsAsrDownload -> stringResource(R.string.setup_download_model_format, stringResource(R.string.setup_voice_model_label))
+                        needsLlmDownload -> stringResource(R.string.setup_download_model_format, stringResource(R.string.setup_notes_model_label))
+                        else -> stringResource(R.string.setup_download_all)
+                    }
 
                     suspend fun downloadRequiredSetupModels() {
                         // Start foreground service to survive screen-off
@@ -1298,7 +1320,11 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                         if (llmReady) {
                                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
                                         } else {
-                                            Text("${selectedLlmTierEntry.sizeMb} MB", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                                            Text(
+                                                "$notesModelSizeMb MB",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
                                         }
                                     }
                                 }
@@ -1311,7 +1337,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                     Row(modifier = Modifier.fillMaxWidth()) {
                                         Text(stringResource(R.string.setup_total_size), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                                         val totalMb = (if (needsAsrDownload) selectedAsrTierObj.sizeMb else 0) +
-                                            (if (needsLlmDownload) selectedLlmTierEntry.sizeMb else 0)
+                                            (if (needsLlmDownload) notesModelSizeMb else 0)
                                         Text("$totalMb MB", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
@@ -1393,7 +1419,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(stringResource(R.string.setup_download_all))
+                                        Text(downloadRequiredLabel)
                                     }
                                 }
                             }
@@ -1507,7 +1533,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             // ── Clinical Note AI override ──
                             Text(stringResource(R.string.setup_clinical_note_ai), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
                             listOf(
-                                Triple("cloud", stringResource(R.string.setup_cloud_ai), stringResource(R.string.setup_cloud_asr_desc)),
+                                Triple("cloud", stringResource(R.string.setup_cloud_ai), stringResource(R.string.setup_cloud_ai_desc)),
                                 Triple("on_device", stringResource(R.string.setup_on_device), stringResource(R.string.setup_on_device_ai_desc)),
                                 Triple("auto", stringResource(R.string.setup_auto), stringResource(R.string.setup_auto_desc))
                             ).forEach { (value, label, description) ->
@@ -1588,26 +1614,55 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             // ── LLM tier picker ──
                             if (aiMode == "on_device" || aiMode == "auto") {
                                 Text(stringResource(R.string.setup_on_device_model), fontWeight = FontWeight.Medium)
-                                LlmModelManager.supportedModelTiers().forEach { tier ->
-                                    val isSelected = tier.name == selectedLlmTier
-                                    val isRecommended = tier == llmRecommended
-                                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(selected = isSelected, onClick = {
-                                            if (tier.name != selectedLlmTier) {
-                                                app.llmModelManager.deleteModel()
-                                                selectedLlmTier = tier.name
-                                                val override = if (tier == llmRecommended) null else tier
-                                                app.llmModelManager.overrideTier = override
-                                                app.appConfig.llmTierOverride = override?.name ?: ""
-                                                app.llmModelManager.refreshState()
+                                if (showLlmTierPicker) {
+                                    supportedLlmTiers.forEach { tier ->
+                                        val isSelected = tier.name == selectedLlmTier
+                                        val isRecommended = tier == llmRecommended
+                                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(selected = isSelected, onClick = {
+                                                if (tier.name != selectedLlmTier) {
+                                                    app.llmModelManager.deleteModel()
+                                                    selectedLlmTier = tier.name
+                                                    val override = if (tier == llmRecommended) null else tier
+                                                    app.llmModelManager.overrideTier = override
+                                                    app.appConfig.llmTierOverride = override?.name ?: ""
+                                                    app.llmModelManager.refreshState()
+                                                }
+                                            })
+                                            Column(modifier = Modifier.padding(start = 4.dp)) {
+                                                Text(
+                                                    "${tier.label} (${LlmModelManager.modelSizeMbFor(tier, llmDeviceRamGb)} MB)" +
+                                                        if (isRecommended) " — Recommended" else "",
+                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                                )
+                                                Text(tier.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                                             }
-                                        })
-                                        Column(modifier = Modifier.padding(start = 4.dp)) {
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
                                             Text(
-                                                "${tier.label} (${tier.sizeMb} MB)" + if (isRecommended) " — Recommended" else "",
-                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                                stringResource(R.string.setup_notes_model_label),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold
                                             )
-                                            Text(tier.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                stringResource(R.string.settings_notes_ai_auto_choice),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                "$notesModelSizeMb MB",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
                                         }
                                     }
                                 }
@@ -1678,9 +1733,20 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                                 Icon(Icons.Default.WifiOff, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Column {
-                                    Text(stringResource(R.string.setup_offline_models_warning), style = MaterialTheme.typography.labelLarge, color = WarningAmber)
+                                    // Friendlier copy when download is actively running — tell the
+                                    // user it's safe to proceed, models keep downloading in the
+                                    // background (see canCompleteSetup change above).
+                                    val headlineRes = if (isDownloading)
+                                        R.string.setup_offline_models_downloading
+                                    else
+                                        R.string.setup_offline_models_warning
+                                    val detailRes = if (isDownloading)
+                                        R.string.setup_offline_downloading_detail
+                                    else
+                                        R.string.setup_offline_fallback
+                                    Text(stringResource(headlineRes), style = MaterialTheme.typography.labelLarge, color = WarningAmber)
                                     Text(
-                                        stringResource(R.string.setup_offline_fallback),
+                                        stringResource(detailRes),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1699,8 +1765,13 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                         Spacer(Modifier.height(8.dp))
                     }
 
+                    // Note: we deliberately do NOT block Complete Setup on `isDownloading`.
+                    // The ModelDownloader/LlmModelManager are app-singletons that keep
+                    // running across screens — so the user can finish setup, start using
+                    // cloud/Google fallback, and the offline models continue downloading
+                    // in the background. Blocking here forced users on slow connections
+                    // to stare at the Setup screen for 3+ GB worth of download. (#friction)
                     val canCompleteSetup = !isSaving &&
-                        !isDownloading &&
                         adminPin.length >= 4 &&
                         adminPin == adminPinConfirm
 
@@ -1818,6 +1889,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                             }
 
                             app.appConfig.countryCode = country
+                            app.appConfig.language = language
                             app.appConfig.providerId = providerId
                             app.appConfig.facilityId = facilityId
                             app.appConfig.facilityName = resolvedFacilityName
@@ -1872,7 +1944,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
 
                     Button(
                         onClick = {
-                            if (isSaving || isDownloading) return@Button
+                            if (isSaving) return@Button
                             if (adminPin.length < 4) {
                                 completeSetupError = "Enter a 4-6 digit PIN before completing setup."
                                 return@Button

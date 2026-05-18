@@ -1075,6 +1075,7 @@ fun SettingsScreen(
                             ModelDownloadCard(
                                 downloadState = downloadState, modelSizeBytes = app.asr.modelDownloader.modelSizeBytes(),
                                 selectedTierSizeMb = selectedTier.sizeMb,
+                                tierLabel = selectedTier.label,
                                 onDownload = { ModelDownloadService.start(context, "asr"); app.asr.modelDownloader.startDownload(modelUrl = selectedTier.modelUrl, vocabUrl = selectedTier.vocabUrl, expectedSha256 = config.modelExpectedSha256, expectedVocabSha256 = config.vocabExpectedSha256) },
                                 onCancel = { app.asr.modelDownloader.cancel() },
                                 onRetry = { ModelDownloadService.start(context, "asr"); app.asr.modelDownloader.retry(modelUrl = selectedTier.modelUrl, vocabUrl = selectedTier.vocabUrl, expectedSha256 = config.modelExpectedSha256, expectedVocabSha256 = config.vocabExpectedSha256) },
@@ -2246,6 +2247,7 @@ private fun ModelDownloadCard(
     downloadState: ModelDownloader.DownloadState,
     modelSizeBytes: Long,
     selectedTierSizeMb: Int = 63,
+    tierLabel: String = "",
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
@@ -2268,7 +2270,11 @@ private fun ModelDownloadCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        stringResource(R.string.settings_meta_mms_model),
+                        // Show the actually-selected tier name so the user sees
+                        // "Parakeet TDT v3 (English + EU)" or "Omnilingual 300M
+                        // (1600+ langs)" — not the legacy hardcoded "Meta MMS"
+                        // label which is incorrect for every tier in the registry.
+                        text = tierLabel.ifBlank { stringResource(R.string.settings_meta_mms_model) },
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(

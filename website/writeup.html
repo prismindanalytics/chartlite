@@ -147,110 +147,105 @@ Independent benchmark: <a href="https://benchmark.chartlite.health">benchmark.ch
 APK: <a href="https://github.com/prismindanalytics/chartlite/releases/tag/v1.0.0-hackathon">v1.0.0-hackathon release</a><br>
 Live demo: <a href="https://chartlite.health/hackathon">chartlite.health/hackathon</a><br>
 3-minute demo: <a href="https://youtu.be/dYKqhtYEtLg">youtu.be/dYKqhtYEtLg</a></p>
+<p><strong>Tracks entered:</strong> Main &middot; Impact (<strong>Health &amp; Sciences</strong> primary;
+Safety &amp; Trust + Digital Equity &amp; Inclusivity also fit) &middot; Special
+Technology (<strong>LiteRT</strong> primary &mdash; we ship Gemma 4 via Google AI
+Edge&rsquo;s MediaPipe LiteRT; Cactus also fits &mdash; hardware-aware tier
+routing and Gemma function-calls pick BODHI tools by artifact type).</p>
 <hr />
-<p><strong>What ChartLite is:</strong> an Android app that lets a clinician record a patient
-visit by voice or photo and walk away with a complete medical note, a billing
-claim, and a real-time safety check on every drug and diagnosis — running
-entirely on the phone, no internet required.</p>
+<p><strong>ChartLite</strong> is an Android app. A clinician records a visit by voice
+or photo and walks away with a structured clinical note, a billing claim,
+and a real-time safety check on every drug and diagnosis &mdash; running
+entirely on the phone, no internet.</p>
 <h2>1. The problem</h2>
 <p>Frontline clinical workers spend a third of their day on paperwork. The
-places that need clinical AI most have the least connectivity — most
-"clinical AI" tools assume a cloud API call per visit, which does not work
-in a rural health post on 2G.</p>
-<p>ChartLite runs the entire visit — voice transcription, structured note,
-safety check against a real medical knowledge graph, encrypted SMS relay —
-on a mid-range Android phone with the data plan off.</p>
-<h2>2. The benchmark — and what it told us to ship</h2>
-<p>Most clinical-AI demos say "runs locally on Gemma / Qwen / Llama" without
-verifying accuracy. A 3% hallucination rate on dosages is a coroner's
-inquest, not a rounding error. So we built a benchmark first.</p>
-<p>12 models — 6 cloud (Claude Opus/Sonnet/Haiku 4.x, GPT-5.5/5.4/4.1) and 6
-on-device (Qwen 3.5 0.8B/2B/9B, Gemma 4 e2b/e4b, MedGemma 1.5) — across
-six clinical evals: 100 synthetic visits, 156 real clinician-annotated Eka
-Care transcripts, peer-reviewed <strong>ACI-Bench</strong> dialogue-to-SOAP-note
-(n=207×5), <strong>CRESCENDDI</strong> drug-drug interactions, Eka's 925-question
-<strong>NFI Pharmacology MCQA</strong>, and Eka's 1,066-vignette <strong>Medical Calculator
-Eval</strong>. Methodology and per-(model, case) JSON open at
-<a href="https://benchmark.chartlite.health">benchmark.chartlite.health</a>.</p>
+places that need clinical AI most have the least connectivity, and most
+&ldquo;clinical AI&rdquo; tools assume a cloud call per visit &mdash; which fails on
+rural 2G.</p>
+<p>ChartLite runs the entire visit on a mid-range Android phone with the
+data plan off: voice transcription, structured note, safety check
+against a real medical knowledge graph, encrypted SMS relay.</p>
+<h2>2. We benchmarked before we shipped</h2>
+<p>A 3% hallucination on dosages is a coroner&rsquo;s inquest, not a rounding
+error. So we built the benchmark first.</p>
+<p>12 models &mdash; 6 cloud (Opus / Sonnet / Haiku 4.x, GPT-5.5 / 5.4 / 4.1)
+and 6 on-device (Qwen 3.5 0.8B / 2B / 9B, Gemma 4 e2b / e4b, MedGemma
+1.5) &mdash; across six clinical evals: 100 synthetic visits; 156 real
+clinician-annotated Eka Care transcripts; <strong>ACI-Bench</strong>
+dialogue-to-SOAP (n=207&times;5); <strong>CRESCENDDI</strong> drug-drug
+interactions; Eka&rsquo;s <strong>NFI Pharmacology MCQA</strong> (925 questions);
+Eka&rsquo;s <strong>Medical Calculator Eval</strong> (1,066 vignettes, 26
+specialties). Per-(model, case) JSON, scoring code, and methodology open
+at <a href="https://benchmark.chartlite.health">benchmark.chartlite.health</a>.</p>
 <p>Two findings shaped what we shipped:</p>
-<p><strong>Gemma 4 e4b is the first on-device model good enough for clinical note
-generation.</strong> On ACI-Bench it scores 82.74, tying Claude Haiku 4.5 (82.72)
-and within 6 points of the GPT-5.5 leader (88.48). On Eka's 156 real
-transcripts it lands within 5 points of Haiku 4.5 (82.6 vs 87.0). Zero
-API cost, runs entirely on the phone. Where it lags — pharmacology MCQ
-and drug-dose math — ChartLite calls a deterministic medical lookup
-(BODHI) instead of asking the model, so user-facing accuracy is much
-higher than the raw model score.</p>
-<p><strong>BODHI</strong> — Eka Care's medical knowledge graph (779 diagnoses, 1,186
-drugs, 812 lab tests, 10,352 symptom-to-diagnosis links) — <strong>matters most
-for the small on-device models frontline clinics actually run.</strong> Wiring
-BODHI into every model lifts <em>raw</em> safety-alert detection by 26–63 points.
-Honest audit: ~<strong>40% is real catch</strong> the model would otherwise miss;
-~<strong>60% is scoring artifact</strong> (the model said the same thing in different
-words and our text-match scorer didn't credit it); ~<strong>20% of BODHI alerts
-are false positives</strong> (drug flagged as unindicated when it actually was;
-fuzzy match firing the wrong rule). Net of artifact and noise, value lands
-where it matters: <strong>Qwen 3.5 0.8B 3% → 66%, Gemma 4 e4b 30% → 57%</strong>,
-smallest benefit on top cloud models already near the ceiling. BODHI is a
-deterministic safety net under clinician judgement, not a substitute.</p>
+<p><strong>Gemma 4 e4b is the first on-device model good enough to ship for
+clinical note generation.</strong> ACI-Bench: 82.74, tied with Claude Haiku
+4.5 and 6 points behind the GPT-5.5 leader. Real Eka transcripts: 82.6,
+5 points behind Haiku 4.5. Zero API cost, on the phone. Where it lags
+&mdash; pharmacology MCQ and drug-dose math &mdash; ChartLite calls BODHI
+instead of asking the model.</p>
+<p><strong>BODHI</strong> &mdash; Eka Care&rsquo;s medical knowledge graph (779 diagnoses,
+1,186 drugs, 812 lab tests, 10,352 symptom-to-diagnosis links) &mdash;
+<strong>matters most for the small on-device models frontline clinics
+actually run.</strong> Wiring BODHI into every model lifts raw safety-alert
+detection by 26&ndash;63 points. Honest audit: <strong>~40% is real catch</strong>,
+<strong>~60% is scoring artifact</strong> (the model said the same thing in
+different words; our text matcher didn&rsquo;t credit it), and <strong>~20% of
+BODHI alerts are false positives</strong> (fuzzy match firing the wrong rule).
+Net of artifact and noise, value lands where it matters: <strong>Qwen 3.5
+0.8B 3% &rarr; 66%, Gemma 4 e4b 30% &rarr; 57%</strong>. Top cloud models
+already near the ceiling gain least. BODHI is a deterministic safety net
+under clinician judgement, not a substitute.</p>
 <h2>3. How ChartLite works</h2>
-<p>On-device modules:</p>
 <ul>
-<li><strong>Voice → text:</strong> auto-picks the best speech model for the phone —
-  NVIDIA Parakeet TDT v3 (1.69% English WER) on 4 GB+ phones, Meta
-  Omnilingual ASR (1,600+ languages) elsewhere.</li>
-<li><strong>Note generation:</strong> Gemma 4 e2b or e4b on-device, or Claude Sonnet
-  over the network — same downstream code.</li>
-<li><strong>Encrypted database</strong> (HL7 FHIR, AES-256-GCM).</li>
-<li><strong>Safety check:</strong> drug allergies, drug-drug interactions,
-  dose-by-weight, abnormal vitals, plus BODHI for diagnosis-level checks.</li>
-<li><strong>Encrypted SMS relay:</strong> a whole visit packed into one 160-character
-  SMS for clinics on 2G.</li>
-<li><strong>ICD-10 → CPT/HCPCS billing</strong>, <strong>phone-to-phone sync</strong> over BT /
-  local WiFi.</li>
+<li><strong>Voice &rarr; text:</strong> Parakeet TDT v3 (1.69% English WER) on
+  4 GB+ phones, Omnilingual ASR (1,600+ languages) elsewhere.</li>
+<li><strong>Note generation:</strong> Gemma 4 e2b / e4b on-device, or Sonnet over
+  the network &mdash; same downstream code.</li>
+<li><strong>Encrypted DB:</strong> HL7 FHIR + AES-256-GCM.</li>
+<li><strong>Safety:</strong> drug-allergy, drug-drug, dose-by-weight, vitals out
+  of range, plus BODHI for diagnosis-level checks.</li>
+<li><strong>SMS relay:</strong> a full visit in one 160-character SMS.</li>
+<li><strong>Billing:</strong> ICD-10 &rarr; CPT / HCPCS. <strong>Sync:</strong> phone-to-phone
+  over BT or local WiFi.</li>
 </ul>
-<h2>4. Multimodal capture: 8 clinical artifacts, one button</h2>
-<p>Clinicians work with paper. ChartLite has one "📷 Capture clinical artifact"
-button that uses Gemma 4's vision to read any of eight artifact types and
-pipe the result into the BODHI safety check:</p>
+<h2>4. Multimodal capture: 8 artifacts, one button</h2>
+<p>Clinicians work with paper. One &ldquo;&#128247; Capture clinical
+artifact&rdquo; button sends a photo to Gemma 4&rsquo;s vision and pipes the
+result into the BODHI safety check:</p>
 <table>
 <thead>
-<tr>
-<th>Artifact</th>
-<th>What gets extracted</th>
-</tr>
+<tr><th>Artifact</th><th>What gets extracted</th></tr>
 </thead>
 <tbody>
 <tr><td>Pill bottle / medication package</td><td>Drug, dose, route, frequency, expiry, manufacturer</td></tr>
-<tr><td>Lab report</td><td>Test name, value, unit, reference range, flag</td></tr>
+<tr><td>Lab report</td><td>Test, value, unit, reference range, flag</td></tr>
 <tr><td>Rapid diagnostic test (malaria / HIV / COVID)</td><td>Test type, result, visible bands</td></tr>
-<tr><td>Vital-signs device (BP cuff, pulse oximeter)</td><td>Vital name, value, unit</td></tr>
-<tr><td>Referral letter</td><td>From facility, diagnosis, reason, urgency</td></tr>
+<tr><td>Vital-signs device (BP cuff, pulse oximeter)</td><td>Vital, value, unit</td></tr>
+<tr><td>Referral letter</td><td>Sending facility, diagnosis, reason, urgency</td></tr>
 <tr><td>Vaccine card / Yellow Card</td><td>Vaccine, date, dose number, batch, route</td></tr>
 <tr><td>Handwritten prescription</td><td>Drug, dose, route, frequency, duration</td></tr>
-<tr><td>Discharge summary</td><td>Discharge diagnosis, meds, follow-up, alerts</td></tr>
+<tr><td>Discharge summary</td><td>Diagnosis, meds, follow-up, alerts</td></tr>
 </tbody>
 </table>
-<p>Tap → photo → Gemma 4 reads the image → Gemma 4 <strong>chooses which safety
-checks to run</strong> (drug-drug? drug-allergy? wrong drug for condition?
-emergency triage?) → results render with structured fields, chosen tool
-calls, and alerts.</p>
-<p>This is how a 4-billion-parameter model becomes safe in a clinical setting:
-multimodal perception, structured tool calls, deterministic medical lookups.</p>
+<p>Tap &rarr; photo &rarr; Gemma 4 reads the image &rarr; Gemma 4 <strong>picks
+which safety checks to run</strong> (drug-drug? drug-allergy? wrong drug for
+condition? emergency triage?) &rarr; the result renders with structured
+fields, the tool calls Gemma chose, and any alerts.</p>
+<p>This is how a 4-billion-parameter model becomes safe in a clinical
+setting: multimodal perception, structured tool calls, deterministic
+medical lookups.</p>
 <h2>5. Deployment readiness</h2>
-<p><strong>Privacy.</strong> Voice and language model run on the phone; nothing leaves
-the device unless the clinician syncs. The SMS relay packs a whole encounter
-into one 160-character SMS with AES-256-GCM.</p>
-<p><strong>Footprint.</strong> Gemma 4 e2b in 4-bit quantization is ~1.6 GB on disk and
-runs on 2 GB-RAM phones; e4b is ~3.1 GB and needs 4 GB. The app ships with
-both — RAM-based tier routing picks one at install time. The submission
-demo was recorded on a Galaxy Fold 7 running Gemma 4 e2b; reading a
-clinical photo and producing the structured record plus the safety-tool
-trace takes 30–50 seconds end-to-end. The captured wall-clock in our demo
-video is honest — no speed-ramps.</p>
-<p><strong>Governance.</strong> BODHI is © Eka Care, CC BY-NC 4.0 — commercial deployment
-requires an Eka license. Benchmark and methodology are Apache 2.0.
-ChartLite is production-ready and awaiting clinical pilot.</p>
+<p><strong>Privacy.</strong> Voice and model run on the phone. Nothing leaves the
+device unless the clinician syncs. SMS relay uses AES-256-GCM.</p>
+<p><strong>Footprint.</strong> Gemma 4 e2b in 4-bit quantization is ~1.6 GB, runs on
+2 GB-RAM phones. e4b is ~3.1 GB, needs 4 GB. The app ships both and
+picks one by RAM at install. The submission demo runs e2b on a Galaxy
+Fold 7: vision + safety-tool trace takes 30&ndash;50 s end-to-end. The
+video&rsquo;s wall-clock is honest, no speed-ramps.</p>
+<p><strong>Governance.</strong> BODHI &copy; Eka Care, CC BY-NC 4.0 &mdash; commercial
+deployment needs an Eka license. Everything else (benchmark, methodology,
+app) is Apache 2.0. ChartLite is production-ready and awaiting pilot.</p>
 <h2>6. What we built for this hackathon</h2>
 <p>In eight days:</p>
 <ul>
@@ -258,21 +253,22 @@ ChartLite is production-ready and awaiting clinical pilot.</p>
   handles text and image.</li>
 <li><strong>Three new artifact prompts</strong> (vaccine card, handwritten Rx,
   discharge summary) on top of five existing.</li>
-<li><strong>Function-calling refactor:</strong> four safety checks rewired so Gemma 4
-  picks which to invoke per artifact.</li>
+<li><strong>Function-calling refactor</strong> so Gemma 4 picks which of four
+  safety checks to run per artifact.</li>
 <li><strong>Universal capture button</strong> on the encounter screen.</li>
 <li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types,
   per-type accuracy + per-field precision/recall on a new dashboard tab.</li>
-<li><strong>Default model flip</strong> to Gemma 4 based on benchmark evidence.</li>
+<li><strong>Default on-device model flipped</strong> to Gemma 4 based on the
+  benchmark.</li>
 </ul>
-<p>Every benchmark number on the dashboard links to its raw per-(model, case)
-JSON. The Methodology and Model-Versions tabs openly declare the
-synthetic-data and self-bias soft spots and record the exact API model IDs.
-If a judge wants to disprove a single number, they have the raw data.</p>
+<p>Every dashboard number links to its raw JSON. The Methodology tab
+declares the synthetic-data and self-bias soft spots and records exact
+API model IDs. If a judge wants to disprove a single number, the raw
+data is there.</p>
 <hr />
-<p><em>ChartLite is independent work. BODHI is © Eka Care, CC BY-NC 4.0. Built
-on MediaPipe LLM Inference and Google's Gemma 4. Apache 2.0 except where
-the BODHI license applies.</em></p>
+<p><em>ChartLite is independent work. BODHI &copy; Eka Care, CC BY-NC 4.0.
+Built on MediaPipe LLM Inference and Google&rsquo;s Gemma 4. Apache 2.0
+except where the BODHI license applies.</em></p>
     </article>
   </main>
 

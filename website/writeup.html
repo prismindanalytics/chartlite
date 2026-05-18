@@ -153,18 +153,17 @@ visit by voice or photo and walk away with a complete medical note, a billing
 claim, and a real-time safety check on every drug and diagnosis — running
 entirely on the phone, no internet required.</p>
 <h2>1. The problem</h2>
-<p>Frontline clinical workers in sub-Saharan Africa, South Asia, and rural
-everywhere spend a third of their day on paperwork. The places that need
-clinical AI most have the least connectivity — and most "clinical AI" tools
-assume a cloud API call per visit, which does not work in a Kenyan rural
-health post on 2G.</p>
+<p>Frontline clinical workers spend a third of their day on paperwork. The
+places that need clinical AI most have the least connectivity — most
+"clinical AI" tools assume a cloud API call per visit, which does not work
+in a rural health post on 2G.</p>
 <p>ChartLite runs the entire visit — voice transcription, structured note,
 safety check against a real medical knowledge graph, encrypted SMS relay —
 on a mid-range Android phone with the data plan off.</p>
 <h2>2. Why most clinical-AI submissions hand-wave model choice</h2>
-<p>Most clinical-AI demos say "runs locally on Gemma / Qwen / Llama" without
-verifying accuracy. A 3% hallucination rate on dosages is a coroner's
-inquest, not a rounding error. So we built a benchmark first.</p>
+<p>Most demos say "runs locally on Gemma / Qwen / Llama" without verifying
+accuracy. A 3% hallucination rate on dosages is a coroner's inquest, not a
+rounding error. So we built a benchmark first.</p>
 <h2>3. The benchmark headlines</h2>
 <p>We ran 12 language models — 6 cloud (Claude Opus/Sonnet/Haiku 4.x,
 GPT-5.5/5.4/4.1) and 6 on-device (Qwen 3.5 0.8B/2B/9B, Gemma 4 e2b/e4b,
@@ -230,8 +229,8 @@ outputs on the dashboard.</p>
   phones, Meta Omnilingual ASR (1,600+ languages) elsewhere.</li>
 <li><strong>Note generation:</strong> Gemma 4 e4b on-device, or Claude Sonnet over the
   network — same downstream code.</li>
-<li><strong>Encrypted database</strong> on the international medical-records standard
-  (HL7 FHIR), with the encryption online banking uses.</li>
+<li><strong>Encrypted database</strong> on the medical-records standard (HL7 FHIR),
+  with online-banking-grade encryption.</li>
 <li><strong>Safety check:</strong> rules for drug allergies, drug-drug interactions,
   dose-by-weight, abnormal vitals — plus BODHI for diagnosis-level checks.</li>
 <li><strong>Encrypted SMS relay:</strong> a whole visit packed into one 160-character SMS
@@ -287,14 +286,12 @@ and pipe the result into the BODHI safety check:</p>
 </tr>
 </tbody>
 </table>
-<p>Tap → photo → Gemma 4 reads the image and produces a structured record →
-Gemma 4 then <strong>chooses for itself which safety checks to run</strong> (drug-drug
-interaction? drug-allergy clash? wrong drug for this condition? emergency
-triage?) → results render as a card with the structured fields, the tool
-calls the model chose, and any alerts.</p>
-<p>The judge sees Gemma 4 actively choosing which tools to call. That is how a
-4-billion-parameter model becomes safe in a clinical setting: multimodal
-perception, structured tool calls, deterministic medical lookups.</p>
+<p>Tap → photo → Gemma 4 reads the image → Gemma 4 <strong>chooses which safety
+checks to run</strong> (drug-drug? drug-allergy? wrong drug for condition? emergency
+triage?) → results render with structured fields, chosen tool calls, and
+alerts.</p>
+<p>This is how a 4-billion-parameter model becomes safe in a clinical setting:
+multimodal perception, structured tool calls, deterministic medical lookups.</p>
 <h2>6. Real-world deployment readiness</h2>
 <p><strong>Privacy.</strong> Voice and language model run on the phone, so the patient's
 voice and record never leave the device unless the clinician syncs. SMS
@@ -317,19 +314,17 @@ been deployed in a clinic — it is production-ready and awaiting pilot.</p>
 <h2>7. What we built for this hackathon</h2>
 <p>In eight days:</p>
 <ul>
-<li><strong>Gemma 4 vision:</strong> wired into the existing model dispatcher so one
-  language-model session handles both text and image inputs.</li>
-<li><strong>Three new artifact prompts</strong> (vaccine card, handwritten prescription,
-  discharge summary) on top of five we already had.</li>
-<li><strong>Function-calling refactor:</strong> four safety checks (drug-drug,
-  drug-allergy, drug-for-condition, triage urgency) rewired so Gemma 4
-  chooses which to invoke per artifact.</li>
+<li><strong>Gemma 4 vision</strong> wired into the model dispatcher; one session
+  handles text and image.</li>
+<li><strong>Three new artifact prompts</strong> (vaccine card, handwritten Rx,
+  discharge summary) on top of five existing.</li>
+<li><strong>Function-calling refactor:</strong> four safety checks rewired so
+  Gemma 4 picks which to invoke per artifact.</li>
 <li><strong>Universal capture button</strong> on the encounter screen.</li>
-<li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types from WHO
-  templates and public sources. Per-type accuracy and per-field
-  precision/recall on a new dashboard tab.</li>
-<li><strong>Default model flip:</strong> recommended on-device model is now Gemma 4 e4b
-  (was Qwen 3.5), based on the benchmark evidence above.</li>
+<li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types.
+  Per-type accuracy + per-field precision/recall on a new dashboard tab.</li>
+<li><strong>Default model flip</strong> to Gemma 4 e4b (was Qwen 3.5) based on
+  benchmark evidence above.</li>
 </ul>
 <h2>8. How to verify everything</h2>
 <ul>

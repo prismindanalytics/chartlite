@@ -155,7 +155,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     /** Active tier: user override if set, otherwise hardware-recommended. */
     fun activeTier(): ModelTier = normalizeSupportedTier(overrideTier) ?: recommendedTier()
 
-    fun activeBackend(): InferenceBackend = backendForRam(deviceRamGb())
+    /**
+     * Inference backend for the active tier.
+     *
+     * The artifact's declared backend is the canonical source of truth — for
+     * Gemma 4 tiers this is MEDIAPIPE regardless of device RAM. Previously this
+     * resolved purely from RAM via [backendForRam], which incorrectly returned
+     * MNN on high-RAM devices even when the active tier was Gemma. That caused
+     * the MNN-shaped validator to reject Gemma's single-file `.task` install
+     * and the on-device path silently fell back to regex.
+     */
+    fun activeBackend(): InferenceBackend = artifactFor(activeTier(), deviceRamGb()).backend
 
     fun supportsOnDeviceVision(): Boolean = ON_DEVICE_VISION_ENABLED && activeTier().supportsVision
 
@@ -345,14 +355,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     private fun validateInstalledModelOrThrow(path: File, tier: ModelTier, backend: InferenceBackend) {
-        if (backend == InferenceBackend.MNN) {
-            validateInstalledModelDirectoryOrThrow(path, tier)
-            return
-        }
-        if (!path.exists() || path.length() <= 0L) {
-            throw IllegalStateException(
-                "Installed ${tier.label} GGUF file is missing or empty. Re-download or re-import the model."
-            )
+        when (backend) {
+            InferenceBackend.MNN -> validateInstalledModelDirectoryOrThrow(path, tier)
+            InferenceBackend.LLAMA_CPP, InferenceBackend.MEDIAPIPE -> {
+                if (!path.exists() || path.length() <= 0L) {
+                    val artifactKind = when (backend) {
+                        InferenceBackend.MEDIAPIPE -> "MediaPipe .task bundle"
+                        InferenceBackend.LLAMA_CPP -> "GGUF file"
+                        else -> "model file"
+                    }
+                    throw IllegalStateException(
+                        "Installed ${tier.label} $artifactKind is missing or empty at " +
+                            "${path.absolutePath}. Re-download or re-import the model."
+                    )
+                }
+            }
         }
     }
 

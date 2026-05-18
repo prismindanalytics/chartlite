@@ -108,3 +108,6 @@ scripts/eka_clinical_note_generation_dataset/
 
 # Backup of silver ground truth (regenerable; large)
 scripts/silver_gt.backup.json
+
+# Hackathon submission materials live locally; deliverables go straight to Kaggle/YouTube
+benchmark_dashboard/

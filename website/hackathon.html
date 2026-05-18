@@ -284,10 +284,12 @@
       <div class="eyebrow">Submission for the Gemma 4 Good Hackathon · Kaggle × Google DeepMind</div>
       <h1>Voice-first, vision-capable clinical AI.<br>On Gemma 4. Entirely on-device.</h1>
       <p class="lead">
-        ChartLite captures any clinical encounter by voice or photo and runs the entire
-        loop on-device — ASR, structured extraction, and a knowledge-graph-grounded
-        safety net — using <strong>Gemma 4</strong> on Android, fully offline. We
-        benchmarked it against 12 models on 6 independent datasets before we shipped it.
+        ChartLite captures any clinical encounter by voice or photo and runs
+        the entire loop on the phone itself — speech-to-text, a structured
+        medical note, and a safety check that cross-references every drug,
+        diagnosis, and symptom against a real medical database — using
+        <strong>Gemma 4</strong> on Android, fully offline. We benchmarked it
+        against 12 models on 6 independent datasets before we shipped.
       </p>
 
       <!-- ▼ DAY 6: replace iframe src with the unlisted-then-public YouTube ID. -->
@@ -335,8 +337,8 @@
         </div>
 
         <div class="tile">
-          <h3>Three-tier device routing</h3>
-          <p>Hardware-aware <code>recommendedTierForRam()</code> picks Gemma 4 E4B (≥6 GB), E2B (≥4 GB), or Qwen 3.5 0.8B (&lt; 4 GB). Same codebase, three phones.</p>
+          <h3>Auto-fits the phone</h3>
+          <p>ChartLite picks the right Gemma 4 size automatically: the larger E4B on 6 GB+ phones, the smaller E2B on 4 GB phones, and a tiny fallback on 3 GB phones. Same app, every device.</p>
           <a href="https://github.com/prismindanalytics/chartlite/blob/main/app/src/main/kotlin/com/chartlite/app/extraction/LlmModelManager.kt">View the routing code →</a>
         </div>
 
@@ -350,23 +352,23 @@
       <div class="numbers-grid">
         <div class="stat">
           <span class="v">82.74</span>
-          <div class="l">Gemma 4 e4b · ACI-Bench dialogue→SOAP</div>
-          <div class="src">Ties Haiku 4.5 (82.72) · 5 splits</div>
+          <div class="l">Gemma 4 e4b on the peer-reviewed clinical-note benchmark (ACI-Bench)</div>
+          <div class="src">Ties Claude Haiku 4.5 (82.72) · 5 splits</div>
         </div>
         <div class="stat">
           <span class="v">82.6</span>
-          <div class="l">Gemma 4 e4b · Eka real 156 transcripts</div>
-          <div class="src">Within 5 pp of Haiku 4.5</div>
+          <div class="l">Gemma 4 e4b on 156 real clinician-annotated transcripts (Eka Care)</div>
+          <div class="src">Within 5 points of Claude Haiku 4.5</div>
         </div>
         <div class="stat">
           <span class="v">8</span>
-          <div class="l">Clinical artifact types · vision capture</div>
-          <div class="src">Function-calling triggers BODHI</div>
+          <div class="l">Clinical artifact types one button can read</div>
+          <div class="src">Gemma 4 chooses which safety checks to run</div>
         </div>
         <div class="stat">
           <span class="v">$0</span>
-          <div class="l">Per-encounter cloud cost on-device</div>
-          <div class="src">vs $0.24–4.50 cloud tier</div>
+          <div class="l">Per-visit cloud cost when running on-device</div>
+          <div class="src">vs $0.24–4.50 per 100 visits on cloud tiers</div>
         </div>
       </div>
     </div>

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The full submission writeup — ChartLite</title>
+  <meta name="description" content="Why we built ChartLite the way we did, what the benchmark says, and how a judge can disprove any number on the dashboard.">
+  <meta name="theme-color" content="#F9F8F6">
+  <link rel="canonical" href="https://chartlite.health/writeup">
+  <meta property="og:title" content="The full submission writeup — ChartLite">
+  <meta property="og:description" content="Why we built ChartLite the way we did, what the benchmark says, and how a judge can disprove any number on the dashboard.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://chartlite.health/writeup">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #F9F8F6; --text: #2b2b2b; --muted: #666;
+      --primary: #1A2E35; --accent: #A27B5C;
+      --surface: #FFFFFF; --border: #E5E0D8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, h4, .serif {
+      font-family: 'Playfair Display', serif;
+      color: var(--primary);
+      font-weight: 400;
+      line-height: 1.3;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+    nav { padding: 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+    .nav-inner { display: flex; justify-content: space-between; align-items: center; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-size: 1.6rem; color: var(--primary); text-decoration: none; }
+    .nav-brand small { font-family: 'Inter', sans-serif; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; display: block; margin-top: 2px; }
+    .nav-back { font-size: 0.9rem; color: var(--primary); text-decoration: none; padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; transition: border-color 0.18s; }
+    .nav-back:hover { border-color: var(--accent); }
+
+    header.article-header { padding: 32px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+    .eyebrow { font-size: 0.75rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); font-weight: 500; margin-bottom: 14px; }
+    .article-title { font-size: 2.4rem; margin-bottom: 14px; }
+    .article-subtitle { color: var(--muted); font-size: 1.1rem; }
+
+    article.prose { padding-bottom: 80px; }
+    article.prose h1 { font-size: 1.9rem; margin: 48px 0 16px; }
+    article.prose h2 { font-size: 1.55rem; margin: 44px 0 14px; }
+    article.prose h3 { font-size: 1.25rem; margin: 36px 0 12px; }
+    article.prose h4 { font-size: 1.1rem; margin: 28px 0 10px; color: var(--accent); font-family: 'Inter', sans-serif; font-weight: 600; }
+    article.prose p { margin-bottom: 18px; }
+    article.prose strong { font-weight: 600; color: var(--primary); }
+    article.prose em { font-style: italic; }
+    article.prose a { color: var(--primary); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+    article.prose a:hover { color: var(--accent); }
+    article.prose ul, article.prose ol { margin: 0 0 18px 24px; }
+    article.prose li { margin-bottom: 8px; }
+    article.prose code {
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.92em;
+      background: rgba(162, 123, 92, 0.10);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    article.prose pre {
+      background: #1A2E35;
+      color: #E5E0D8;
+      padding: 20px 24px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 24px 0;
+      font-size: 0.86em;
+      line-height: 1.55;
+    }
+    article.prose pre code { background: transparent; padding: 0; color: inherit; font-size: 1em; }
+    article.prose blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 8px 0 8px 22px;
+      margin: 22px 0;
+      color: var(--muted);
+      font-style: italic;
+    }
+    article.prose table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 24px 0;
+      font-size: 0.95em;
+    }
+    article.prose table th, article.prose table td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+    }
+    article.prose table th {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      color: var(--primary);
+      background: rgba(162, 123, 92, 0.06);
+    }
+    article.prose hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    footer { padding: 32px 0 64px; border-top: 1px solid var(--border); margin-top: 48px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+    footer a { color: var(--primary); text-decoration: none; margin: 0 6px; }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 640px) {
+      .article-title { font-size: 1.8rem; }
+      article.prose h1 { font-size: 1.5rem; }
+      article.prose h2 { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-brand">
+        ChartLite
+        <small>Gemma 4 Good Hackathon · May 2026</small>
+      </a>
+      <a href="/hackathon" class="nav-back">← Hackathon submission</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <header class="article-header">
+      <div class="eyebrow">Gemma 4 Good Hackathon · Submission writeup</div>
+      <h1 class="article-title">The full submission writeup</h1>
+      <p class="article-subtitle">Why we built ChartLite the way we did, what the benchmark says, and how a judge can disprove any number on the dashboard.</p>
+    </header>
+
+    <article class="prose">
+<p>Repo: github.com/prismindanalytics/chartlite (Apache 2.0)
+Independent benchmark: benchmark.chartlite.health
+APK: github.com/prismindanalytics/chartlite/releases/tag/v1.0.0-hackathon
+Live demo: chartlite.health/hackathon
+Demo: 3-minute video below</p>
+<hr />
+<h2>1. The problem</h2>
+<p>Frontline clinical workers in sub-Saharan Africa, South Asia, and rural everywhere
+spend a third of their day on paperwork. The places that need clinical AI most
+have the least connectivity — and most "clinical AI" tools assume a cloud API
+call per encounter, which does not work in a Kenyan rural health post on 2G.</p>
+<p>ChartLite is an Android app that runs the entire clinical encounter loop on a
+mid-tier phone with no internet: voice transcription, structured extraction,
+clinical-decision support against a real medical knowledge graph, encrypted SMS
+relay when paper-thin connectivity returns. Nine months of building. The Gemma
+4 hackathon is the first moment a small open model is good enough to be the
+brain.</p>
+<h2>2. Why most clinical-AI submissions hand-wave model choice</h2>
+<p>Pick any clinical-AI demo on the internet and you will see "runs locally on
+Gemma / Qwen / Llama." Almost none of them say whether the model is actually
+accurate enough to be safe. A 3% hallucination rate on medication dosages is
+not a rounding error, it is a coroner's inquest. Before we picked Gemma 4 as
+ChartLite's on-device model, we built a benchmark.</p>
+<h2>3. The benchmark headlines</h2>
+<p>We ran 12 models — 6 cloud (Claude Opus/Sonnet/Haiku 4.x, GPT-5.5/5.4/4.1)
+and 6 on-device (Qwen 3.5 in 0.8B/2B/9B, Gemma 4 e2b/e4b, MedGemma 1.5) —
+across 6 independent benchmarks: synthetic clinical encounters, real Eka Care
+transcripts (n=156), ACI-Bench dialogue→SOAP (n=207×5 splits), CRESCENDDI
+drug-drug interactions, the brand-new Eka NFI Pharmacology MCQA (n=925), and
+the Eka Medical Calculator Eval (n=1,066). The full dashboard, methodology,
+model versions, and reproduction scripts are open at
+benchmark.chartlite.health (Apache 2.0).</p>
+<p>Four findings shaped what we built:</p>
+<ol>
+<li>
+<p><strong>Gemma 4 e4b is the first on-device model good enough to ship for
+   clinical SOAP generation.</strong> On ACI-Bench dialogue→SOAP (n=207×5 splits,
+   peer-reviewed) it scores 82.74, essentially tying Claude Haiku 4.5 (82.72)
+   and within 6 points of the GPT-5.5 leader (88.48). On Eka Care's 156 real
+   clinician-annotated transcripts it lands within 5 points of Haiku 4.5
+   (82.6 vs 87.0). Zero API cost, zero cloud calls, runs entirely on-device.
+   Honest where it lags: pharmacology MCQA (63.5% vs Haiku 78.9%) and
+   calculator vignettes (50.2% vs GPT-5.5 68.8%) — but those go through BODHI
+   tool calls, not model memory.</p>
+</li>
+<li>
+<p><strong>MedGemma is not what you think it is.</strong> Despite the name, MedGemma 1.5
+   underperforms generalist Gemma 4 e4b on every clinical benchmark we ran:
+   −34pp on ACI-Bench, −20pp on Eka Calculator, −17pp on NFI Pharmacology, and
+   a 60% silent-failure rate on simple drug-pair extraction. Same parameter
+   class, opposite results. The medical fine-tune appears to have eroded
+   reasoning more than it improved recall. Eka Care's team independently
+   reached the same conclusion on their internal Indian clinical data.</p>
+</li>
+<li>
+<p><strong>The smallest Qwen models silently fail on long prompts.</strong> Without
+   <code>"think": false</code> Qwen 3.5 0.8B and 2B route long-form output into a hidden
+   reasoning channel and return blank notes. We documented and patched this;
+   teams quoting Qwen-small benchmarks without the fix are publishing noise.</p>
+</li>
+<li>
+<p><strong>BODHI matters most where it should: small on-device models in
+   under-resourced settings.</strong> Wiring Eka Care's clinical knowledge graph
+   (CC BY-NC 4.0) into every model lifts <em>gross</em> safety detection by
+   26–63 pp. We audited the lift honestly on GPT-5.5's missed dangers:
+   <strong>~40% genuine clinical catch</strong> (e.g. synthesizing CURB-65 → EMERGENCY),
+   <strong>~60% substring-match artifact</strong> the scorer didn't credit. <strong>~20% of
+   BODHI alerts are false positives</strong> (drug-actually-indicated, referral
+   fuzzy-match). Net of artifact and noise, the lift is most pronounced
+   where deployment is real — <strong>Qwen 0.8B 3% → 66%, Gemma 4 e4b 30% → 57%</strong>
+   — and least pronounced on saturated frontier (Sonnet 4.6). BODHI is a
+   deterministic safety net under clinician judgement, not a substitute. Full
+   audit (with the slide-deck decomposition) available on request.</p>
+</li>
+</ol>
+<p>These findings are not anecdote — they are 7,500 lines of reproducible
+benchmark code with per-(model, case) cached JSON outputs, public on the
+dashboard.</p>
+<h2>4. ChartLite architecture</h2>
+<p>Eight modules, all on-device first:</p>
+<ul>
+<li><strong>Voice → text:</strong> NVIDIA Parakeet TDT v3 (1.69% WER on English, on-device via
+  Sherpa-ONNX) for English; Meta Omnilingual ASR (1,600+ languages) for
+  non-English; Moonshine Tiny fallback for ≤ 3 GB devices. Hardware-aware tier
+  selection by RAM.</li>
+<li><strong>Structured extraction:</strong> unified JSON schema produced by Gemma 4 e4b
+  on-device or Claude Sonnet in cloud mode. Identical downstream code path.</li>
+<li><strong>Local DB:</strong> Room + SQLCipher, FHIR-native schema.</li>
+<li><strong>Clinical decision support:</strong> static rules (drug-allergy, drug-drug,
+  dosage-by-weight, vital alerts) plus the BODHI knowledge graph (779 SNOMED
+  conditions, 1,186 drugs, 812 labs, 10,352 symptom→condition edges; CC BY-NC
+  4.0, Eka Care).</li>
+<li><strong>Encrypted SMS:</strong> AES-256-GCM, 92-byte binary encoding so a full encounter
+  fits in a single SMS for ultra-low-bandwidth relay.</li>
+<li><strong>Patient ID:</strong> offline 8-character base28 (KFMT-4WRN format), collision
+  rate negligible at sub-million scale.</li>
+<li><strong>Billing engine:</strong> ICD-10 → CPT/HCPCS mapping, E/M complexity scoring,
+  SAMA tariffs (configurable per country).</li>
+<li><strong>Sync:</strong> BT/WiFi peer-to-peer, three-tier connectivity model
+  (offline / mesh / cloud).</li>
+</ul>
+<p>Country configurations exist for South Africa, Ethiopia, Malawi today, with
+regulatory data drafted for Kenya, Nigeria, US, UK, India.</p>
+<h2>5. Multimodal capture: 8 clinical artifacts, one button</h2>
+<p>The hackathon rubric prizes Gemma 4's unique multimodal + function-calling
+features. Frontline clinicians work with paper. So we built a single
+"📷 Capture clinical artifact" button that uses Gemma 4 e4b's vision to read
+any of eight artifact types and pipe the result into BODHI safety checks:</p>
+<table>
+<thead>
+<tr>
+<th>Artifact</th>
+<th>What gets extracted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pill bottle / medication package</td>
+<td>Drug, dose, route, frequency, expiry, manufacturer</td>
+</tr>
+<tr>
+<td>Lab report</td>
+<td>Test name, value, unit, reference range, flag</td>
+</tr>
+<tr>
+<td>RDT cassette (malaria/HIV/COVID)</td>
+<td>Test type, result, visible bands</td>
+</tr>
+<tr>
+<td>Vital device readout (BP cuff, pulse-ox)</td>
+<td>Vital name, value, unit</td>
+</tr>
+<tr>
+<td>Referral letter</td>
+<td>From facility, diagnosis, reason, urgency</td>
+</tr>
+<tr>
+<td>Vaccine card / Yellow Card</td>
+<td>Vaccine, date, dose number, batch, route</td>
+</tr>
+<tr>
+<td>Handwritten prescription</td>
+<td>Drug, dose, route, frequency, duration, sig</td>
+</tr>
+<tr>
+<td>Discharge summary</td>
+<td>Discharge dx, meds, follow-up, alerts</td>
+</tr>
+</tbody>
+</table>
+<p>Tap the button → CameraX takes a photo → Gemma 4 e4b vision extracts a unified
+JSON schema → Gemma 4 then <strong>decides which BODHI safety checks to run as
+function calls</strong> (<code>check_drug_condition</code>, <code>check_drug_drug_interactions</code>,
+<code>check_drug_allergy</code>, <code>check_triage_urgency</code>) → results render as a card with
+the structured fields, the function-call trace, and any safety alerts.</p>
+<p>The judge sees Gemma 4 actively choosing which tools to call. That is how a
+4B model becomes safe in a clinical setting: multimodal perception,
+structured tool calls, deterministic medical lookups.</p>
+<h2>6. Real-world deployment readiness</h2>
+<p>Privacy: on-device ASR + on-device LLM means the patient's voice and the
+extracted record never leave the phone unless the clinician explicitly syncs.
+SMS relay uses AES-256-GCM with PBKDF2; the binary encoding fits a full
+encounter in one 160-character SMS so it works on 2G.</p>
+<p>Footprint: Gemma 4 e2b (Q4) is ~1.6GB on disk and runs on devices with 2GB RAM.
+Gemma 4 e4b (Q4) is ~3.1GB and runs on 4GB-RAM mid-tier phones. We tested on a
+Galaxy Fold 7 (12 GB RAM, Gemma 4 E4B) — vision extraction completes in ~6 seconds
+per artifact.</p>
+<p>Governance: full clinical-decision support uses BODHI (Eka Care, CC BY-NC 4.0;
+non-commercial unrestricted, commercial deployment requires Eka license). Our
+benchmark and methodology are independent (Apache 2.0). We have not deployed
+ChartLite in any production clinic yet — it is production-ready and awaiting
+clinical pilot.</p>
+<h2>7. What we built specifically for this hackathon</h2>
+<p>In the eight days between announcement and submission:</p>
+<ul>
+<li><strong>Gemma 4 vision integration</strong> via MediaPipe's
+  <code>LlmInferenceSession.addImage(MPImage)</code>, wired through our existing model
+  dispatcher.</li>
+<li><strong>Three new artifact prompts</strong> (vaccine card, handwritten prescription,
+  discharge summary) on top of five we already had.</li>
+<li><strong>Function-calling refactor:</strong> four BODHI safety checks rewired as Gemma 4
+  native function calls; the model decides which to invoke per artifact.</li>
+<li><strong>Universal capture button</strong> on the encounter screen.</li>
+<li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types from WHO
+  templates and public sources. Per-type classification accuracy and per-field
+  P/R added as a new dashboard tab.</li>
+<li><strong>Default tier flip:</strong> ChartLite's recommended on-device model is now
+  Gemma 4 e4b (was Qwen 3.5), based on the benchmark evidence above.</li>
+</ul>
+<h2>8. How to verify everything</h2>
+<p>Independently reproducible:</p>
+<ul>
+<li><strong>Benchmarks:</strong> <code>git clone github.com/prismindanalytics/clinical-edge-bench</code>,
+  <code>pip install -r scripts/requirements.txt</code>, <code>bash scripts/fetch_bodhi.sh</code>,
+  <code>python3 scripts/benchmark_pharmacology_mcqa.py --models gemma4-e4b --limit 50</code>.
+  All raw per-(model, case) JSON is preserved.</li>
+<li><strong>App:</strong> <code>git clone github.com/prismindanalytics/chartlite</code>,
+  <code>./gradlew assembleDebug</code> produces an APK for Android 8+. First launch
+  downloads Gemma 4 e4b from HuggingFace.</li>
+<li><strong>Dashboard:</strong> benchmark.chartlite.health — every number above links
+  to its raw JSON.</li>
+<li><strong>Methodology + model versions:</strong> the Methodology and Model-Versions tabs
+  on the dashboard declare the synthetic-GT and self-bias soft spots openly
+  and record the exact API handles + Ollama tags used.</li>
+</ul>
+<p>If a judge wants to disprove a single number, they have the raw data to do
+it. That's the bar we want for clinical AI generally.</p>
+<hr />
+<p><em>ChartLite is independent work, not affiliated with any funder. BODHI is © Eka
+Care, used under CC BY-NC 4.0. Built on MediaPipe LLM Inference and Google's
+Gemma 4. Apache 2.0 except where the BODHI license applies.</em></p>
+    </article>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>ChartLite · Apache 2.0 · BODHI © Eka Care, CC BY-NC 4.0 · Built on MediaPipe LLM Inference and Google's Gemma 4.</p>
+      <p style="margin-top: 8px;">
+        <a href="/">Main site</a> ·
+        <a href="/hackathon">Hackathon submission</a> ·
+        <a href="https://benchmark.chartlite.health">Benchmark dashboard</a> ·
+        <a href="https://github.com/prismindanalytics/chartlite">GitHub</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

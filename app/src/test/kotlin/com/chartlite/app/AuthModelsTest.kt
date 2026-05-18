@@ -52,6 +52,7 @@ class AuthModelsTest {
         assertTrue("ADMIN canViewDashboard", admin.canViewDashboard)
         assertTrue("ADMIN canSync", admin.canSync)
         assertTrue("ADMIN canEditSettings", admin.canEditSettings)
+        assertTrue("ADMIN canConfigureDevice", admin.canConfigureDevice)
     }
 
     @Test
@@ -63,8 +64,9 @@ class AuthModelsTest {
         assertTrue("DOCTOR canTriage", doctor.canTriage)
         assertFalse("DOCTOR cannot manage users", doctor.canManageUsers)
         assertTrue("DOCTOR canViewDashboard", doctor.canViewDashboard)
-        assertFalse("DOCTOR cannot sync", doctor.canSync)
+        assertTrue("DOCTOR can sync", doctor.canSync)
         assertFalse("DOCTOR cannot edit settings", doctor.canEditSettings)
+        assertTrue("DOCTOR can configure device", doctor.canConfigureDevice)
     }
 
     @Test
@@ -76,8 +78,9 @@ class AuthModelsTest {
         assertTrue("NURSE canTriage", nurse.canTriage)
         assertFalse("NURSE cannot manage users", nurse.canManageUsers)
         assertTrue("NURSE canViewDashboard", nurse.canViewDashboard)
-        assertFalse("NURSE cannot sync", nurse.canSync)
+        assertTrue("NURSE can sync", nurse.canSync)
         assertFalse("NURSE cannot edit settings", nurse.canEditSettings)
+        assertTrue("NURSE can configure device", nurse.canConfigureDevice)
     }
 
     @Test
@@ -91,6 +94,7 @@ class AuthModelsTest {
         assertTrue("PHARMACIST canViewDashboard", pharmacist.canViewDashboard)
         assertFalse("PHARMACIST cannot sync", pharmacist.canSync)
         assertFalse("PHARMACIST cannot edit settings", pharmacist.canEditSettings)
+        assertFalse("PHARMACIST cannot configure device", pharmacist.canConfigureDevice)
     }
 
     @Test
@@ -104,6 +108,7 @@ class AuthModelsTest {
         assertFalse("CHW cannot view dashboard", chw.canViewDashboard)
         assertFalse("CHW cannot sync", chw.canSync)
         assertFalse("CHW cannot edit settings", chw.canEditSettings)
+        assertFalse("CHW cannot configure device", chw.canConfigureDevice)
     }
 
     @Test
@@ -117,6 +122,7 @@ class AuthModelsTest {
         assertFalse("CLERK cannot view dashboard", clerk.canViewDashboard)
         assertFalse("CLERK cannot sync", clerk.canSync)
         assertFalse("CLERK cannot edit settings", clerk.canEditSettings)
+        assertFalse("CLERK cannot configure device", clerk.canConfigureDevice)
     }
 
     // ── Only ADMIN can manage users ──────────────────────────────────
@@ -132,15 +138,28 @@ class AuthModelsTest {
         }
     }
 
-    // ── Only ADMIN can sync ──────────────────────────────────────────
+    // ── ADMIN, DOCTOR, and NURSE can sync ────────────────────────────
 
     @Test
-    fun `only ADMIN can sync`() {
+    fun `admin doctor and nurse can sync`() {
+        val syncRoles = setOf(UserRole.ADMIN, UserRole.DOCTOR, UserRole.NURSE)
         UserRole.entries.forEach { role ->
-            if (role == UserRole.ADMIN) {
+            if (role in syncRoles) {
                 assertTrue("${role.name} should be able to sync", role.canSync)
             } else {
                 assertFalse("${role.name} should NOT be able to sync", role.canSync)
+            }
+        }
+    }
+
+    @Test
+    fun `admin doctor and nurse can configure device`() {
+        val deviceConfigRoles = setOf(UserRole.ADMIN, UserRole.DOCTOR, UserRole.NURSE)
+        UserRole.entries.forEach { role ->
+            if (role in deviceConfigRoles) {
+                assertTrue("${role.name} should be able to configure device settings", role.canConfigureDevice)
+            } else {
+                assertFalse("${role.name} should NOT be able to configure device settings", role.canConfigureDevice)
             }
         }
     }

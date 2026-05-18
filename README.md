@@ -1,8 +1,42 @@
 # ChartLite
 
-Voice-first clinical documentation for primary healthcare. Record patient encounters by voice, get structured clinical data automatically, and work fully offline on low-cost Android devices.
+Voice-first, vision-capable clinical documentation for primary healthcare. Record patient encounters by voice, photograph any of eight clinical artifacts (prescription, vaccine card, lab report, RDT cassette, vital device readout, referral letter, discharge summary, medication package), and get structured clinical data plus knowledge-graph-grounded safety alerts — all fully offline on a $250 Android phone.
 
 Built for sub-Saharan Africa first, expanding globally.
+
+---
+
+## 🏆 Gemma 4 Good Hackathon — submission (May 2026)
+
+ChartLite's hackathon submission is in [`benchmark_dashboard/`](benchmark_dashboard/):
+
+- **Writeup** — [`HACKATHON_WRITEUP_DRAFT.md`](benchmark_dashboard/HACKATHON_WRITEUP_DRAFT.md) (≤ 1,500 words)
+- **3-minute video script** — [`HACKATHON_VIDEO_SCRIPT.md`](benchmark_dashboard/HACKATHON_VIDEO_SCRIPT.md)
+- **60-second technical deep-dive** — [`HACKATHON_60S_DEEP_DIVE_SCRIPT.md`](benchmark_dashboard/HACKATHON_60S_DEEP_DIVE_SCRIPT.md)
+- **Live benchmark dashboard** — [chartlite-bodhi-bench.pages.dev](https://chartlite-bodhi-bench.pages.dev)
+- **BODHI honest-audit explainer** — [`BODHI_explainer_2slides.pptx`](benchmark_dashboard/BODHI_explainer_2slides.pptx)
+- **Methodology** — [`METHODOLOGY_ASSESSMENT.md`](benchmark_dashboard/METHODOLOGY_ASSESSMENT.md) (declares all known soft spots openly)
+- **Model versions** — [`MODEL_VERSIONS.md`](benchmark_dashboard/MODEL_VERSIONS.md) (exact API handles + Ollama tags + run windows)
+
+**Why Gemma 4:** On peer-reviewed ACI-Bench dialogue→SOAP (n=207×5 splits) Gemma 4 e4b scores **82.74**, essentially tying Claude Haiku 4.5 (82.72) — running entirely on a $250 phone. On Eka Care's 156 real clinician-annotated transcripts it lands within 5 points of Haiku (82.6 vs 87.0). Independent third-party validation: Sankalp Gulati at Eka Care confirmed the MedGemma-underperforms-generalist-Gemma and small-Qwen-fails-on-real-data findings on Eka's internal Indian clinical data.
+
+**Three-tier hardware-aware routing** ([`LlmModelManager.recommendedTierForRam`](app/src/main/kotlin/com/chartlite/app/extraction/LlmModelManager.kt)):
+
+| Device RAM | LLM | Runtime |
+|---|---|---|
+| ≥ 6 GB | Gemma 4 **E4B** (2.83 GB `.task`) | MediaPipe `tasks-genai 0.10.35` |
+| ≥ 4 GB | Gemma 4 **E2B** (~1.5 GB `.task`) | MediaPipe `tasks-genai 0.10.35` |
+| < 4 GB | Qwen 3.5 0.8B | MNN-LLM / llama.cpp |
+
+**Gemma 4 native features used:** multimodal vision for 8 artifact types ([`extraction/VisionToolFlow.kt`](app/src/main/kotlin/com/chartlite/app/extraction/VisionToolFlow.kt)), native function calling for BODHI safety lookups ([`cdss/CdssToolRegistry.kt`](app/src/main/kotlin/com/chartlite/app/cdss/CdssToolRegistry.kt)), hardware-aware tier routing, INT4-quantized on-device inference via LiteRT.
+
+**Reproduce everything:**
+```bash
+git clone github.com/prismindanalytics/chartlite && ./gradlew assembleDebug   # ChartLite app
+git clone github.com/prismindanalytics/clinical-edge-bench                    # 12-model × 6-benchmark suite
+```
+
+---
 
 ## Features
 

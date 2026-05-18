@@ -24,8 +24,7 @@ class LlamaCppEngine(private val context: Context) : BenchmarkEngine {
         LlamaCppBridge.initialize()
         if (!LlamaCppBridge.isAvailable()) error("llama.cpp native library not available")
 
-        val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
-        val success = LlamaCppBridge.loadModel(modelFile.absolutePath, nThreads)
+        val success = LlamaCppBridge.loadModel(modelFile.absolutePath)
         if (!success) error("Failed to load GGUF model")
 
         val metrics = LlamaCppBridge.getMetrics()

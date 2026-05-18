@@ -1,0 +1,390 @@
+{
+  "n_positive": 100,
+  "n_negative": 100,
+  "models": {
+    "claude-opus-4-7": {
+      "n_evaluated": 199,
+      "arms": {
+        "arm1": {
+          "tp": 99,
+          "fp": 67,
+          "tn": 32,
+          "fn": 1,
+          "sensitivity": 99.0,
+          "specificity": 32.3,
+          "ppv": 59.6
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 99,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 99,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "claude-sonnet-4-6": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 100,
+          "fp": 100,
+          "tn": 0,
+          "fn": 0,
+          "sensitivity": 100.0,
+          "specificity": 0.0,
+          "ppv": 50.0
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "claude-haiku-4-5-20251001": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 99,
+          "fp": 89,
+          "tn": 11,
+          "fn": 1,
+          "sensitivity": 99.0,
+          "specificity": 11.0,
+          "ppv": 52.7
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "gpt-5.5": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 98,
+          "fp": 39,
+          "tn": 61,
+          "fn": 2,
+          "sensitivity": 98.0,
+          "specificity": 61.0,
+          "ppv": 71.5
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "gpt-5.4": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 97,
+          "fp": 65,
+          "tn": 35,
+          "fn": 3,
+          "sensitivity": 97.0,
+          "specificity": 35.0,
+          "ppv": 59.9
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "gpt-4.1": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 82,
+          "fp": 51,
+          "tn": 49,
+          "fn": 18,
+          "sensitivity": 82.0,
+          "specificity": 49.0,
+          "ppv": 61.7
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "qwen3.5:9b": {
+      "n_evaluated": 137,
+      "arms": {
+        "arm1": {
+          "tp": 33,
+          "fp": 41,
+          "tn": 59,
+          "fn": 4,
+          "sensitivity": 89.2,
+          "specificity": 59.0,
+          "ppv": 44.6
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 36,
+          "sensitivity": 2.7,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 36,
+          "sensitivity": 2.7,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "qwen3.5:2b": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 64,
+          "fp": 43,
+          "tn": 57,
+          "fn": 36,
+          "sensitivity": 64.0,
+          "specificity": 57.0,
+          "ppv": 59.8
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "qwen3.5:0.8b": {
+      "n_evaluated": 197,
+      "arms": {
+        "arm1": {
+          "tp": 99,
+          "fp": 98,
+          "tn": 0,
+          "fn": 0,
+          "sensitivity": 100.0,
+          "specificity": 0.0,
+          "ppv": 50.3
+        },
+        "arm2": {
+          "tp": 0,
+          "fp": 0,
+          "tn": 98,
+          "fn": 99,
+          "sensitivity": 0.0,
+          "specificity": 100.0,
+          "ppv": 0.0
+        },
+        "arm3": {
+          "tp": 9,
+          "fp": 20,
+          "tn": 78,
+          "fn": 90,
+          "sensitivity": 9.1,
+          "specificity": 79.6,
+          "ppv": 31.0
+        }
+      }
+    },
+    "gemma4:e4b": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 84,
+          "fp": 48,
+          "tn": 52,
+          "fn": 16,
+          "sensitivity": 84.0,
+          "specificity": 52.0,
+          "ppv": 63.6
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "gemma4:e2b": {
+      "n_evaluated": 200,
+      "arms": {
+        "arm1": {
+          "tp": 100,
+          "fp": 87,
+          "tn": 13,
+          "fn": 0,
+          "sensitivity": 100.0,
+          "specificity": 13.0,
+          "ppv": 53.5
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 100,
+          "fn": 99,
+          "sensitivity": 1.0,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    },
+    "medgemma1.5": {
+      "n_evaluated": 81,
+      "arms": {
+        "arm1": {
+          "tp": 28,
+          "fp": 21,
+          "tn": 23,
+          "fn": 9,
+          "sensitivity": 75.7,
+          "specificity": 52.3,
+          "ppv": 57.1
+        },
+        "arm2": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 44,
+          "fn": 36,
+          "sensitivity": 2.7,
+          "specificity": 100.0,
+          "ppv": 100.0
+        },
+        "arm3": {
+          "tp": 1,
+          "fp": 0,
+          "tn": 44,
+          "fn": 36,
+          "sensitivity": 2.7,
+          "specificity": 100.0,
+          "ppv": 100.0
+        }
+      }
+    }
+  }
+}

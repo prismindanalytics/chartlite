@@ -89,6 +89,10 @@ fun LockScreen(
 
             PinPad(
                 pin = pin,
+                // Auto-submit at the user's actual PIN length (default 4) so a
+                // 4-digit-PIN doctor doesn't have to tap ✓ on every unlock.
+                // Min stays at 4 so partial entries don't trigger.
+                maxLength = app.appConfig.pinLength.coerceIn(4, 6),
                 onPinChange = { newPin ->
                     pin = newPin
                     if (lockoutSeconds <= 0) errorMessage = null

@@ -163,7 +163,7 @@ fun RecordButton(
                     contentDescription = when {
                         isHolding -> "Release to capture"
                         isRecording -> "Stop recording"
-                        else -> "Tap to scribe, hold to dictate"
+                        else -> "Tap to record"
                     },
                     modifier = Modifier.size(40.dp),
                     tint = Color.White

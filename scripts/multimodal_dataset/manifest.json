@@ -1,0 +1,105 @@
+{
+  "version": "0.1.0",
+  "license": "Apache-2.0 (this manifest); per-image licenses documented per case",
+  "notes": "Seed set for the ChartLite multimodal benchmark. Grows as cases are collected. See scripts/multimodal_dataset/README.md.",
+  "cases": [
+    {
+      "id": "med_paracetamol_500_box_001",
+      "image_path": "scripts/multimodal_dataset/images/med_paracetamol_500_box_001.jpg",
+      "expected_content_type": "medication_package",
+      "expected_fields": {
+        "medications": [
+          {"name": "paracetamol", "dose": "500 mg"}
+        ]
+      },
+      "source": "Wikimedia Commons (public domain) — placeholder, replace with actual file",
+      "notes": "Standard 500mg paracetamol carton, clear front label."
+    },
+    {
+      "id": "rdt_malaria_negative_001",
+      "image_path": "scripts/multimodal_dataset/images/rdt_malaria_negative_001.jpg",
+      "expected_content_type": "rdt_cassette",
+      "expected_fields": {
+        "rdt": {"test_type": "malaria", "result": "negative"}
+      },
+      "source": "Open RDT reference — placeholder",
+      "notes": "Single visible C line, no T line. Result: negative."
+    },
+    {
+      "id": "vaccine_card_who_yellow_template_001",
+      "image_path": "scripts/multimodal_dataset/images/vaccine_card_who_yellow_template_001.jpg",
+      "expected_content_type": "vaccine_card",
+      "expected_fields": {
+        "immunizations": [
+          {"vaccine": "yellow fever", "dose_number": 1}
+        ]
+      },
+      "source": "WHO Yellow Card open template (public)",
+      "notes": "Synthetic data filled into blank WHO ICVP template."
+    },
+    {
+      "id": "lab_cbc_who_template_001",
+      "image_path": "scripts/multimodal_dataset/images/lab_cbc_who_template_001.jpg",
+      "expected_content_type": "lab_report",
+      "expected_fields": {
+        "investigations": [
+          {"test": "Hemoglobin", "result": "9.2", "unit": "g/dL"},
+          {"test": "WBC", "result": "11.5", "unit": "K/uL"}
+        ]
+      },
+      "source": "WHO lab report open template (public)",
+      "notes": "Synthetic anemia + leukocytosis values printed onto a blank template."
+    },
+    {
+      "id": "vital_bp_cuff_138_82_001",
+      "image_path": "scripts/multimodal_dataset/images/vital_bp_cuff_138_82_001.jpg",
+      "expected_content_type": "vital_device",
+      "expected_fields": {
+        "vitals": [
+          {"name": "blood pressure", "value": "138/82", "unit": "mmHg"}
+        ]
+      },
+      "source": "Stock photo of OTC BP cuff — placeholder",
+      "notes": "Indoor lighting, screen at slight angle but readable."
+    },
+    {
+      "id": "rx_amoxicillin_handwritten_001",
+      "image_path": "scripts/multimodal_dataset/images/rx_amoxicillin_handwritten_001.jpg",
+      "expected_content_type": "handwritten_prescription",
+      "expected_fields": {
+        "medications": [
+          {"name": "amoxicillin", "dose": "500 mg", "freq": "TID", "duration": "7 days"}
+        ]
+      },
+      "source": "Public clinical-pharmacy training image — placeholder",
+      "notes": "Mixed handwriting + printed Rx pad header. Readable mid-clarity sample."
+    },
+    {
+      "id": "discharge_pneumonia_synth_001",
+      "image_path": "scripts/multimodal_dataset/images/discharge_pneumonia_synth_001.jpg",
+      "expected_content_type": "discharge_summary",
+      "expected_fields": {
+        "discharge": {
+          "dx": ["community-acquired pneumonia"],
+          "follow_up": "1 week"
+        }
+      },
+      "source": "Synthetic generated",
+      "notes": "Plain-text discharge summary printed at PHC font sizes."
+    },
+    {
+      "id": "referral_endoscopy_synth_001",
+      "image_path": "scripts/multimodal_dataset/images/referral_endoscopy_synth_001.jpg",
+      "expected_content_type": "referral_letter",
+      "expected_fields": {
+        "referral": {
+          "diagnosis": "peptic ulcer disease",
+          "reason": "endoscopy",
+          "urgency": "routine"
+        }
+      },
+      "source": "Synthetic generated",
+      "notes": "Single-page typed referral, district-hospital letterhead."
+    }
+  ]
+}

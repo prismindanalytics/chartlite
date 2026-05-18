@@ -51,10 +51,13 @@ import com.chartlite.app.model.Referral
 import com.chartlite.app.model.StructuredEncounter
 import com.chartlite.app.model.VitalSigns
 import com.chartlite.app.model.normalizedOrNull
+import com.chartlite.app.cdss.CdssToolRegistry
 import com.chartlite.app.extraction.VisionExtractor
+import com.chartlite.app.extraction.VisionToolFlow
 import com.chartlite.app.database.entity.ClinicalPhotoEntity
 import com.chartlite.app.ui.components.ClinicalCameraCapture
 import com.chartlite.app.ui.components.MarkdownText
+import com.chartlite.app.ui.components.MultimodalResultCard
 import com.chartlite.app.ui.components.RecordButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -68,7 +71,8 @@ fun EncounterRecordScreen(
     visitId: String? = null,
     stationName: String? = null,
     onEncounterSaved: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as App
@@ -89,9 +93,15 @@ fun EncounterRecordScreen(
     // ── Camera scan state ──
     var showCamera by remember { mutableStateOf(false) }
     var isScanProcessing by remember { mutableStateOf(false) }
+    /** UI label flipped per-stage by VisionToolFlow.captureAndCheck. */
+    var scanStageMessage by remember { mutableStateOf<String?>(null) }
     var lastScanType by remember { mutableStateOf<String?>(null) }
     var lastScanResult by remember { mutableStateOf<VisionExtractor.VisionResult?>(null) }
+    var lastSafetyOutcome by remember { mutableStateOf<VisionToolFlow.SafetyOutcome?>(null) }
+    var lastPhotoEntityId by remember { mutableStateOf<String?>(null) }
+    var lastPhotoFilePath by remember { mutableStateOf<String?>(null) }
     var showScanResult by remember { mutableStateOf(false) }
+    var showScanError by remember { mutableStateOf(false) }
     val photoDir = remember {
         java.io.File(context.filesDir, "encounter_photos/$patientId").also { it.mkdirs() }
     }
@@ -105,6 +115,7 @@ fun EncounterRecordScreen(
     val liveTranscript by asr.transcript.collectAsState()
     val amplitude by asr.amplitude.collectAsState()
     val asrModelLoaded by asr.sherpaPipeline.isLoaded.collectAsState()
+    val llmPreparing by app.llmModelManager.isPreparingModel.collectAsState()
 
     // Recording duration timer
     var recordingStartTime by remember { mutableStateOf(0L) }
@@ -116,11 +127,33 @@ fun EncounterRecordScreen(
                 == PackageManager.PERMISSION_GRANTED
         )
     }
+    /** True once we've asked at least once this composition; lets us
+     *  show the "Grant microphone access" fallback only after a denial,
+     *  not on first entry — auto-prompt is the natural first-run experience. */
+    var hasRequestedMicPermission by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        hasRequestedMicPermission = true
+    }
+    // Auto-request mic permission on first entry to the encounter screen.
+    // Saves an explicit "Grant Microphone Access" tap that everyone has to
+    // make exactly once. The system dialog is the same — we just trigger it
+    // automatically instead of behind a button.
+    LaunchedEffect(Unit) {
+        if (!hasPermission && !hasRequestedMicPermission) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
-    // ── SMS permission — request once so encounter save can send natively ──
+    // ── SMS permission ──
+    // Held in state so the SMS send path can request it inline at the moment
+    // the user actually picks "send via SMS." We deliberately do NOT
+    // auto-prompt on screen entry — the original flow stacked the SMS dialog
+    // ON TOP of the mic-permission dialog the moment the user opened a new
+    // encounter, which felt to a first-time user like the app was demanding
+    // permissions for a feature they hadn't asked about.
     var hasSmsPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS)
@@ -130,11 +163,6 @@ fun EncounterRecordScreen(
     val smsPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasSmsPermission = granted }
-    LaunchedEffect(Unit) {
-        if (!hasSmsPermission) {
-            smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
-        }
-    }
 
     // ── Patient history context (allergies, meds, chronic conditions from prior visits) ──
     var patientContext by remember { mutableStateOf<com.chartlite.app.model.PatientContext?>(null) }
@@ -171,6 +199,7 @@ fun EncounterRecordScreen(
     var snippetCount by rememberSaveable { mutableIntStateOf(0) }
     val maxRecordingMs = if (isHolding) 2 * 60_000L
         else app.appConfig.maxRecordingMinutes * 60_000L
+    val noteReviewWarmRefreshMs = 20_000L
 
     suspend fun processTranscriptNow(
         text: String,
@@ -262,8 +291,8 @@ fun EncounterRecordScreen(
                 draftNote = noteResult.note
                 noteStrategyUsed = noteResult.strategyUsed
                 val usedOnDeviceNote = noteResult.strategyUsed.contains("(on-device)")
-                if (strictLowRamSerialization && usedOnDeviceNote) {
-                    app.llmModelManager.keepModelWarmFor(45_000L)
+                if (usedOnDeviceNote) {
+                    app.llmModelManager.keepModelWarmFor(app.llmModelManager.recommendedReviewWarmLeaseMs())
                 }
                 app.prewarmExtractionPipelineForImmediateReview()
                 isGeneratingNote = false
@@ -442,22 +471,97 @@ fun EncounterRecordScreen(
         asr.mode,
         app.appConfig.language,
         asrModelLoaded,
+        showManualInput,
+        transcript.isNotBlank(),
         draftNote != null,
         extractedEncounter != null,
         isGeneratingNote,
-        isProcessing
+        isProcessing,
+        llmPreparing
     ) {
+        val preferTypedNotePath = strictLowRamSerialization && (showManualInput || transcript.isNotBlank())
         if (
             asr.mode == com.chartlite.app.asr.ASREngine.Mode.ONNX_OFFLINE &&
             asr.isOnnxModelDownloadedFast() &&
             !asrModelLoaded &&
             !asr.isPreparing.value &&
+            !preferTypedNotePath &&
             draftNote == null &&
             extractedEncounter == null &&
             !isGeneratingNote &&
-            !isProcessing
+            !isProcessing &&
+            !llmPreparing
         ) {
             app.prepareOfflineAsrForCapture(app.appConfig.language)
+        }
+    }
+
+    LaunchedEffect(
+        showManualInput,
+        transcript.isNotBlank(),
+        isRecording,
+        isPreparing,
+        isGeneratingNote,
+        isProcessing,
+        asrModelLoaded
+    ) {
+        val preferTypedNotePath = strictLowRamSerialization && (showManualInput || transcript.isNotBlank())
+        if (
+            preferTypedNotePath &&
+            asrModelLoaded &&
+            !isRecording &&
+            !isPreparing &&
+            !isGeneratingNote &&
+            !isProcessing
+        ) {
+            asr.unloadOfflineModelIfIdle()
+        }
+    }
+
+    LaunchedEffect(
+        showManualInput,
+        transcript,
+        isBatchProcessing,
+        isRecording,
+        isPreparing,
+        isGeneratingNote,
+        isProcessing
+    ) {
+        if (
+            !showManualInput ||
+            isBatchProcessing ||
+            transcript.trim().length < 48 ||
+            isRecording ||
+            isPreparing ||
+            isGeneratingNote ||
+            isProcessing
+        ) return@LaunchedEffect
+
+        delay(900)
+
+        if (
+            showManualInput &&
+            !isBatchProcessing &&
+            transcript.trim().length >= 48 &&
+            !isRecording &&
+            !isPreparing &&
+            !isGeneratingNote &&
+            !isProcessing
+        ) {
+            app.prewarmOnDeviceNotesForLikelyImmediateUse()
+        }
+    }
+
+    val keepOnDeviceNoteWarm =
+        noteStrategyUsed?.contains("(on-device)") == true &&
+            draftNote != null &&
+            extractedEncounter == null
+
+    LaunchedEffect(keepOnDeviceNoteWarm) {
+        if (!keepOnDeviceNoteWarm) return@LaunchedEffect
+        while (true) {
+            app.llmModelManager.keepModelWarmFor(app.llmModelManager.recommendedReviewWarmLeaseMs())
+            delay(noteReviewWarmRefreshMs)
         }
     }
 
@@ -562,39 +666,32 @@ fun EncounterRecordScreen(
                 }
             }
 
-            // Processing mode toggle — always visible before recording starts
+            // Processing-mode toggle moved to Settings → AI & Speech.
+            // Surfacing it on every encounter screen taught users the wrong
+            // mental model ("am I in batch right now?") and was visual noise
+            // for clinicians who never need to flip it. The actual mode is
+            // applied from `app.appConfig.noteProcessingMode` via the
+            // `isBatchProcessing` state initialised at line 89.
+            //
+            // The strict-low-RAM hint is preserved as an inline note so the
+            // user understands why ASR + LLM serialise on small phones.
             if (extractedEncounter == null && draftNote == null && !isGeneratingNote && !isProcessing && !isRecording) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        if (isBatchProcessing) stringResource(R.string.batch_mode) else stringResource(R.string.process_immediately),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Switch(
-                        checked = !isBatchProcessing,
-                        enabled = true,
-                        onCheckedChange = { processNow ->
-                            isBatchProcessing = !processNow
-                            app.appConfig.noteProcessingMode = if (processNow) "immediate" else "batch"
-                        }
-                    )
-                }
                 if (strictLowRamSerialization) {
                     Text(
-                        "Strict low-RAM mode keeps voice and local AI serialized so immediate mode can stay enabled.",
+                        stringResource(R.string.settings_low_ram_processing_hint),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(4.dp))
                 }
-                Spacer(Modifier.height(4.dp))
             }
 
-            if (!hasPermission) {
-                // Permission request
+            if (!hasPermission && hasRequestedMicPermission) {
+                // Fallback: only shown after the user actively denied the
+                // permission. The auto-request `LaunchedEffect` above
+                // handles the first-time grant — most users never see this
+                // card. Useful for the "denied, change my mind" path.
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -616,13 +713,22 @@ fun EncounterRecordScreen(
                         }
                     }
                 }
+            } else if (!hasPermission) {
+                // First-run: auto-request is in flight. Render nothing — let
+                // the system dialog be the only UI. Without this branch we
+                // would briefly show the error card before LaunchedEffect runs.
+                Spacer(Modifier.height(0.dp))
             } else if (isGeneratingNote) {
                 // ── Generating draft note spinner ──
                 CircularProgressIndicator(modifier = Modifier.size(64.dp))
                 Spacer(Modifier.height(16.dp))
-                Text(stringResource(R.string.generating_clinical_note),
+                Text(
+                    if (llmPreparing) stringResource(R.string.preparing_notes_ai)
+                    else stringResource(R.string.generating_clinical_note),
                     style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.ai_writing_draft),
+                Text(
+                    if (llmPreparing) stringResource(R.string.preparing_notes_ai_hint)
+                    else stringResource(R.string.ai_writing_draft),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (isProcessing) {
@@ -630,10 +736,14 @@ fun EncounterRecordScreen(
                 CircularProgressIndicator(modifier = Modifier.size(64.dp))
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    if (isHolding) stringResource(R.string.processing_snippet) else stringResource(R.string.extracting_structured_data),
+                    if (llmPreparing) stringResource(R.string.preparing_notes_ai)
+                    else if (isHolding) stringResource(R.string.processing_snippet)
+                    else stringResource(R.string.extracting_structured_data),
                     style = MaterialTheme.typography.titleMedium
                 )
-                Text(stringResource(R.string.coding_from_note),
+                Text(
+                    if (llmPreparing) stringResource(R.string.preparing_notes_ai_hint)
+                    else stringResource(R.string.coding_from_note),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (draftNote != null && extractedEncounter == null) {
@@ -986,29 +1096,63 @@ fun EncounterRecordScreen(
                     }
 
                     // ── Camera scan button ──
-                    if (!isRecording && app.isLlmVisionModelDownloadedFast()) {
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = { showCamera = true },
-                            modifier = Modifier.fillMaxWidth().height(44.dp),
-                            enabled = !isScanProcessing
-                        ) {
-                            if (isScanProcessing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.scan_analyzing))
-                            } else {
-                                Icon(
-                                    Icons.Default.CameraAlt,
-                                    contentDescription = stringResource(R.string.content_desc_scan),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.scan_button_label))
+                    if (!isRecording) {
+                        val visionTier = remember { app.fastActiveLlmTier() }
+                        val visionReady = app.isLlmVisionModelDownloadedFast()
+                        if (visionReady) {
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = { showCamera = true },
+                                modifier = Modifier.fillMaxWidth().height(44.dp),
+                                enabled = !isScanProcessing
+                            ) {
+                                if (isScanProcessing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(scanStageMessage ?: stringResource(R.string.scan_analyzing))
+                                } else {
+                                    Icon(
+                                        Icons.Default.CameraAlt,
+                                        contentDescription = stringResource(R.string.content_desc_scan),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.scan_button_label))
+                                }
                             }
+                        } else {
+                            // Either vision-capable tier without the model
+                            // downloaded yet, OR a tier with no vision support
+                            // at all (Qwen on a low-RAM device). Both paths
+                            // need the user to visit Settings, so render a
+                            // single clickable hint that deeplinks there —
+                            // otherwise the user reads "in Settings" and has
+                            // to manually navigate Home → Settings → AI tab.
+                            val hint = if (visionTier.supportsVision)
+                                stringResource(R.string.scan_setup_hint)
+                            else
+                                stringResource(R.string.scan_upgrade_hint)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = hint,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (onOpenSettings != null)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .let { m ->
+                                        if (onOpenSettings != null)
+                                            m.clickable { onOpenSettings() }
+                                        else m
+                                    }
+                                    .padding(vertical = 8.dp),
+                                textAlign = TextAlign.Center,
+                            )
                         }
                         lastScanType?.let { type ->
                             Spacer(Modifier.height(4.dp))
@@ -1103,20 +1247,31 @@ fun EncounterRecordScreen(
                         ) }
                     )
                     Spacer(Modifier.height(12.dp))
+                    // Manual text input always processes immediately, regardless of
+                    // the batch-mode setting. Reasoning: a clinician typing manually
+                    // has the text ready *now* and wants the structured note *now*;
+                    // the batch toggle is for long voice sessions on low-RAM phones,
+                    // not for short typed snippets. The previous behaviour silently
+                    // queued + dumped the user back to the timeline with no preview.
                     Button(
                         onClick = {
                             scope.launch {
-                                if (isBatchProcessing) {
-                                    queueTranscriptForBatch(transcript)
-                                } else {
-                                    generateDraftNote(transcript)
-                                }
+                                generateDraftNote(transcript)
                             }
                         },
                         enabled = transcript.isNotBlank(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (isBatchProcessing) stringResource(R.string.queue_for_batch_review) else stringResource(R.string.process_notes))
+                        Text(stringResource(R.string.process_notes))
+                    }
+
+                    if (!isBatchProcessing && llmPreparing) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.preparing_notes_ai_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     Spacer(Modifier.height(4.dp))
@@ -1191,6 +1346,8 @@ fun EncounterRecordScreen(
 
                 // Track which section is being edited
                 var editingSection by remember { mutableStateOf<String?>(null) }
+                var pendingSmsEncounter by remember { mutableStateOf<StructuredEncounter?>(null) }
+                var pendingSmsPhone by remember { mutableStateOf<String?>(null) }
 
                 // Build edited encounter for saving
                 fun buildEditedEncounter(): StructuredEncounter {
@@ -1202,13 +1359,18 @@ fun EncounterRecordScreen(
                         if (originalMatch != null) {
                             originalMatch // preserve dose/unit/frequency/route
                         } else {
-                            val parts = line.split(Regex("\\s+"), limit = 4)
+                            val parts = line.split(Regex("\\s+")).filter { it.isNotBlank() }
+                            val doseIndex = parts.indexOfFirst { it.toFloatOrNull() != null }
+                            val name = when {
+                                doseIndex > 0 -> parts.take(doseIndex).joinToString(" ")
+                                else -> line
+                            }
                             Medication(
                                 formularyCode = "",
-                                name = parts[0],
-                                dose = parts.getOrNull(1)?.toFloatOrNull(),
-                                unit = if (parts.getOrNull(1)?.toFloatOrNull() != null) parts.getOrNull(2) else null,
-                                frequency = parts.lastOrNull()?.takeIf { parts.size >= 3 && it != parts[0] }
+                                name = name,
+                                dose = doseIndex.takeIf { it >= 0 }?.let { parts.getOrNull(it)?.toFloatOrNull() },
+                                unit = doseIndex.takeIf { it >= 0 }?.let { parts.getOrNull(it + 1) },
+                                frequency = doseIndex.takeIf { it >= 0 }?.let { parts.drop(it + 2).joinToString(" ").ifBlank { null } }
                             )
                         }
                     }
@@ -1274,6 +1436,86 @@ fun EncounterRecordScreen(
                         allergies = editAllergies.lines().map { it.trim() }.filter { it.isNotBlank() },
                         plan = editPlan.lines().map { it.trim() }.filter { it.isNotBlank() },
                         socialHistory = editSocialHistory.lines().map { it.trim() }.filter { it.isNotBlank() }
+                    )
+                }
+
+                fun saveEditedEncounter(editedEnc: StructuredEncounter, sendPatientSms: Boolean) {
+                    if (isSaving) return
+                    isSaving = true
+                    extractionError = null
+                    scope.launch {
+                        try {
+                            val patient = app.patientRepository.getById(patientId)
+                            val savedId = EncounterSaveCoordinator.saveEncounter(
+                                app = app,
+                                encounter = editedEnc,
+                                patientId = patientId,
+                                visitId = visitId,
+                                station = station,
+                                referralInstructions = editReferralInstructions.ifBlank { null },
+                                referralSmsOverride = null,
+                                sendPatientSms = sendPatientSms
+                            )
+                            val phone = patient?.phoneNumber
+                            if (sendPatientSms && !phone.isNullOrBlank()) {
+                                val maskedPhone = "***" + phone.takeLast(4)
+                                val dxCount = editedEnc.suggestedDiagnoses.size + editedEnc.diagnoses.size
+                                val medCount = editedEnc.medications.size
+                                Toast.makeText(
+                                    context,
+                                    String.format(smsSendingFormat, maskedPhone, dxCount, medCount),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            onEncounterSaved(savedId)
+                        } catch (e: CancellationException) {
+                            isSaving = false
+                            throw e
+                        } catch (e: Exception) {
+                            extractionError = "Save failed: ${e.message}"
+                            isSaving = false
+                        }
+                    }
+                }
+
+                pendingSmsEncounter?.let { pendingEncounter ->
+                    AlertDialog(
+                        onDismissRequest = {
+                            pendingSmsEncounter = null
+                            pendingSmsPhone = null
+                        },
+                        title = { Text("Send SMS health record?") },
+                        text = {
+                            Text(
+                                "This will send an encrypted clinical SMS to ***${pendingSmsPhone.orEmpty().takeLast(4)}. Use Save only if the phone is shared, consent is unclear, or SMS costs should be avoided."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                pendingSmsEncounter = null
+                                pendingSmsPhone = null
+                                saveEditedEncounter(pendingEncounter, sendPatientSms = true)
+                            }) {
+                                Text("Save and send")
+                            }
+                        },
+                        dismissButton = {
+                            Row {
+                                TextButton(onClick = {
+                                    pendingSmsEncounter = null
+                                    pendingSmsPhone = null
+                                    saveEditedEncounter(pendingEncounter, sendPatientSms = false)
+                                }) {
+                                    Text("Save only")
+                                }
+                                TextButton(onClick = {
+                                    pendingSmsEncounter = null
+                                    pendingSmsPhone = null
+                                }) {
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            }
+                        }
                     )
                 }
 
@@ -1626,38 +1868,21 @@ fun EncounterRecordScreen(
                 Button(
                     onClick = {
                         if (isSaving) return@Button
-                        isSaving = true
                         val editedEnc = buildEditedEncounter()
                         scope.launch {
                             try {
                                 val patient = app.patientRepository.getById(patientId)
-                                val savedId = EncounterSaveCoordinator.saveEncounter(
-                                    app = app,
-                                    encounter = editedEnc,
-                                    patientId = patientId,
-                                    visitId = visitId,
-                                    station = station,
-                                    referralInstructions = editReferralInstructions.ifBlank { null },
-                                    referralSmsOverride = null  // Auto-generate from instructions
-                                )
                                 val phone = patient?.phoneNumber
                                 if (!phone.isNullOrBlank()) {
-                                    val maskedPhone = "***" + phone.takeLast(4)
-                                    val dxCount = editedEnc.suggestedDiagnoses.size + editedEnc.diagnoses.size
-                                    val medCount = editedEnc.medications.size
-                                    Toast.makeText(
-                                        context,
-                                        String.format(smsSendingFormat, maskedPhone, dxCount, medCount),
-                                        Toast.LENGTH_LONG
-                                    ).show()
+                                    pendingSmsEncounter = editedEnc
+                                    pendingSmsPhone = phone
+                                } else {
+                                    saveEditedEncounter(editedEnc, sendPatientSms = false)
                                 }
-                                onEncounterSaved(savedId)
                             } catch (e: CancellationException) {
-                                isSaving = false
                                 throw e
                             } catch (e: Exception) {
-                                extractionError = "Save failed: ${e.message}"
-                                isSaving = false
+                                extractionError = "Unable to check SMS details: ${e.message}"
                             }
                         }
                     },
@@ -1704,110 +1929,97 @@ fun EncounterRecordScreen(
         }
     }
 
-    // ── Scan result dialog ──
+    // ── Multimodal capture result dialog ──
     if (showScanResult && lastScanResult != null) {
         val result = lastScanResult!!
+        val outcome = lastSafetyOutcome
         AlertDialog(
             onDismissRequest = { showScanResult = false },
-            confirmButton = {
-                TextButton(onClick = { showScanResult = false }) {
-                    Text("OK")
-                }
-            },
-            title = {
-                Text(
-                    when (result.contentType) {
-                        "rdt_result" -> "RDT Result"
-                        "lab_report" -> "Lab Report"
-                        "vital_device" -> "Vital Signs"
-                        "medication_package" -> "Medication"
-                        "referral_letter" -> "Referral"
-                        else -> "Scan Result"
-                    }
+            confirmButton = {},  // Actions live inside the card (Add / Discard)
+            title = { Text("Captured artifact") },
+            text = {
+                MultimodalResultCard(
+                    result = result,
+                    toolCalls = outcome?.toolCalls.orEmpty(),
+                    alerts = outcome?.alerts.orEmpty(),
+                    onAdd = {
+                        // Merge into the active encounter. If the user captured
+                        // before recording (a perfectly natural first move with
+                        // the new universal button), seed an empty encounter so
+                        // the artifact data isn't silently dropped.
+                        val baseEncounter = extractedEncounter ?: StructuredEncounter(
+                            id = visitId ?: java.util.UUID.randomUUID().toString(),
+                            patientId = patientId,
+                            providerId = providerId,
+                            facilityId = app.appConfig.facilityId,
+                            timestamp = java.time.Instant.now(),
+                            transcript = "",
+                            medications = emptyList(),
+                            diagnoses = emptyList(),
+                            vitals = null,
+                            allergies = emptyList(),
+                            followUp = null,
+                            referral = null,
+                            freeTextNote = "",
+                            extractionConfidence = 0f,
+                        )
+                        extractedEncounter = EncounterMerger.mergeVisionResult(baseEncounter, result)
+                        showScanResult = false
+                    },
+                    onDiscard = {
+                        // User rejected this capture — drop the photo + DB row
+                        // so it doesn't pollute the patient's record or storage.
+                        val photoId = lastPhotoEntityId
+                        val photoPath = lastPhotoFilePath
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                if (photoId != null) {
+                                    app.database.clinicalPhotoDao().deleteById(photoId)
+                                }
+                                if (photoPath != null) {
+                                    runCatching { java.io.File(photoPath).delete() }
+                                }
+                            }
+                        }
+                        lastPhotoEntityId = null
+                        lastPhotoFilePath = null
+                        lastScanType = null
+                        showScanResult = false
+                    },
                 )
             },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // RDT result
-                    result.rdt?.let { rdt ->
-                        Text("Test: ${rdt.testType}", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Result: ${rdt.result.uppercase()}",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = when (rdt.result.lowercase()) {
-                                "positive" -> MaterialTheme.colorScheme.error
-                                "negative" -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                        rdt.details?.takeIf {
-                            it.isNotBlank() && !it.contains("content_type") &&
-                            it.lowercase() != "visible bands" && it.length > 3
-                        }?.let {
-                            Text("Details: ${it.take(100)}", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                    // Vitals
-                    if (result.vitals.isNotEmpty()) {
-                        result.vitals.forEach { v ->
-                            Text("${v.name}: ${v.value} ${v.unit}", style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                    // Lab results
-                    if (result.investigations.isNotEmpty()) {
-                        result.investigations.forEach { lab ->
-                            Text(
-                                "${lab.test}: ${lab.result}${lab.referenceRange?.let { " (ref: $it)" } ?: ""}",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
-                    // Medications
-                    if (result.medications.isNotEmpty()) {
-                        result.medications.forEach { med ->
-                            Text(
-                                "${med.name}${med.dose?.let { " $it" } ?: ""}${med.form?.let { " ($it)" } ?: ""}",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
-                    // Referral info
-                    result.referral?.let { ref ->
-                        if (result.contentType == "rdt_result") {
-                            // For RDT, show device brand if model captured it; skip noise
-                            ref.fromFacility?.takeIf { !it.contains("not specified", ignoreCase = true) }?.let {
-                                Text("Device: $it", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        } else {
-                            ref.fromFacility?.let { Text("From: $it", style = MaterialTheme.typography.bodyLarge) }
-                            ref.diagnosis?.let { Text("Diagnosis: $it", style = MaterialTheme.typography.bodyLarge) }
-                            ref.reason?.let { Text("Reason: $it", style = MaterialTheme.typography.bodyMedium) }
-                            ref.urgency?.let {
-                                Text(
-                                    "Urgency: $it",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (it.lowercase().contains("urgent")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                    // Raw text fallback
-                    if (result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty() && result.medications.isEmpty() && result.referral == null) {
-                        result.rawText?.let {
-                            Text(it.take(300), style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                    // Raw text supplement — only show if no structured data was extracted
-                    if (result.rawText != null && result.rdt == null && result.vitals.isEmpty() && result.investigations.isEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Additional: ${result.rawText.take(150)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+        )
+    }
+
+    // ── Vision-failure error dialog ──
+    if (showScanError) {
+        AlertDialog(
+            onDismissRequest = { showScanError = false },
+            title = { Text(stringResource(R.string.scan_failed_title)) },
+            text = { Text(stringResource(R.string.scan_failed_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Drop the failed photo and reopen the camera so the user
+                    // can retake without an extra round-trip through the UI.
+                    val path = lastPhotoFilePath
+                    if (path != null) runCatching { java.io.File(path).delete() }
+                    lastPhotoFilePath = null
+                    showScanError = false
+                    showCamera = true
+                }) {
+                    Text(stringResource(R.string.scan_retake))
                 }
-            }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val path = lastPhotoFilePath
+                    if (path != null) runCatching { java.io.File(path).delete() }
+                    lastPhotoFilePath = null
+                    showScanError = false
+                }) {
+                    Text(stringResource(R.string.scan_dismiss))
+                }
+            },
         )
     }
 
@@ -1832,20 +2044,52 @@ fun EncounterRecordScreen(
                         Toast.makeText(context, "Photo saved — will analyze during batch processing", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    // Immediate mode: run vision extraction now
+                    // Immediate mode: run vision extraction + Gemma-driven safety
+                    // tool calls. On a 3GB device ASR is released first so the
+                    // vision model has RAM headroom.
                     isScanProcessing = true
+                    scanStageMessage = context.getString(R.string.scan_analyzing)
+                    val readingMsg = context.getString(R.string.scan_analyzing)
+                    val choosingMsg = context.getString(R.string.scan_stage_choosing_tools)
+                    val runningMsg = context.getString(R.string.scan_stage_running_tools)
                     scope.launch {
-                        // Release ASR model first — on 3GB devices, ASR + vision can't coexist
                         asr.unloadOfflineModelAndWait()
-                        val result = withContext(Dispatchers.Default) {
-                            VisionExtractor(app.llmModelManager, app.promptBuilder).extract(filePath)
+                        val outcome = withContext(Dispatchers.Default) {
+                            val visionExtractor = VisionExtractor(app.llmModelManager, app.promptBuilder)
+                            val toolRegistry = CdssToolRegistry(app.cdss)
+                            val flow = VisionToolFlow(visionExtractor, app.llmModelManager, toolRegistry)
+                            // Patient context: prior allergies + current+prior diagnoses
+                            // give Gemma 4 the safety surface it needs to reason
+                            // about whether to call check_drug_allergy / _condition.
+                            val allergies = (patientContext?.knownAllergies ?: emptyList()) +
+                                (extractedEncounter?.allergies ?: emptyList())
+                            val priorDxs = (patientContext?.chronicConditions?.map { it.description } ?: emptyList()) +
+                                (extractedEncounter?.diagnoses?.map { it.description } ?: emptyList())
+                            flow.captureAndCheck(
+                                imagePath = filePath,
+                                patientAllergies = allergies.distinct(),
+                                patientPriorDiagnoses = priorDxs.distinct(),
+                                onStage = { stage ->
+                                    // Marshal back to Main: the Compose state
+                                    // setter is fine off-Main, but we want
+                                    // immediate recomposition.
+                                    val msg = when (stage) {
+                                        VisionToolFlow.Stage.READING_IMAGE -> readingMsg
+                                        VisionToolFlow.Stage.CHOOSING_TOOLS -> choosingMsg
+                                        VisionToolFlow.Stage.RUNNING_TOOLS -> runningMsg
+                                        VisionToolFlow.Stage.DONE -> null
+                                    }
+                                    scope.launch(Dispatchers.Main) { scanStageMessage = msg }
+                                },
+                            )
                         }
                         isScanProcessing = false
+                        scanStageMessage = null
+                        val result = outcome.visionResult
                         if (result != null) {
-                            lastScanType = result.contentType
-                            lastScanResult = result
+                            val photoId = java.util.UUID.randomUUID().toString()
                             val photoEntity = ClinicalPhotoEntity(
-                                id = java.util.UUID.randomUUID().toString(),
+                                id = photoId,
                                 encounterId = visitId ?: patientId,
                                 patientId = patientId,
                                 contentType = result.contentType,
@@ -1853,13 +2097,20 @@ fun EncounterRecordScreen(
                                 extractedJson = result.rawJson
                             )
                             app.database.clinicalPhotoDao().insert(photoEntity)
-                            extractedEncounter?.let { existing ->
-                                extractedEncounter = EncounterMerger.mergeVisionResult(existing, result)
-                            }
+                            lastScanType = result.contentType
+                            lastScanResult = result
+                            lastSafetyOutcome = outcome
+                            lastPhotoEntityId = photoId
+                            lastPhotoFilePath = filePath
+                            // Defer the merge into the encounter until the user
+                            // taps "Add to encounter" in the result card.
                             showScanResult = true
                         } else {
-                            Toast.makeText(context, "Could not extract data from image", Toast.LENGTH_SHORT).show()
-                            java.io.File(filePath).delete()
+                            // Keep the photo on disk so the user can retake
+                            // from a known starting point — the error dialog
+                            // gives them an explicit Retake action.
+                            lastPhotoFilePath = filePath
+                            showScanError = true
                         }
                     }
                 }

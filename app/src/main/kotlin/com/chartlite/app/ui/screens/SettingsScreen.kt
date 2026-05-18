@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -83,7 +84,9 @@ private fun ProviderOptionRow(
     }
 }
 
-private enum class SettingsCategory(val label: String, val summary: String) {
+/** Settings tab identifiers. Kept package-public so the navigation deeplink
+ *  ("settings?tab=ai") can land the user on a specific tab. */
+enum class SettingsCategory(val label: String, val summary: String) {
     ESSENTIALS("Essentials", "General, recording, and security"),
     AI_SPEECH("AI & Speech", "ASR and clinical extraction models"),
     OPERATIONS("Operations", "SMS and clinic workflow"),
@@ -93,13 +96,19 @@ private enum class SettingsCategory(val label: String, val summary: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onUserManagement: () -> Unit = {},
+    /** Tab to land on. Used by the encounter-screen "set up vision" deeplink so
+     *  the user lands on AI & Speech instead of Essentials. */
+    initialCategory: SettingsCategory = SettingsCategory.ESSENTIALS,
+) {
     val context = LocalContext.current
     val app = context.applicationContext as App
     val config = app.appConfig
     val scope = rememberCoroutineScope()
     val currentRole = app.sessionManager.currentSession?.role
-    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.ESSENTIALS.name) }
+    var selectedCategory by rememberSaveable { mutableStateOf(initialCategory.name) }
     var asrImportStatus by remember { mutableStateOf<String?>(null) }
     var llmImportStatus by remember { mutableStateOf<String?>(null) }
     var showFacilityQrDialog by remember { mutableStateOf(false) }
@@ -302,7 +311,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
 
                 val imported = app.llmModelManager.importModelFile(
                     sourceFile = tmpModel,
-                    expectedSha256 = app.llmModelManager.activeTier().sha256
+                    expectedSha256 = app.llmModelManager.activeExpectedSha256()
                 )
                 tmpModel.delete()
                 if (imported) {
@@ -385,15 +394,15 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // v1: only Essentials + AI/Speech. Operations, Regions, Admin hidden (see ROADMAP.md).
             val visibleCategories = remember(currentRole) {
                 buildList {
                     add(SettingsCategory.ESSENTIALS)
                     add(SettingsCategory.AI_SPEECH)
-                    // v2:
-                    // add(SettingsCategory.OPERATIONS)
-                    // add(SettingsCategory.REGIONS)
-                    // if (currentRole?.canManageUsers == true) add(SettingsCategory.ADMIN)
+                    if (currentRole?.canEditSettings == true) {
+                        add(SettingsCategory.OPERATIONS)
+                        add(SettingsCategory.REGIONS)
+                    }
+                    if (currentRole?.canManageUsers == true) add(SettingsCategory.ADMIN)
                 }
             }
             val activeCategory = remember(selectedCategory, visibleCategories) {
@@ -501,9 +510,15 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 var aiMode by remember { mutableStateOf(config.aiMode) }
                 val llmModelState by app.llmModelManager.state.collectAsState()
                 val llmRecommended = remember { app.llmModelManager.recommendedTier() }
+                val supportedLlmTiers = remember { com.chartlite.app.extraction.LlmModelManager.supportedModelTiers() }
+                val showLlmTierPicker = supportedLlmTiers.size > 1
                 val deviceRamGb = remember { app.llmModelManager.deviceRamGb() }
                 var selectedLlmTier by remember {
                     mutableStateOf(app.llmModelManager.activeTier())
+                }
+                val notesModelLabel = stringResource(R.string.setup_notes_model_label)
+                val notesModelSizeMb = remember(selectedLlmTier, deviceRamGb) {
+                    com.chartlite.app.extraction.LlmModelManager.modelSizeMbFor(selectedLlmTier, deviceRamGb)
                 }
 
                 fun notesProvider(model: String): String = when {
@@ -726,16 +741,16 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 ) { Text(stringResource(R.string.settings_process_batch)) }
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                if (noteProcessingMode == "immediate") stringResource(R.string.settings_process_immediately_desc)
-                                else stringResource(R.string.settings_process_batch_desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
+                                Text(
+                                    if (noteProcessingMode == "immediate") stringResource(R.string.settings_process_immediately_desc)
+                                    else stringResource(R.string.settings_process_batch_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
                             if (app.shouldUseStrictLowRamSerialization(aiMode)) {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "Strict low-RAM mode serializes voice capture and the local model so immediate mode can stay enabled.",
+                                    stringResource(R.string.settings_low_ram_processing_hint),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
@@ -752,6 +767,12 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                         llmModelState !is com.chartlite.app.extraction.LlmModelManager.ModelState.Ready
                     val asrReady = downloadState is ModelDownloader.DownloadState.Complete
                     val llmReady = llmModelState is com.chartlite.app.extraction.LlmModelManager.ModelState.Ready
+                    val downloadRequiredLabel = when {
+                        needsAsrDownload && needsLlmDownload -> stringResource(R.string.setup_download_all)
+                        needsAsrDownload -> stringResource(R.string.setup_download_model_format, stringResource(R.string.setup_voice_model_label))
+                        needsLlmDownload -> stringResource(R.string.setup_download_model_format, notesModelLabel)
+                        else -> stringResource(R.string.setup_download_all)
+                    }
 
                     if (voiceOffline || notesOffline) {
                         ElevatedCard(
@@ -770,9 +791,13 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 }
                                 if (notesOffline) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(selectedLlmTier.friendlyName, style = MaterialTheme.typography.bodyMedium)
+                                        Text(notesModelLabel, style = MaterialTheme.typography.bodyMedium)
                                         if (llmReady) Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                        else Text("${selectedLlmTier.sizeMb} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                        else Text(
+                                            "$notesModelSizeMb MB",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
                                     }
                                 }
 
@@ -884,7 +909,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                     ) {
                                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(8.dp))
-                                        Text(stringResource(R.string.setup_download_all))
+                                        Text(downloadRequiredLabel)
                                     }
                                 } else if (asrReady && (!notesOffline || llmReady)) {
                                     Spacer(Modifier.height(8.dp))
@@ -1102,15 +1127,64 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                             if (aiMode == "on_device" || aiMode == "auto") {
                                 Spacer(Modifier.height(8.dp))
                                 Text(stringResource(R.string.settings_on_device_qwen_model), fontWeight = FontWeight.Medium)
-                                com.chartlite.app.extraction.LlmModelManager.supportedModelTiers().forEach { tier ->
-                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(selected = tier == selectedLlmTier, onClick = {
-                                            if (tier != selectedLlmTier) { app.llmModelManager.deleteModel(); selectedLlmTier = tier
-                                                val ov = if (tier == llmRecommended) null else tier; app.llmModelManager.overrideTier = ov; app.appConfig.llmTierOverride = ov?.name ?: ""; app.llmModelManager.refreshState() }
-                                        })
-                                        Column(modifier = Modifier.padding(start = 4.dp)) {
-                                            Text("${tier.label} (${tier.sizeMb} MB)" + if (tier == llmRecommended) " ★" else "", fontWeight = if (tier == selectedLlmTier) FontWeight.SemiBold else FontWeight.Normal)
-                                            Text(tier.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                if (showLlmTierPicker) {
+                                    supportedLlmTiers.forEach { tier ->
+                                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(selected = tier == selectedLlmTier, onClick = {
+                                                if (tier != selectedLlmTier) { app.llmModelManager.deleteModel(); selectedLlmTier = tier
+                                                    val ov = if (tier == llmRecommended) null else tier; app.llmModelManager.overrideTier = ov; app.appConfig.llmTierOverride = ov?.name ?: ""; app.llmModelManager.refreshState() }
+                                            })
+                                            Column(modifier = Modifier.padding(start = 4.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        "${tier.label} (${com.chartlite.app.extraction.LlmModelManager.modelSizeMbFor(tier, deviceRamGb)} MB)",
+                                                        fontWeight = if (tier == selectedLlmTier) FontWeight.SemiBold else FontWeight.Normal
+                                                    )
+                                                    // Two distinct badges instead of a single ★ that can read
+                                                    // either as "active" or "best for this phone." "Selected"
+                                                    // wins when both apply (the user is on the recommended tier).
+                                                    val badge = when {
+                                                        tier == selectedLlmTier -> "Selected" to MaterialTheme.colorScheme.primary
+                                                        tier == llmRecommended -> "Recommended for this phone" to MaterialTheme.colorScheme.outline
+                                                        else -> null
+                                                    }
+                                                    badge?.let { (label, color) ->
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            label,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = color,
+                                                        )
+                                                    }
+                                                }
+                                                Text(tier.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Text(
+                                                notesModelLabel,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                stringResource(R.string.settings_notes_ai_auto_choice),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                "$notesModelSizeMb MB",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
                                         }
                                     }
                                 }
@@ -1119,11 +1193,11 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                 when (llmModelState) {
                                     is com.chartlite.app.extraction.LlmModelManager.ModelState.NotDownloaded -> {
                                         Button(onClick = { ModelDownloadService.start(context, "llm"); app.llmModelManager.startDownload() }, enabled = app.llmModelManager.isSupportedAbi() && trustedTier) {
-                                            Text(stringResource(R.string.settings_download_tier_format, selectedLlmTier.label)) }
+                                            Text(stringResource(R.string.settings_download_tier_format, notesModelLabel)) }
                                     }
                                     is com.chartlite.app.extraction.LlmModelManager.ModelState.Ready -> {
                                         val sizeMb = app.llmModelManager.modelSizeBytes() / (1024 * 1024)
-                                        Text(stringResource(R.string.settings_tier_ready_format, selectedLlmTier.label, sizeMb), color = MaterialTheme.colorScheme.primary)
+                                        Text(stringResource(R.string.settings_notes_model_ready_format, sizeMb), color = MaterialTheme.colorScheme.primary)
                                         TextButton(onClick = { app.llmModelManager.deleteModel() }) { Text(stringResource(R.string.settings_delete_model), color = MaterialTheme.colorScheme.error) }
                                     }
                                     is com.chartlite.app.extraction.LlmModelManager.ModelState.Downloading -> {
@@ -1154,7 +1228,7 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                                     else -> {}
                                 }
                                 Spacer(Modifier.height(8.dp))
-                                OutlinedButton(onClick = { importLlmModelLauncher.launch(arrayOf("*/*")) }, enabled = app.llmModelManager.isSupportedAbi()) { Text(stringResource(R.string.settings_import_gguf)) }
+                                OutlinedButton(onClick = { importLlmModelLauncher.launch(arrayOf("*/*")) }, enabled = app.llmModelManager.isSupportedAbi() && trustedTier) { Text(stringResource(R.string.settings_import_gguf)) }
                                 llmImportStatus?.let { msg -> Text(msg, style = MaterialTheme.typography.bodySmall, color = if (msg.contains("failed", true)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
 
@@ -1777,8 +1851,8 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                 Spacer(Modifier.height(8.dp))
             }
 
-            // About
-            if (activeCategory == SettingsCategory.ADMIN) {
+            // About (always visible in Essentials tab)
+            if (activeCategory == SettingsCategory.ESSENTIALS) {
             SettingsSection(stringResource(R.string.about)) {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.app_name)) },
@@ -1795,6 +1869,22 @@ fun SettingsScreen(onBack: () -> Unit, onUserManagement: () -> Unit = {}) {
                     supportingContent = { Text(config.facilityId) },
                     leadingContent = { Icon(Icons.Default.LocalHospital, contentDescription = stringResource(R.string.content_desc_facility)) }
                 )
+            }
+            SettingsSection(stringResource(R.string.settings_acknowledgements)) {
+                val bodhiUrl = stringResource(R.string.settings_bodhi_url)
+                Surface(onClick = {
+                    runCatching {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(bodhiUrl))
+                        context.startActivity(intent)
+                    }
+                }) {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.settings_bodhi_title)) },
+                        supportingContent = { Text(stringResource(R.string.settings_bodhi_subtitle)) },
+                        leadingContent = { Icon(Icons.Default.Biotech, contentDescription = null) },
+                        trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) }
+                    )
+                }
             }
             }
             }

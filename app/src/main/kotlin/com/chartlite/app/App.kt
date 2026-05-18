@@ -6,6 +6,7 @@ import com.chartlite.app.asr.ASREngine
 import com.chartlite.app.auth.AuditLogger
 import com.chartlite.app.auth.JoinCodeManager
 import com.chartlite.app.auth.SessionManager
+import com.chartlite.app.cdss.BodhiKnowledgeGraph
 import com.chartlite.app.cdss.StaticCDSS
 import com.chartlite.app.config.AppConfig
 import com.chartlite.app.config.CountryConfigLoader
@@ -66,6 +67,7 @@ class App : Application() {
     lateinit var visitRepository: VisitRepository private set
     lateinit var asr: ASREngine private set
     lateinit var cdss: StaticCDSS private set
+    lateinit var bodhiGraph: BodhiKnowledgeGraph private set
     lateinit var smsSender: SMSSender private set
     lateinit var dataExporter: DataExporter private set
     lateinit var syncEngine: SyncEngine private set
@@ -158,8 +160,10 @@ class App : Application() {
 
     /**
      * Resolve the active LLM tier without initializing the model manager.
+     * Public so screens that gate UI on tier capability (e.g. the encounter
+     * screen's vision-capture button) can read it without forcing a load.
      */
-    private fun fastActiveLlmTier(): LlmModelManager.ModelTier {
+    fun fastActiveLlmTier(): LlmModelManager.ModelTier {
         val override = appConfig.llmTierOverride.takeIf { it.isNotBlank() }
             ?.let { runCatching { LlmModelManager.ModelTier.valueOf(it) }.getOrNull() }
             ?.let(LlmModelManager::normalizeSupportedTier)
@@ -316,25 +320,51 @@ class App : Application() {
     }
 
     /**
+     * Opportunistically warm the on-device notes model while the clinician is
+     * typing or reviewing a transcript, so the next tap into local note writing
+     * is less likely to hit a full cold start.
+     */
+    suspend fun prewarmOnDeviceNotesForLikelyImmediateUse(): Boolean {
+        // Fire in both on_device and auto modes — auto uses on-device when connectivity
+        // or queue state favors it, and the warm lease costs nothing if the model is
+        // never actually loaded.
+        if (appConfig.aiMode !in setOf("on_device", "auto")) return false
+        val manager = llmModelManager
+        if (!manager.isReady()) return false
+        if (manager.isModelLoaded()) {
+            manager.keepModelWarmFor(manager.recommendedReviewWarmLeaseMs())
+            return true
+        }
+        if (!manager.hasRuntimeHeadroom(forInference = false)) return false
+        val readyForLlm = prepareOnDeviceNoteProcessingForLowRam()
+        if (!readyForLlm) return false
+        return manager.prewarmModel()
+    }
+
+    /**
      * Cheap file-existence check for whether the recommended/overridden on-device LLM
      * is installed. This avoids initializing the native LLM bridge for simple UI gating.
      */
     fun isLlmModelDownloadedFast(): Boolean {
         val tier = fastActiveLlmTier()
-        val dir = File(noBackupFilesDir, "llm_models/${tier.dirName}")
-        return LlmModelManager.hasRequiredModelFiles(dir, tier)
+        val baseDir = File(noBackupFilesDir, "llm_models")
+        return LlmModelManager.isModelInstalled(baseDir, tier, totalRamGb())
     }
 
     /**
      * Cheap check for whether the active tier supports on-device vision and is installed.
      * Used to hide camera actions when low-memory devices default to the text-only tier.
+     *
+     * Uses [LlmModelManager.isModelInstalled] which handles both layouts:
+     * Qwen extracted archives (multi-file directory) and Gemma `.task` bundles
+     * (single sealed file).
      */
     fun isLlmVisionModelDownloadedFast(): Boolean {
         if (!LlmModelManager.ON_DEVICE_VISION_ENABLED) return false
         val tier = fastActiveLlmTier()
         if (!tier.supportsVision) return false
-        val dir = File(noBackupFilesDir, "llm_models/${tier.dirName}")
-        return LlmModelManager.hasRequiredModelFiles(dir, tier)
+        val baseDir = File(noBackupFilesDir, "llm_models")
+        return LlmModelManager.isModelInstalled(baseDir, tier, totalRamGb())
     }
 
     val promptBuilder: ExtractionPromptBuilder
@@ -423,7 +453,12 @@ class App : Application() {
         syncEngine = SyncEngine(this, patientRepository, encounterRepository, visitRepository, appConfig, auditLogger)
 
         // Initialize large asset-backed services lazily so cold start stays cheap on 3 GB phones.
-        cdss = StaticCDSS(this)
+        bodhiGraph = BodhiKnowledgeGraph(this)
+        cdss = StaticCDSS(this, bodhiGraph)
+
+        // Populate the ICD-10 code ↔ 9-bit index table used by SMS binary encoding.
+        // Cheap (~300 entries) and needed before the first SMS is sent or received.
+        com.chartlite.app.sms.BinaryEncoder.initialize(this)
         protocolEngine = ClinicalProtocolEngine(this)
         facilityDirectory = FacilityDirectory(this) { appConfig.countryCode }
 
@@ -600,7 +635,7 @@ class App : Application() {
     private fun buildStructuredDraftExtractionOrchestrator(): ExtractionOrchestrator {
         val knowledge = getOrCreateExtractionKnowledge()
         val promptBuilder = ExtractionPromptBuilder(knowledge.icd10, knowledge.formulary)
-        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary)
+        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary, bodhiGraph)
         val strategies = mutableListOf<ExtractionStrategy>()
         val lowRamInferencePreflight: (suspend () -> Boolean)? =
             if (shouldUseStrictLowRamSerialization()) {
@@ -609,7 +644,12 @@ class App : Application() {
                 null
             }
 
-        if (aiModeCanUseOnDeviceFallback() && fastActiveLlmTier() == LlmModelManager.ModelTier.SMALL) {
+        // Register the on-device LLM strategy for ANY supported tier. The strategy
+        // is family-agnostic — it routes through `LlmModelManager.runChatInference`,
+        // which dispatches Qwen → MNN/llama.cpp and Gemma → MediaPipe LLM Inference.
+        // (Class is named QwenExtractionStrategy for historical reasons; the
+        //  inference call site is generic.)
+        if (aiModeCanUseOnDeviceFallback()) {
             strategies.add(
                 QwenExtractionStrategy(
                     modelManagerProvider = { llmModelManager },
@@ -651,7 +691,7 @@ class App : Application() {
     private fun buildNoteGenerationOrchestrator(): ExtractionOrchestrator {
         val knowledge = getOrCreateExtractionKnowledge()
         val promptBuilder = ExtractionPromptBuilder(knowledge.icd10, knowledge.formulary)
-        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary)
+        val responseParser = LlmResponseParser(knowledge.icd10, knowledge.formulary, bodhiGraph)
         val strategies = mutableListOf<ExtractionStrategy>()
         val lowRamInferencePreflight: (suspend () -> Boolean)? =
             if (shouldUseStrictLowRamSerialization()) {
@@ -738,7 +778,7 @@ class App : Application() {
 
         val clinicalExtractor = ClinicalExtractor(formulary, icd10, vectorStore)
         val promptBuilder = ExtractionPromptBuilder(icd10, formulary, vectorStore)
-        val responseParser = LlmResponseParser(icd10, formulary)
+        val responseParser = LlmResponseParser(icd10, formulary, bodhiGraph)
         val strategies = mutableListOf<ExtractionStrategy>()
         val lowRamInferencePreflight: (suspend () -> Boolean)? =
             if (shouldUseStrictLowRamSerialization()) {
@@ -906,6 +946,7 @@ class App : Application() {
             runCatching {
                 getOrCreateExtractionKnowledge()
                 cdss.preload()
+                bodhiGraph.preload()
                 protocolEngine.preload()
                 facilityDirectory.preloadCurrentCountry()
             }.onFailure {

@@ -1,12 +1,18 @@
 package com.chartlite.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.chartlite.app.App
 import androidx.compose.ui.res.stringResource
 import com.chartlite.app.R
@@ -39,6 +46,34 @@ fun PatientSearchScreen(
     var results by remember { mutableStateOf<List<PatientEntity>>(emptyList()) }
     var searched by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
+
+    // ── Voice search state ──
+    val asr = app.asr
+    val isListening by asr.isListening.collectAsState()
+    val liveTranscript by asr.transcript.collectAsState()
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> hasMicPermission = granted }
+
+    // Auto-update the search query as the ASR transcript fills in — feels
+    // immediate even before the user taps Stop.
+    LaunchedEffect(liveTranscript) {
+        if (isListening && liveTranscript.isNotBlank()) {
+            query = liveTranscript.trim()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (asr.isListening.value) asr.cancelListening(releaseOnnxAfterCancel = true)
+        }
+    }
 
     // Load recent patients on first open
     LaunchedEffect(Unit) {
@@ -84,8 +119,56 @@ fun PatientSearchScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text(stringResource(R.string.search_by_id_name_phone)) },
+                label = {
+                    Text(
+                        if (isListening) stringResource(R.string.voice_search_listening)
+                        else stringResource(R.string.search_by_id_name_phone)
+                    )
+                },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                // Trailing mic button — voice-search the patient by speaking
+                // the name or ID. Reuses the same ASR pipeline as voice
+                // registration; the live transcript becomes the query as it
+                // streams, so results appear before the user taps Stop.
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            if (isListening) {
+                                scope.launch {
+                                    val result = asr.stopListeningAndAwait(
+                                        releaseOnnxAfterStop = false,
+                                        finalizeTimeoutMs = 8_000L,
+                                    )
+                                    val text = result.text.ifBlank { liveTranscript.trim() }
+                                    if (text.isNotBlank()) query = text
+                                }
+                            } else if (!hasMicPermission) {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                scope.launch {
+                                    app.startAsrCaptureWithLowMemoryHandoff(
+                                        language = app.appConfig.language,
+                                        onError = { /* silent — user can retry */ },
+                                        maxRecordingMinutes = 1,
+                                        disableSilenceAutoStop = true,
+                                    )
+                                }
+                            }
+                        },
+                    ) {
+                        Icon(
+                            if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = if (isListening)
+                                stringResource(R.string.stop)
+                            else
+                                stringResource(R.string.voice_search_patient),
+                            tint = if (isListening)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)

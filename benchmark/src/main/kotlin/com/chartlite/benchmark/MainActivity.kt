@@ -128,7 +128,7 @@ fun BenchmarkScreen(context: Context) {
                         scope.launch {
                             busyEngine = engine.name
                             results = results.filter { it.engine != engine.name }
-                            val r = runSingleBenchmark(engine) { s -> status = "${engine.name}: $s" }
+                            val r = runSingleBenchmark(engine, context) { s -> status = "${engine.name}: $s" }
                             results = results + r
                             status = if (r.error == null) "${engine.name}: ${"%.1f".format(r.metrics.decodeTokPerSec)} tok/s" else "${engine.name}: failed"
                             busyEngine = null
@@ -181,7 +181,7 @@ fun BenchmarkScreen(context: Context) {
                                 results = emptyList()
                                 val readyEngines = engines.filter { it.isModelReady() }
                                 for (engine in readyEngines) {
-                                    val r = runSingleBenchmark(engine) { s -> status = "${engine.name}: $s" }
+                                    val r = runSingleBenchmark(engine, context) { s -> status = "${engine.name}: $s" }
                                     results = results + r
                                 }
                                 status = "Done — ${results.count { it.error == null }}/${results.size} engines"
@@ -447,10 +447,24 @@ private suspend fun downloadModel(
 
 private suspend fun runSingleBenchmark(
     engine: BenchmarkEngine,
+    context: Context,
     onStatus: (String) -> Unit
 ): BenchmarkResult {
     if (!engine.isModelReady()) {
         return BenchmarkResult(engine.name, engine.modelFormat, EngineMetrics(), error = "Model not downloaded")
+    }
+
+    // Check system-level available RAM (not Java heap — models allocate natively).
+    // MNN malloc's the full model (~500MB) into native heap → needs more headroom.
+    // llama.cpp mmap's the file so the OS pages in/out on demand → needs less.
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val memInfo = ActivityManager.MemoryInfo()
+    am.getMemoryInfo(memInfo)
+    val availMb = memInfo.availMem / 1024 / 1024
+    val thresholdMb = if (engine is MnnEngine) 600 else 300  // MNN needs full malloc headroom
+    if (memInfo.lowMemory || availMb < thresholdMb) {
+        return BenchmarkResult(engine.name, engine.modelFormat, EngineMetrics(),
+            error = "Not enough RAM (${availMb}MB available, need ${thresholdMb}MB)")
     }
 
     onStatus("loading…")

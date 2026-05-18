@@ -29,7 +29,7 @@ object LlamaCppBridge {
 
     fun isAvailable(): Boolean = initialized
 
-    fun loadModel(modelPath: String, nThreads: Int = 4): Boolean {
+    fun loadModel(modelPath: String, nThreads: Int = 0): Boolean {
         check(initialized) { "LlamaCppBridge not initialized" }
         return nativeLoadModel(modelPath, nThreads)
     }

@@ -32,7 +32,8 @@ object EncounterSaveCoordinator {
         visitId: String? = null,
         station: ClinicStation? = null,
         referralInstructions: String? = null,  // Doctor-edited patient instructions
-        referralSmsOverride: String? = null     // Doctor-edited SMS text
+        referralSmsOverride: String? = null,    // Doctor-edited SMS text
+        sendPatientSms: Boolean = true
     ): String {
         val patient = app.patientRepository.getById(patientId)
         val patientAllergies = patient?.let {
@@ -100,7 +101,7 @@ object EncounterSaveCoordinator {
 
                 // Send plain-text referral SMS to patient (non-blocking)
                 val phone = patient?.phoneNumber
-                if (!phone.isNullOrBlank()) {
+                if (sendPatientSms && !phone.isNullOrBlank()) {
                     app.appScope.launch(Dispatchers.IO) {
                         try {
                             val refResult = app.smsSender.sendPlainSMS(phone, smsText)
@@ -184,7 +185,7 @@ object EncounterSaveCoordinator {
             Log.d("EncounterSave", "Auto-recorded ${encounter.immunizations.size} immunization(s)")
         }
 
-        patient?.let { p ->
+        if (sendPatientSms) patient?.let { p ->
             val phone = p.phoneNumber
             val dxList = encounter.diagnoses.ifEmpty { encounter.suggestedDiagnoses }
             val dxSummary = dxList.take(3).joinToString(", ") { it.description }
@@ -375,11 +376,14 @@ object EncounterSaveCoordinator {
             )
         }
 
-        // Reconstruct diagnoses from hash indices (store hash — will match on re-encoding)
-        val diagnoses = enc.diagnosisIndices.filter { it > 0 }.map { hashIndex ->
+        // Reconstruct diagnoses from stable indices using the PHC top-300 table.
+        // Unknown indices (not in the table) are stored as "#<idx>" placeholders
+        // the clinician can correct in review.
+        val diagnoses = enc.diagnosisIndices.filter { it > 0 }.map { idx ->
+            val resolved = com.chartlite.app.sms.BinaryEncoder.indexToCode(idx)
             Diagnosis(
-                icd10Code = "#$hashIndex",  // hash placeholder; clinician can correct
-                description = "Imported diagnosis (hash $hashIndex)",
+                icd10Code = resolved ?: "#$idx",
+                description = resolved?.let { "ICD-10 $it" } ?: "Imported diagnosis (#$idx)",
                 confidence = 0f
             )
         }

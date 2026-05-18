@@ -83,6 +83,9 @@ fun HomeScreen(
     val extractionQueueState by (extractionQueue?.state ?: idleExtractionQueueState).collectAsState()
     val processedCount by (extractionQueue?.processedCount ?: idleProcessedCount).collectAsState()
     val currentStep by (extractionQueue?.processingStep ?: idleProcessingStep).collectAsState()
+    val canOpenSettings = currentRole?.let {
+        it.canEditSettings || it.canConfigureDevice
+    } != false
 
     var recentEncounters by remember { mutableStateOf<List<EncounterEntity>>(emptyList()) }
     var patientCount by remember { mutableIntStateOf(0) }
@@ -228,7 +231,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.headlineLarge,
                             color = BrandGreenDark
                         )
-                        if (currentRole?.canEditSettings != false) {
+                        if (canOpenSettings) {
                             IconButton(
                                 onClick = { onSettings() },
                                 modifier = Modifier.size(48.dp)
@@ -296,21 +299,30 @@ fun HomeScreen(
                         // Primary action depends on station; Find Patient is always second
                         val newPatientLabel = stringResource(R.string.new_patient)
                         val nextPatientLabel = stringResource(R.string.next_patient)
+                        val noPatientsWaitingMessage = "No patients are waiting at ${activeStation.displayName}."
+                        fun startNextPatient(action: (VisitEntity) -> Unit) {
+                            val nextVisit = queueVisits.firstOrNull()
+                            if (nextVisit == null) {
+                                scope.launch { snackbarHostState.showSnackbar(noPatientsWaitingMessage) }
+                            } else {
+                                action(nextVisit)
+                            }
+                        }
                         val (primaryIcon, primaryLabel, primaryClick) = when (activeStation) {
                             ClinicStation.REGISTRATION -> Triple(
                                 Icons.Default.PersonAdd, newPatientLabel, onNewPatient
                             )
                             ClinicStation.TRIAGE -> Triple(
                                 Icons.Default.MonitorHeart, nextPatientLabel,
-                                { queueVisits.firstOrNull()?.let { onStartTriage(it.patientId, it.id) }; Unit }
+                                { startNextPatient { onStartTriage(it.patientId, it.id) } }
                             )
                             ClinicStation.CONSULTATION -> Triple(
                                 Icons.Default.MedicalServices, nextPatientLabel,
-                                { queueVisits.firstOrNull()?.let { onStartConsultation(it.patientId, it.id) }; Unit }
+                                { startNextPatient { onStartConsultation(it.patientId, it.id) } }
                             )
                             ClinicStation.PHARMACY -> Triple(
                                 Icons.Default.Medication, nextPatientLabel,
-                                { queueVisits.firstOrNull()?.let { onStartPharmacy(it.id) }; Unit }
+                                { startNextPatient { onStartPharmacy(it.id) } }
                             )
                         }
                         Row(
@@ -412,7 +424,7 @@ fun HomeScreen(
                 }
             }
 
-            // v2: Extraction queue / batch processing — hidden for v1. See ROADMAP.md.
+            // Extraction queue / batch processing.
             item(key = "extraction_queue") {
                 val queuedCount = extractionItems.count {
                     it.status == com.chartlite.app.extraction.ExtractionQueueRepository.QueueStatus.QUEUED ||
@@ -425,7 +437,7 @@ fun HomeScreen(
                 val hasItems = queuedCount > 0 || readyCount > 0 || failedCount > 0
                 val isProcessing = extractionQueueState == com.chartlite.app.extraction.ExtractionQueue.QueueState.PROCESSING
 
-                if (false && (hasItems || isProcessing)) { // v1: hidden
+                if (hasItems || isProcessing || batchModeEnabled) {
                     // Full card when there are items or processing
                     Card(
                         modifier = Modifier

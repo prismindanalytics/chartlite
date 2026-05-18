@@ -61,7 +61,10 @@ class AppConfig(context: Context) : AuthConfig {
         set(value) = prefs.edit().putString(KEY_LANGUAGE, value).apply()
 
     override var autoLockMinutes: Int
-        get() = prefs.getInt(KEY_AUTO_LOCK, 5)
+        // 10-minute default — long enough to record + review one encounter on
+        // a Galaxy A14 without lock-out (5-minute default fired mid-task often
+        // enough to be a real friction in field testing).
+        get() = prefs.getInt(KEY_AUTO_LOCK, 10)
         set(value) = prefs.edit().putInt(KEY_AUTO_LOCK, value).apply()
 
     var maxRecordingMinutes: Int

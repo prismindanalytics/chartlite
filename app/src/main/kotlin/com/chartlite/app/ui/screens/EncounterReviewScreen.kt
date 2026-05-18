@@ -99,9 +99,9 @@ fun EncounterReviewScreen(
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    // v1: Summary + SOAP Note only. Claim Preview hidden for v1 (see ROADMAP.md).
     val tabs = listOf(
         stringResource(R.string.review_tab_summary),
+        stringResource(R.string.review_tab_claim_preview),
         stringResource(R.string.review_tab_soap_note)
     )
 
@@ -139,6 +139,11 @@ fun EncounterReviewScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // AI-mode chip — single line, top of screen, visible regardless
+            // of which tab is selected. Moved from the bottom of the SOAP
+            // tab (where it was clinically informative but easy to miss).
+            AiModeChip(context, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
             // Tab row
             PrimaryTabRow(selectedTabIndex = selectedTab) {
                 tabs.forEachIndexed { index, title ->
@@ -173,8 +178,8 @@ fun EncounterReviewScreen(
                         }
                     }
                 )
-                // v1: tab 1 = SOAP Note (Claim Preview hidden, see ROADMAP.md)
-                1 -> SOAPNoteTab(enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
+                1 -> ClaimPreviewTab(enc, diagnoses, medications, vitals, context, patientName)
+                2 -> SOAPNoteTab(enc, diagnoses, medications, vitals, allergies, alerts, patientName, context,
                     examFindings, investigations, planItems, socialHistory, suggestedDiagnoses)
             }
         }
@@ -360,6 +365,19 @@ private fun SummaryTab(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // Bulk-confirm shortcut when there's more than one suggestion.
+                // Single-item add still uses the per-row "+" button below.
+                if (visibleSuggested.size >= 2) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { visibleSuggested.forEach { onConfirmDiagnosis(it) } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.AddCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.confirm_all_suggested, visibleSuggested.size))
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 visibleSuggested.forEach { dx ->
                     Row(
@@ -658,6 +676,25 @@ private fun SummaryTab(
                     if (showNotes) {
                         Spacer(Modifier.height(8.dp))
                         MarkdownText(noteText, style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        // First-2-lines preview when collapsed — lets the
+                        // clinician glance the chief complaint without
+                        // committing a tap. Long text is ellipsised.
+                        val preview = noteText.lineSequence()
+                            .filter { it.isNotBlank() }
+                            .take(2)
+                            .joinToString(" · ")
+                            .take(140)
+                        if (preview.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                if (preview.length >= 140) "$preview…" else preview,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -1154,8 +1191,9 @@ private fun SOAPNoteTab(
             Text(stringResource(R.string.export_as_pdf))
         }
 
-        // Dynamic AI mode indicator
-        AiModeCard(context)
+        // AI-mode indicator moved to the top of the encounter review (above
+        // the tab row) so it's visible on every tab without taking valuable
+        // bottom-of-screen space.
 
         Spacer(Modifier.height(16.dp))
     }
@@ -1197,8 +1235,61 @@ private fun SOAPSection(
     }
 }
 
-// ── AI Mode Card ──
+// ── AI Mode Chip ──
+//
+// Compact horizontal chip showing which inference path produced this
+// encounter's note (cloud vs on-device vs offline fallback). Lives at the
+// top of the encounter review so the clinician can see it on every tab.
+//
+// The legacy [AiModeCard] (full-bleed card with a description paragraph) is
+// kept below for callers that still want the verbose version, but the
+// review screen now uses the chip.
+@Composable
+private fun AiModeChip(context: Context, modifier: Modifier = Modifier) {
+    val app = context.applicationContext as App
+    val aiMode = app.appConfig.aiMode
+    val tier = remember { com.chartlite.app.ui.components.detectTier(context) }
+    val isConnected = tier == com.chartlite.app.ui.components.ConnectivityTier.CONNECTED
+    val isCloudMode = aiMode == "cloud" || aiMode == "auto"
 
+    val (icon, tint, label) = when {
+        isConnected && isCloudMode -> Triple(
+            Icons.Default.Cloud,
+            BrandGreen,
+            stringResource(R.string.ai_mode_cloud_title)
+        )
+        aiMode == "on_device" -> Triple(
+            Icons.Default.PhoneAndroid,
+            WarningAmber,
+            stringResource(R.string.ai_mode_device_title)
+        )
+        else -> Triple(
+            Icons.Default.CloudOff,
+            Neutral600,
+            stringResource(R.string.ai_mode_fallback_title)
+        )
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = tint.copy(alpha = 0.08f),
+        contentColor = tint,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+// ── AI Mode Card (legacy verbose variant — no longer rendered) ──
+
+@Suppress("unused")
 @Composable
 private fun AiModeCard(context: Context) {
     val app = context.applicationContext as App

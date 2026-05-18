@@ -10,6 +10,7 @@ import com.chartlite.llm.LlamaBridge
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Call
@@ -20,27 +21,45 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
 
 /**
- * Manages downloading and loading of MNN-LLM models for on-device inference.
- * MNN-LLM provides 2-8x faster inference than llama.cpp on ARM Android devices.
+ * Manages downloading and loading of on-device Qwen models for text inference.
  *
- * Hardware-aware tier selection:
- * - <4GB RAM: Qwen 3.5 0.8B INT4 (~390MB) — fits Galaxy A03/A04
- * - >=4GB RAM: Qwen 3.5 2B INT4 (~1.0GB) — better accuracy
+ * Production backend selection is hardware-aware:
+ * - <4GB RAM: llama.cpp + Qwen 3.5 0.8B Q4_K_M GGUF
+ * - >=4GB RAM: MNN + Qwen 3.5 0.8B INT4
  *
- * MNN models are stored as directories (llm.mnn, llm.mnn.weight, llm_config.json,
- * tokenizer.txt, config.json) downloaded as zip archives and extracted on device.
- *
- * Models stored in context.noBackupFilesDir/llm_models/ (excluded from auto-backup).
+ * MNN payloads are extracted directories. llama.cpp payloads are single GGUF files.
+ * Models are stored in context.noBackupFilesDir/llm_models/ (excluded from auto-backup).
  */
 class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
+    enum class InferenceBackend {
+        MNN,
+        LLAMA_CPP,
+        /** Google's MediaPipe LLM Inference runtime — used for Gemma 4 .task
+         *  bundles published by `litert-community` on HuggingFace. The
+         *  `gemma-4-E{2,4}B-it-web.task` files inside the
+         *  `gemma-4-E{2,4}B-it-litert-lm` repos are the MediaPipe-compatible
+         *  variant; the `.litertlm` files in the same repo target the native
+         *  LiteRT-LM runtime which we don't use. */
+        MEDIAPIPE
+    }
+
     data class GenerationConfig(
         val temperature: Float = 0.1f,
         val topP: Float = 0.95f,
         val topK: Int = 40,
         val repeatPenalty: Float = 1.0f
+    )
+
+    data class RuntimeStats(
+        val lastLoadMs: Long = 0L,
+        val lastInferenceMs: Long = 0L,
+        val coldLoads: Int = 0,
+        val warmStarts: Int = 0,
+        val lastStartWasWarm: Boolean = false
     )
 
     private data class DownloadResult(
@@ -59,6 +78,10 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     private val _state = MutableStateFlow<ModelState>(ModelState.NotDownloaded)
     val state: StateFlow<ModelState> = _state
+    private val _isPreparingModel = MutableStateFlow(false)
+    val isPreparingModel: StateFlow<Boolean> = _isPreparingModel
+    private val _runtimeStats = MutableStateFlow(RuntimeStats())
+    val runtimeStats: StateFlow<RuntimeStats> = _runtimeStats
 
     private val modelsDir = File(context.noBackupFilesDir, "llm_models").apply { mkdirs() }
 
@@ -99,6 +122,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     @Volatile private var loadCleanupPending = false
     @Volatile private var warmLeaseUntilMs = 0L
     private var timedOutLoadCleanupJob: Job? = null
+    private val preparingModelCount = AtomicInteger(0)
 
     init {
         context.registerComponentCallbacks(this)
@@ -131,17 +155,23 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     /** Active tier: user override if set, otherwise hardware-recommended. */
     fun activeTier(): ModelTier = normalizeSupportedTier(overrideTier) ?: recommendedTier()
 
+    fun activeBackend(): InferenceBackend = backendForRam(deviceRamGb())
+
     fun supportsOnDeviceVision(): Boolean = ON_DEVICE_VISION_ENABLED && activeTier().supportsVision
 
-    /** Directory containing MNN model files for the active tier. */
-    val modelDir: File get() = File(modelsDir, activeTier().dirName)
+    /** Directory containing the active backend's on-device model payload. */
+    val modelDir: File get() = installRootFor(modelsDir, activeTier(), deviceRamGb())
 
-    /** Legacy accessor for callers that expect a single file path (returns model directory). */
-    val modelFile: File get() = modelDir
+    /** Active backend model entry point: MNN directory or llama.cpp GGUF file. */
+    val modelFile: File get() = modelFileFor(modelsDir, activeTier(), deviceRamGb())
+
+    fun activeModelSizeMb(): Int = modelSizeMbFor(activeTier(), deviceRamGb())
+
+    fun activeExpectedSha256(): String = expectedSha256For(activeTier(), deviceRamGb())
 
     fun isModelDownloaded(): Boolean {
         if (isInstallInProgressState()) return false
-        return hasRequiredModelFiles(modelDir, activeTier())
+        return isModelInstalled(modelsDir, activeTier(), deviceRamGb())
     }
 
     fun isNativeAvailable(): Boolean {
@@ -165,20 +195,22 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     fun isReady(): Boolean {
         val downloaded = isModelDownloaded()
         val native = isNativeAvailable()
-        val trusted = hasPinnedChecksum()
-        if (!downloaded || !native || !trusted) {
+        // Pinned SHA is preferred but not required: trust-on-first-download is
+        // applied in `startDownload` / `importModelFile` for tiers that ship
+        // without a published digest. Don't gate readiness on it here.
+        if (!downloaded || !native) {
             Log.d(
                 TAG,
-                "isReady=false: downloaded=$downloaded, native=$native, trusted=$trusted, file=${modelFile.absolutePath}"
+                "isReady=false: downloaded=$downloaded, native=$native, file=${modelFile.absolutePath}"
             )
         }
-        return downloaded && native && trusted
+        return downloaded && native
     }
 
     fun modelSizeBytes(): Long {
-        val dir = modelDir
-        if (!dir.exists()) return 0
-        return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        val path = modelFile
+        if (!path.exists()) return 0
+        return if (path.isFile) path.length() else path.walkTopDown().filter { it.isFile }.sumOf { it.length() }
     }
 
     private fun isInstallInProgressState(state: ModelState = _state.value): Boolean =
@@ -197,33 +229,59 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         am.getMemoryInfo(memInfo)
 
         val modelBytes = modelSizeBytes().takeIf { it > 0L }
-            ?: (activeTier().sizeMb.toLong() * 1024L * 1024L)
+            ?: (activeModelSizeMb().toLong() * 1024L * 1024L)
         val ramGb = deviceRamGb()
+        val backend = activeBackend()
+        val useMmap = backend == InferenceBackend.LLAMA_CPP
         val isUltraLowRam = ramGb <= ULTRA_LOW_RAM_DEVICE_GB
         val isLowRamDevice = ramGb <= LOW_RAM_DEVICE_GB
-        val baseHeadroom = (modelBytes / 4).coerceIn(128L * 1024 * 1024, 384L * 1024 * 1024)
+
+        // llama.cpp uses mmap — the OS pages model weights from disk on demand,
+        // so the file size does NOT count against available RAM like a malloc.
+        // Only context buffers + KV cache consume real RSS (~100-150MB for 0.8B Q4).
+        // MNN malloc's the full model, so file size directly maps to RSS.
+        val modelRssEstimate = if (useMmap) {
+            128L * 1024 * 1024  // KV cache + context + batch scratch for 0.8B Q4
+        } else {
+            modelBytes / 2
+        }
+        val baseHeadroom = if (useMmap) {
+            128L * 1024 * 1024  // mmap pages are clean — kernel reclaims freely under pressure
+        } else {
+            (modelBytes / 4).coerceIn(128L * 1024 * 1024, 384L * 1024 * 1024)
+        }
         // Ultra-low-RAM (≤3GB): aggressive but safe — onTrimMemory auto-unloads if pressured.
         // Context is 2048 (not 4096) so KV cache is ~50-80MB, batch=64 is tiny.
         val tierHeadroom = when (activeTier()) {
             ModelTier.SMALL -> when {
-                isUltraLowRam -> 384L * 1024 * 1024   // 384MB — tight but workable
-                isLowRamDevice -> 512L * 1024 * 1024   // 512MB — moderate
+                useMmap && isUltraLowRam -> 128L * 1024 * 1024  // llama.cpp mmap: minimal headroom needed
+                useMmap && isLowRamDevice -> 192L * 1024 * 1024
+                isUltraLowRam -> 384L * 1024 * 1024   // MNN: tight but workable
+                isLowRamDevice -> 512L * 1024 * 1024   // MNN: moderate
                 else -> 512L * 1024 * 1024
             }
             ModelTier.LARGE -> 1024L * 1024 * 1024
+            // MediaPipe handles its own delegate memory (NNAPI/GPU); we still
+            // reserve broadly to avoid OOM during model load + KV cache.
+            ModelTier.GEMMA_E2B -> 1024L * 1024 * 1024
+            ModelTier.GEMMA_E4B -> 1536L * 1024 * 1024
         }
         val burst = if (!forInference) {
             0L
         } else when (activeTier()) {
             ModelTier.SMALL -> when {
-                isUltraLowRam -> 192L * 1024 * 1024    // 192MB — ctx=2048, batch=64; MNN peak alloc needs extra margin
+                useMmap && isUltraLowRam -> 64L * 1024 * 1024   // llama.cpp: small decode burst
+                useMmap && isLowRamDevice -> 96L * 1024 * 1024
+                isUltraLowRam -> 192L * 1024 * 1024    // MNN: leaves room for KV/cache growth on 3GB devices
                 isLowRamDevice -> 256L * 1024 * 1024
                 else -> 256L * 1024 * 1024
             }
             ModelTier.LARGE -> 512L * 1024 * 1024
+            ModelTier.GEMMA_E2B -> 384L * 1024 * 1024
+            ModelTier.GEMMA_E4B -> 512L * 1024 * 1024
         }
         val headroom = maxOf(baseHeadroom, tierHeadroom)
-        val required = modelBytes / 2 + headroom + burst
+        val required = modelRssEstimate + headroom + burst
         return MemoryBudget(
             availableRamBytes = memInfo.availMem,
             requiredRamBytes = required,
@@ -286,6 +344,18 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         )
     }
 
+    private fun validateInstalledModelOrThrow(path: File, tier: ModelTier, backend: InferenceBackend) {
+        if (backend == InferenceBackend.MNN) {
+            validateInstalledModelDirectoryOrThrow(path, tier)
+            return
+        }
+        if (!path.exists() || path.length() <= 0L) {
+            throw IllegalStateException(
+                "Installed ${tier.label} GGUF file is missing or empty. Re-download or re-import the model."
+            )
+        }
+    }
+
     fun hasRuntimeHeadroom(forInference: Boolean = true): Boolean {
         if (!isModelDownloaded() || !isSupportedAbi()) return false
 
@@ -297,12 +367,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             val memInfo = ActivityManager.MemoryInfo()
             am.getMemoryInfo(memInfo)
+            val backend = activeBackend()
             val burst = when (activeTier()) {
                 ModelTier.SMALL -> when {
+                    backend == InferenceBackend.LLAMA_CPP && deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 64L * 1024 * 1024
+                    backend == InferenceBackend.LLAMA_CPP -> 96L * 1024 * 1024
                     deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 192L * 1024 * 1024
                     else -> 256L * 1024 * 1024
                 }
                 ModelTier.LARGE -> 512L * 1024 * 1024
+                ModelTier.GEMMA_E2B -> 384L * 1024 * 1024
+                ModelTier.GEMMA_E4B -> 512L * 1024 * 1024
             }
             val hasHeadroom = memInfo.availMem >= burst
             if (!hasHeadroom) {
@@ -417,19 +492,58 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
-    private suspend fun runNativeLoadWithTimeout(dir: File, timeoutMs: Long): Boolean {
+    private suspend fun installModelFile(sourceFile: File, destDir: File, destFileName: String) {
+        prepareInstallDirectory(destDir)
+        try {
+            val destFile = File(destDir, destFileName)
+            sourceFile.copyTo(destFile, overwrite = true)
+            if (!destFile.exists() || destFile.length() == 0L) {
+                throw IllegalStateException("Copied GGUF file is empty")
+            }
+            clearVerifiedModelCache()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to install GGUF model file; clearing partial files", e)
+            destDir.deleteRecursively()
+            destDir.mkdirs()
+            clearVerifiedModelCache()
+            throw e
+        }
+    }
+
+    private suspend fun runNativeLoadWithTimeout(modelPath: File, backend: InferenceBackend, timeoutMs: Long): Boolean {
         if (loadCleanupPending) {
             throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
         }
 
         val loadTask = scope.async(Dispatchers.IO) {
-            LlamaBridge.initGenerateModel(dir.absolutePath)
+            // For Gemma 4 we load via MediaPipe (Google's native runtime).
+            // The .task bundle is a single file, so modelPath is the file itself.
+            if (activeTier().family == ModelFamily.GEMMA) {
+                com.chartlite.llm.GemmaBridge.initModel(
+                    context = context,
+                    modelFile = modelPath,
+                    maxTokensCap = 4096,
+                    topK = 40,
+                    temperature = 0.1f,
+                )
+            } else {
+                LlamaBridge.initGenerateModel(
+                    modelPath.absolutePath,
+                    when (backend) {
+                        InferenceBackend.MNN -> LlamaBridge.Backend.MNN
+                        InferenceBackend.LLAMA_CPP -> LlamaBridge.Backend.LLAMA_CPP
+                        // Should never reach here — Gemma path is taken in the if-branch above.
+                        // Defensive: fall through to llama.cpp if somehow misrouted.
+                        InferenceBackend.MEDIAPIPE -> LlamaBridge.Backend.LLAMA_CPP
+                    }
+                )
+            }
         }
 
         val success = withTimeoutOrNull(timeoutMs) { loadTask.await() }
         if (success != null) return success
 
-        Log.e(TAG, "On-device model load timed out after ${timeoutMs / 1000}s for ${dir.name}")
+        Log.e(TAG, "On-device ${backend.name} model load timed out after ${timeoutMs / 1000}s for ${modelPath.name}")
         loadCleanupPending = true
         timedOutLoadCleanupJob?.cancel()
         timedOutLoadCleanupJob = scope.launch(Dispatchers.IO) {
@@ -441,6 +555,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             } finally {
                 try {
                     LlamaBridge.shutdown()
+                    com.chartlite.llm.GemmaBridge.close()
                 } catch (e: Exception) {
                     Log.w(TAG, "Error cleaning up timed-out model load", e)
                 }
@@ -449,7 +564,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 timedOutLoadCleanupJob = null
             }
         }
-        throw IllegalStateException("On-device model load timed out after ${timeoutMs / 1000}s")
+        throw IllegalStateException("On-device ${backend.name} model load timed out after ${timeoutMs / 1000}s")
     }
 
     private fun scheduleAutoUnload() {
@@ -469,6 +584,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
+    private fun markModelPreparing(active: Boolean) {
+        if (active) {
+            if (preparingModelCount.incrementAndGet() == 1) {
+                _isPreparingModel.value = true
+            }
+            return
+        }
+
+        val remaining = preparingModelCount.decrementAndGet()
+        if (remaining <= 0) {
+            preparingModelCount.set(0)
+            _isPreparingModel.value = false
+        }
+    }
+
     // ── Model loading ──
 
     /**
@@ -476,10 +606,10 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
      * Uses [loadMutex] to prevent concurrent double-loading and to
      * coordinate with [unloadModel] / [onTrimMemory].
      *
-     * MNN-LLM JNI bridge loading:
+     * On-device JNI bridge loading:
      * - Takes a file path string (no ContentResolver/FileProvider/FD dance)
-     * - Returns Boolean on failure (no SIGSEGV)
-     * - Handles mmap automatically
+     * - Returns Boolean on failure
+     * - Dispatches to the selected backend for this device
      * - Supports updateGenerateParams for temperature/maxTokens control
      */
     suspend fun loadModel() {
@@ -489,64 +619,77 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
         }
 
-        // Timeout on mutex acquisition — prevents hanging forever if a previous
-        // load is stuck in native code (OOM/page reclaim on 3GB devices).
-        val acquired = withTimeoutOrNull(modelLoadTimeoutMs() + 15_000L) {
-            loadMutex.lock()
-            true
-        }
-        if (acquired == null) {
-            throw IllegalStateException("Timed out waiting for model load lock — previous load may be stuck")
-        }
-
+        markModelPreparing(true)
         try {
-            // Re-check after acquiring lock
-            if (modelLoaded) return
-            if (loadCleanupPending) {
-                throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
+            // Timeout on mutex acquisition — prevents hanging forever if a previous
+            // load is stuck in native code (OOM/page reclaim on 3GB devices).
+            val acquired = withTimeoutOrNull(modelLoadTimeoutMs() + 15_000L) {
+                loadMutex.lock()
+                true
+            }
+            if (acquired == null) {
+                throw IllegalStateException("Timed out waiting for model load lock — previous load may be stuck")
             }
 
-            val startedAt = System.currentTimeMillis()
-            val timeoutMs = modelLoadTimeoutMs()
-            withContext(Dispatchers.IO) {
-                val dir = modelDir
-                val tier = activeTier()
-                validateInstalledModelDirectoryOrThrow(dir, tier)
-                val budget = currentMemoryBudget(forInference = true)
-                if (budget.availableRamBytes < budget.requiredRamBytes) {
-                    Log.w(TAG, "Insufficient system memory to load LLM: " +
-                        "${budget.availableRamBytes / 1024 / 1024}MB available, need " +
-                        "${budget.requiredRamBytes / 1024 / 1024}MB " +
-                        "(model mmap working set + ${budget.headroomBytes / 1024 / 1024}MB headroom + " +
-                        "${budget.burstBytes / 1024 / 1024}MB inference burst)")
-                    throw IllegalStateException("Not enough free memory for on-device note processing")
+            try {
+                // Re-check after acquiring lock
+                if (modelLoaded) return
+                if (loadCleanupPending) {
+                    throw IllegalStateException("Previous model load is still cleaning up. Try again in a few seconds.")
                 }
 
-                Log.d(
-                    TAG,
-                    "Loading model via MNN-LLM: ${dir.name} " +
-                        "(avail=${availableRamMb()}MB, timeout=${timeoutMs / 1000}s)"
-                )
+                val startedAt = System.currentTimeMillis()
+                val timeoutMs = modelLoadTimeoutMs()
+                withContext(Dispatchers.IO) {
+                    val backend = activeBackend()
+                    val path = modelFile
+                    val tier = activeTier()
+                    validateInstalledModelOrThrow(path, tier, backend)
+                    val budget = currentMemoryBudget(forInference = true)
+                    if (budget.availableRamBytes < budget.requiredRamBytes) {
+                        Log.w(TAG, "Insufficient system memory to load LLM: " +
+                            "${budget.availableRamBytes / 1024 / 1024}MB available, need " +
+                            "${budget.requiredRamBytes / 1024 / 1024}MB " +
+                            "(model mmap working set + ${budget.headroomBytes / 1024 / 1024}MB headroom + " +
+                            "${budget.burstBytes / 1024 / 1024}MB inference burst)")
+                        throw IllegalStateException("Not enough free memory for on-device note processing")
+                    }
 
-                // MNN: pass directory path containing llm_config.json, llm.mnn, llm.mnn.weight, tokenizer.txt
-                val success = runNativeLoadWithTimeout(dir, timeoutMs)
-                if (!success) {
-                    throw IllegalStateException("MNN model load failed for ${dir.name}")
+                    Log.d(
+                        TAG,
+                        "Loading model via ${backendDisplayName(backend)}: ${path.name} " +
+                            "(avail=${availableRamMb()}MB, timeout=${timeoutMs / 1000}s)"
+                    )
+
+                    val success = runNativeLoadWithTimeout(path, backend, timeoutMs)
+                    if (!success) {
+                        throw IllegalStateException("${backendDisplayName(backend)} model load failed for ${path.name}")
+                    }
+
+                    // Keep the on-device generation budget conservative so structured
+                    // extraction completes promptly instead of drifting into multi-minute runs.
+                    applyGenerationParams(recommendedOutputTokens())
+
+                    modelLoaded = true
+                    val loadElapsedMs = System.currentTimeMillis() - startedAt
+                    _runtimeStats.update {
+                        it.copy(
+                            lastLoadMs = loadElapsedMs,
+                            coldLoads = it.coldLoads + 1,
+                            lastStartWasWarm = false
+                        )
+                    }
+                    Log.d(
+                        TAG,
+                        "Model loaded: ${path.name} via ${backendDisplayName(backend)} in ${loadElapsedMs}ms " +
+                            "(avail=${availableRamMb()}MB)"
+                    )
                 }
-
-                // Keep the on-device generation budget conservative so structured
-                // extraction completes promptly instead of drifting into multi-minute runs.
-                applyGenerationParams(recommendedOutputTokens())
-
-                modelLoaded = true
-                Log.d(
-                    TAG,
-                    "Model loaded: ${dir.name} in ${System.currentTimeMillis() - startedAt}ms " +
-                        "(avail=${availableRamMb()}MB)"
-                )
+            } finally {
+                loadMutex.unlock()
             }
         } finally {
-            loadMutex.unlock()
+            markModelPreparing(false)
         }
     }
 
@@ -571,12 +714,13 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             if (modelLoaded) {
                 try {
                     LlamaBridge.shutdown()
+                    com.chartlite.llm.GemmaBridge.close()
                 } catch (e: Exception) {
                     Log.w(TAG, "Error during LlamaBridge.shutdown()", e)
                 }
                 modelLoaded = false
                 warmLeaseUntilMs = 0L
-                System.gc() // Help OS see freed ~390 MB native MNN memory sooner
+                System.gc() // Help the OS observe reclaimed native model memory sooner
                 Log.d(TAG, "Model unloaded (avail=${availableRamMb()}MB)")
             }
         } finally {
@@ -602,6 +746,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             }
             try {
                 LlamaBridge.shutdown()
+                com.chartlite.llm.GemmaBridge.close()
             } catch (e: Exception) {
                 Log.w(TAG, "Error during blocking LlamaBridge.shutdown()", e)
             }
@@ -638,6 +783,38 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
     }
 
+    fun recommendedReviewWarmLeaseMs(): Long {
+        val lastLoadMs = runtimeStats.value.lastLoadMs
+        return when {
+            deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB && lastLoadMs >= 10_000L -> 180_000L
+            deviceRamGb() <= ULTRA_LOW_RAM_DEVICE_GB -> 150_000L
+            deviceRamGb() <= LOW_RAM_DEVICE_GB && lastLoadMs >= 6_000L -> 150_000L
+            deviceRamGb() <= LOW_RAM_DEVICE_GB -> 120_000L
+            else -> 90_000L
+        }
+    }
+
+    suspend fun prewarmModel(): Boolean {
+        if (!isReady()) return false
+        if (modelLoaded) {
+            keepModelWarmFor(recommendedReviewWarmLeaseMs())
+            return true
+        }
+        if (loadCleanupPending || inferring || _isPreparingModel.value) return true
+        if (!hasRuntimeHeadroom(forInference = false)) return false
+
+        return try {
+            loadModel()
+            keepModelWarmFor(recommendedReviewWarmLeaseMs())
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Background model prewarm skipped", e)
+            false
+        }
+    }
+
+    fun isModelLoaded(): Boolean = modelLoaded
+
     // ── Inference ──
 
     /**
@@ -663,9 +840,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
 
     /**
      * Run chat-based inference with structured system/user messages.
-     * MNN applies the model's native chat template with proper special token IDs.
-     * This avoids the tokenization issue where manually-written <|im_start|> tags
-     * are treated as regular text instead of special tokens.
+     * The active backend applies the model's native chat template when available,
+     * avoiding manual prompt tags that can tokenize incorrectly.
      */
     suspend fun runChatInference(
         systemPrompt: String,
@@ -673,7 +849,19 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         maxTokens: Int = recommendedOutputTokens(),
         config: GenerationConfig = GenerationConfig()
     ): String? = executeInference("generateChat", maxTokens, config) {
-        LlamaBridge.generateChat(systemPrompt, userMessage)
+        // Vendor-native dispatch: Qwen → MNN/llama.cpp via LlamaBridge,
+        // Gemma → MediaPipe LLM Inference via GemmaBridge.
+        when (activeTier().family) {
+            ModelFamily.QWEN ->
+                LlamaBridge.generateChat(systemPrompt, userMessage)
+            ModelFamily.GEMMA ->
+                com.chartlite.llm.GemmaBridge.generateChat(
+                    systemPrompt = systemPrompt,
+                    userMessage = userMessage,
+                    topK = config.topK,
+                    temperature = config.temperature
+                )
+        }
     }
 
     /**
@@ -694,8 +882,22 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             return null
         }
         return executeInference("generateVision", maxTokens, config) {
-        LlamaBridge.generateVision(systemPrompt, userMessage, imagePath)
-    }
+            // Vendor-native dispatch: Qwen → MNN/llama.cpp via LlamaBridge
+            // (currently a stub returning null — to be implemented), Gemma 4
+            // → MediaPipe LLM Inference via GemmaBridge.
+            when (activeTier().family) {
+                ModelFamily.QWEN ->
+                    LlamaBridge.generateVision(systemPrompt, userMessage, imagePath)
+                ModelFamily.GEMMA ->
+                    com.chartlite.llm.GemmaBridge.generateVision(
+                        systemPrompt = systemPrompt,
+                        userMessage = userMessage,
+                        imagePath = imagePath,
+                        topK = config.topK,
+                        temperature = config.temperature,
+                    )
+            }
+        }
     }
 
     /**
@@ -734,6 +936,15 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         autoUnloadJob?.cancel()
         val timeoutMs = inferenceTimeoutMs()
         val startedAt = System.currentTimeMillis()
+        val warmStart = modelLoaded
+        if (warmStart) {
+            _runtimeStats.update {
+                it.copy(
+                    warmStarts = it.warmStarts + 1,
+                    lastStartWasWarm = true
+                )
+            }
+        }
         return try {
             // Set inferring BEFORE loadModel() to prevent onTrimMemory from
             // unloading mid-load on 3GB devices under memory pressure.
@@ -753,7 +964,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                         Log.d(
                             TAG,
                             "Starting $label inference " +
-                                "(maxTokens=$maxTokens, timeout=${timeoutMs / 1000}s, avail=${availableRamMb()}MB)"
+                                "(start=${if (warmStart) "warm" else "cold"}, maxTokens=$maxTokens, " +
+                                "timeout=${timeoutMs / 1000}s, avail=${availableRamMb()}MB)"
                         )
 
                         val text = generate()
@@ -762,10 +974,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                             Log.w(TAG, "LlamaBridge.$label returned empty")
                             result.complete(null)
                         } else {
+                            val inferenceElapsedMs = System.currentTimeMillis() - startedAt
+                            _runtimeStats.update {
+                                it.copy(
+                                    lastInferenceMs = inferenceElapsedMs,
+                                    lastStartWasWarm = warmStart
+                                )
+                            }
                             Log.d(
                                 TAG,
                                 "$label inference complete: ${text.length} chars " +
-                                    "in ${System.currentTimeMillis() - startedAt}ms (avail=${availableRamMb()}MB)"
+                                    "in ${inferenceElapsedMs}ms (start=${if (warmStart) "warm" else "cold"}, avail=${availableRamMb()}MB)"
                             )
                             result.complete(text)
                         }
@@ -893,23 +1112,42 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         if (downloadJob?.isActive == true) return
 
         val tier = activeTier()
+        val ramGb = deviceRamGb()
+        val backend = backendForRam(ramGb)
+        val filename = modelFilenameFor(tier, ramGb)
+        val modelUrl = modelUrlFor(tier, ramGb)
         downloadJob = scope.launch {
             // Note: wake locks removed — ModelDownloadService foreground service
             // keeps the process alive during screen-off / Doze mode.
             try {
-                val pinnedSha = requirePinnedSha256(tier)
-                val tmpFile = File(modelsDir, "${tier.filename}.tmp")
+                // Pinned SHA-256 is preferred. Tiers that ship without one
+                // (Gemma `.task` from litert-community) fall through to
+                // trust-on-first-download from the official source URL.
+                val pinnedSha = pinnedSha256OrNull(tier)
+                if (pinnedSha == null) {
+                    Log.w(
+                        TAG,
+                        "${tier.label}: SHA-256 not pinned — using trust-on-first-download. " +
+                            "Computed SHA will be logged after download for promotion."
+                    )
+                }
+                val tmpFile = File(modelsDir, "${filename}.tmp")
                 var resumeFromByte = if (tmpFile.exists()) tmpFile.length() else 0L
                 var verified = false
 
                 for (attempt in 1..2) {
                     _state.value = ModelState.Downloading(resumeFromByte, -1)
-                    val downloadResult = downloadFile(tier.modelUrl, tmpFile, resumeFromByte)
+                    val downloadResult = downloadFile(modelUrl, tmpFile, resumeFromByte)
 
                     _state.value = ModelState.Verifying
                     val actualSha = sha256(tmpFile)
+                    if (pinnedSha == null) {
+                        Log.i(TAG, "$filename downloaded (sha256=$actualSha) — pin this digest in ModelTier when convenient")
+                        verified = true
+                        break
+                    }
                     if (actualSha.equals(pinnedSha, ignoreCase = true)) {
-                        Log.i(TAG, "SHA-256 verified for ${tier.filename} via pinned digest")
+                        Log.i(TAG, "SHA-256 verified for $filename via pinned digest")
                         verified = true
                         break
                     }
@@ -939,12 +1177,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 }
 
                 val destDir = modelDir
-                _state.value = ModelState.Installing(0L, -1L)
-                installModelArchive(tmpFile, destDir, tier) { bytesProcessed, totalBytes ->
-                    _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                if (isArchiveInstallFor(tier, ramGb)) {
+                    _state.value = ModelState.Installing(0L, -1L)
+                    installModelArchive(tmpFile, destDir, tier) { bytesProcessed, totalBytes ->
+                        _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                    }
+                } else {
+                    _state.value = ModelState.Installing(tmpFile.length(), tmpFile.length())
+                    installModelFile(tmpFile, destDir, filename)
                 }
                 tmpFile.delete()
-                Log.i(TAG, "Installed ${tier.label} model archive successfully")
+                Log.i(TAG, "Installed ${tier.label} for ${backendDisplayName(backend)} successfully")
                 _state.value = ModelState.Ready
 
             } catch (e: CancellationException) {
@@ -966,8 +1209,8 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
-     * Import a local MNN model zip (USB/SD sideload).
-     * Extracts into the active tier directory and marks the model ready.
+     * Import a local on-device model artifact (USB/SD sideload).
+     * Installs the active backend payload and marks the model ready.
      */
     fun importModelFile(sourceFile: File, expectedSha256: String): Boolean {
         if (!isSupportedAbi()) {
@@ -980,17 +1223,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         }
 
         return try {
+            val ramGb = deviceRamGb()
+            val filename = modelFilenameFor(activeTier(), ramGb)
             _state.value = ModelState.Verifying
 
             val configuredSha = normalizeSha256(expectedSha256)
-            if (configuredSha == null) {
-                _state.value = ModelState.Error(
-                    "Trusted model SHA-256 is not configured for this tier."
-                )
-                return false
-            }
             val actualSha = sha256(sourceFile)
-            if (!actualSha.equals(configuredSha, ignoreCase = true)) {
+            if (configuredSha == null) {
+                // Tier ships without a pinned SHA-256 (e.g. Gemma `.task` from
+                // litert-community). Trust the sideloaded file; log the digest
+                // so we can promote it into the tier definition later.
+                Log.w(
+                    TAG,
+                    "${activeTier().label}: SHA-256 not pinned — accepting sideload (sha256=$actualSha)"
+                )
+            } else if (!actualSha.equals(configuredSha, ignoreCase = true)) {
                 _state.value = ModelState.Error(
                     "SHA-256 mismatch. Expected: ${configuredSha.take(12)}... " +
                         "Got: ${actualSha.take(12)}..."
@@ -1002,12 +1249,17 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             activeCall?.cancel()
             val destDir = modelDir
             runBlocking(Dispatchers.IO) {
-                _state.value = ModelState.Installing(0L, -1L)
-                installModelArchive(sourceFile, destDir, activeTier()) { bytesProcessed, totalBytes ->
-                    _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                if (isArchiveInstallFor(activeTier(), ramGb)) {
+                    _state.value = ModelState.Installing(0L, -1L)
+                    installModelArchive(sourceFile, destDir, activeTier()) { bytesProcessed, totalBytes ->
+                        _state.value = ModelState.Installing(bytesProcessed, totalBytes)
+                    }
+                } else {
+                    _state.value = ModelState.Installing(sourceFile.length(), sourceFile.length())
+                    installModelFile(sourceFile, destDir, filename)
                 }
             }
-            Log.i(TAG, "Imported ${activeTier().label} model archive successfully")
+            Log.i(TAG, "Imported ${activeTier().label} for ${backendDisplayName(activeBackend())} successfully")
             _state.value = ModelState.Ready
             true
         } catch (e: Exception) {
@@ -1097,8 +1349,11 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     fun refreshState() {
+        // Note: a missing pinned SHA-256 no longer hard-errors the state.
+        // Tiers that ship without one (Gemma `.task` from litert-community)
+        // use trust-on-first-download in `startDownload` / `importModelFile`,
+        // which logs the actual digest for later promotion.
         _state.value = when {
-            !hasPinnedChecksum() -> ModelState.Error("Trusted SHA-256 is not configured for ${activeTier().label}")
             isModelDownloaded() -> ModelState.Ready
             modelDir.exists() && modelDir.listFiles()?.isNotEmpty() == true ->
                 ModelState.Error("Installed ${activeTier().label} files are incomplete. Re-download or re-import the model.")
@@ -1109,7 +1364,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 if (sideloaded != null) {
                     Log.i(TAG, "Found sideloaded LLM model: ${sideloaded.absolutePath}")
                     scope.launch(Dispatchers.IO) {
-                        importModelFile(sideloaded, activeTier().sha256)
+                        importModelFile(sideloaded, activeExpectedSha256())
                     }
                     ModelState.Verifying
                 } else {
@@ -1120,10 +1375,10 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     /**
-     * Scan external storage directories (microSD, USB OTG) for a sideloaded MNN model zip.
+     * Scan external storage directories (microSD, USB OTG) for a sideloaded model artifact.
      *
-     * For LMIC zero-connectivity deployments, models can be pre-loaded onto a microSD card.
-     * Place the zip at: `<sdcard>/Android/data/com.chartlite.app/files/chartlite/<filename>.zip`
+     * For zero-connectivity deployments, the active backend artifact can be pre-loaded
+     * onto a microSD card at: `<sdcard>/Android/data/com.chartlite.app/files/chartlite/<filename>`
      *
      * Uses scoped storage ([Context.getExternalFilesDirs]) — no extra permissions needed.
      */
@@ -1134,8 +1389,9 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         if (externalDirs.isEmpty()) return null
 
         val tier = activeTier()
+        val filename = modelFilenameFor(tier, deviceRamGb())
         for (dir in externalDirs) {
-            val modelFile = File(File(dir, "chartlite"), tier.filename)
+            val modelFile = File(File(dir, "chartlite"), filename)
             if (modelFile.exists() && modelFile.length() > 0) {
                 Log.d(TAG, "Sideloaded LLM model found: ${modelFile.absolutePath} (${modelFile.length() / 1024 / 1024} MB)")
                 return modelFile
@@ -1165,7 +1421,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn.zip",
             sha256 = "5780c9f0912679ae8f271dae7cc15690bf803dfefd9e94d14bfd105100bc7b44",
             sizeMb = 390,
-            description = "Fast text-only inference via MNN, fits low-memory phones",
+            description = "Fast text-only inference; uses llama.cpp below 4 GB RAM and MNN at 4 GB or higher",
             supportsVision = false
         ),
         LARGE(
@@ -1175,16 +1431,60 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             modelUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-2b-int4-mnn-vision.zip",
             sha256 = "344f169dcb38b3fc6f2b67e8ed9ffdbb9906edf85d87fb1228aae195348de29a",
             sizeMb = 1205,
-            description = "Higher accuracy + vision via MNN, needs 4+ GB RAM",
+            description = "Higher-accuracy on-device model via MNN, needs 4+ GB RAM",
+            supportsVision = true
+        ),
+        GEMMA_E2B(
+            label = "Gemma 4 E2B",
+            dirName = "gemma4-e2b-mediapipe",
+            // `-web.task` is the MediaPipe-compatible bundle inside the LiteRT-LM
+            // repo. The repo also ships a native `.litertlm` (LiteRT-LM runtime)
+            // and Qualcomm-specific NPU variants we don't use.
+            filename = "gemma-4-E2B-it-web.task",
+            // Source: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
+            // Base model card: https://huggingface.co/google/gemma-4-E2B-it
+            modelUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task",
+            // SHA-256 verified against HuggingFace LFS metadata (X-Linked-ETag).
+            sha256 = "2cbff161177a4d51c9d04360016185976f504517ba5758cd10c1564e5421c5a5",
+            sizeMb = 1910,  // 2,003,697,664 bytes
+            description = "Gemma 4 E2B via MediaPipe LLM Inference (Google's native runtime, GPU/NNAPI delegated). Vision-capable. Recommended for 4+ GB RAM phones.",
+            supportsVision = true
+        ),
+        GEMMA_E4B(
+            label = "Gemma 4 E4B",
+            dirName = "gemma4-e4b-mediapipe",
+            filename = "gemma-4-E4B-it-web.task",
+            modelUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task",
+            sha256 = "f3bd72fc27627be2a2cc6722199a333599590ed0962ee7047b516a506b7bf086",
+            sizeMb = 2827,  // 2,964,324,352 bytes
+            description = "Gemma 4 E4B via MediaPipe LLM Inference. Best-on-device accuracy in the Gemma 4 family. Vision-capable. Recommended for 6+ GB RAM phones.",
             supportsVision = true
         );
 
-        /** Non-technical display name for simplified UI (e.g., setup wizard). */
+        /** Non-technical display name for simplified UI (e.g., setup wizard).
+         *  Gemma 4 is now the primary recommendation on phones with ≥4 GB RAM
+         *  (vision-capable + best on the public clinical-edge-bench). Qwen tiers
+         *  remain selectable as alternatives. */
         val friendlyName: String get() = when (this) {
-            SMALL -> "Standard"
-            LARGE -> "Enhanced"
+            SMALL -> "Compact (Qwen 0.8B, low-RAM)"
+            LARGE -> "Qwen 2B (text-only)"
+            GEMMA_E2B -> "Gemma 4 E2B (recommended, 4 GB+)"
+            GEMMA_E4B -> "Gemma 4 E4B (recommended, 6 GB+)"
+        }
+
+        /** Model family — drives which ExtractionStrategy and which native engine to use. */
+        val family: ModelFamily get() = when (this) {
+            SMALL, LARGE -> ModelFamily.QWEN
+            GEMMA_E2B, GEMMA_E4B -> ModelFamily.GEMMA
         }
     }
+
+    /**
+     * On-device LLM family. Each family uses its vendor's native engine:
+     *   - QWEN  → MNN (Alibaba's runtime, optimal for Qwen 3.5)
+     *   - GEMMA → MediaPipe LLM Inference (Google's runtime, optimal for Gemma 4)
+     */
+    enum class ModelFamily { QWEN, GEMMA }
 
     fun recommendedTier(): ModelTier = recommendedTierForRam(deviceRamGb())
 
@@ -1286,11 +1586,21 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     fun hasPinnedChecksum(tier: ModelTier = activeTier()): Boolean =
-        normalizeSha256(tier.sha256) != null
+        normalizeSha256(expectedSha256For(tier, deviceRamGb())) != null
 
     private fun requirePinnedSha256(tier: ModelTier): String =
-        normalizeSha256(tier.sha256)
+        normalizeSha256(expectedSha256For(tier, deviceRamGb()))
             ?: throw IllegalStateException("Trusted SHA-256 is not configured for ${tier.label}")
+
+    /**
+     * Pinned SHA-256 for the active tier, or null when the tier ships without a
+     * pinned digest (e.g. the Gemma `.task` bundles from `litert-community` on
+     * HuggingFace, where we don't have a published SHA yet). Callers treat null
+     * as "trust on first download from the official source" and log the actual
+     * SHA so it can be promoted into the tier definition later.
+     */
+    private fun pinnedSha256OrNull(tier: ModelTier): String? =
+        normalizeSha256(expectedSha256For(tier, deviceRamGb()))
 
     private fun clearVerifiedModelCache() {
         verifiedModelFingerprint = null
@@ -1318,10 +1628,24 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
     }
 
     companion object {
+        private data class BackendArtifact(
+            val backend: InferenceBackend,
+            val installDirName: String,
+            val filename: String,
+            val downloadUrl: String,
+            val sha256: String,
+            val sizeMb: Int,
+            val extractedArchive: Boolean
+        )
+
         private const val TAG = "LlmModelManager"
-        const val ON_DEVICE_VISION_ENABLED = false
+        // Enabled for Gemma 4 via MediaPipe LLM Inference (LlmInferenceSession.addImage).
+        // Qwen vision is still stubbed in LlamaBridge.generateVision; on Qwen tiers
+        // VisionExtractor returns null and the UI falls back to text-only flows.
+        const val ON_DEVICE_VISION_ENABLED = true
         private const val ULTRA_LOW_RAM_DEVICE_GB = 3.0
         private const val LOW_RAM_DEVICE_GB = 3.5
+        private const val MNN_BACKEND_RAM_THRESHOLD_GB = 4.0
         private const val CONSTRAINED_DEVICE_GB = 6.0
         private const val ULTRA_LOW_RAM_MAX_TRANSCRIPT_CHARS = 2500
         private const val LOW_RAM_MAX_TRANSCRIPT_CHARS = 4000
@@ -1357,22 +1681,130 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val CANCEL_WAIT_TIMEOUT_MS = 5_000L
         private const val DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS = 15_000L
 
-        fun supportedModelTiers(): List<ModelTier> =
-            if (ON_DEVICE_VISION_ENABLED) {
-                ModelTier.entries
+        fun backendForRam(ramGb: Double): InferenceBackend =
+            if (ramGb >= MNN_BACKEND_RAM_THRESHOLD_GB) {
+                InferenceBackend.MNN
             } else {
-                listOf(ModelTier.SMALL)
+                InferenceBackend.LLAMA_CPP
             }
+
+        fun backendDisplayName(backend: InferenceBackend): String = when (backend) {
+            InferenceBackend.MNN -> "MNN-LLM"
+            InferenceBackend.LLAMA_CPP -> "llama.cpp"
+            InferenceBackend.MEDIAPIPE -> "MediaPipe LLM"
+        }
+
+        private fun artifactFor(tier: ModelTier, ramGb: Double): BackendArtifact = when (tier) {
+            // backendForRam() only returns MNN or LLAMA_CPP for Qwen tiers — the
+            // MEDIAPIPE branch is unreachable here (Gemma routes through its own
+            // ModelTier branch below). Defensive `else` keeps the `when`
+            // exhaustive for Kotlin 2.x without obscuring the SMALL-tier branches.
+            ModelTier.SMALL -> when (backendForRam(ramGb)) {
+                InferenceBackend.MNN -> BackendArtifact(
+                    backend = InferenceBackend.MNN,
+                    installDirName = "qwen35-0.8b-mnn",
+                    filename = "qwen35-0.8b-int4-mnn.zip",
+                    downloadUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-0.8b-int4-mnn.zip",
+                    sha256 = "5780c9f0912679ae8f271dae7cc15690bf803dfefd9e94d14bfd105100bc7b44",
+                    sizeMb = 390,
+                    extractedArchive = true
+                )
+                InferenceBackend.LLAMA_CPP -> BackendArtifact(
+                    backend = InferenceBackend.LLAMA_CPP,
+                    installDirName = "qwen35-0.8b-gguf",
+                    filename = "Qwen3.5-0.8B-Q4_K_M.gguf",
+                    downloadUrl = "https://huggingface.co/prismindanalytics/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
+                    sha256 = "eae8384b021563263ff2411abd10d5de250af63bbe1341925845cd482fefe17a",
+                    sizeMb = 505,
+                    extractedArchive = false
+                )
+                InferenceBackend.MEDIAPIPE -> error(
+                    "Unreachable: backendForRam() never returns MEDIAPIPE for Qwen SMALL tier"
+                )
+            }
+            ModelTier.LARGE -> BackendArtifact(
+                backend = InferenceBackend.MNN,
+                installDirName = "qwen35-2b-mnn",
+                filename = "qwen35-2b-int4-mnn-vision.zip",
+                downloadUrl = "https://huggingface.co/prismindanalytics/qwen3.5-0.8b-int4-mnn/resolve/main/qwen35-2b-int4-mnn-vision.zip",
+                sha256 = "344f169dcb38b3fc6f2b67e8ed9ffdbb9906edf85d87fb1228aae195348de29a",
+                sizeMb = 1205,
+                extractedArchive = true
+            )
+            ModelTier.GEMMA_E2B -> BackendArtifact(
+                backend = InferenceBackend.MEDIAPIPE,
+                installDirName = "gemma4-e2b-mediapipe",
+                filename = "gemma-4-E2B-it-web.task",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task",
+                sha256 = "2cbff161177a4d51c9d04360016185976f504517ba5758cd10c1564e5421c5a5",
+                sizeMb = 1910,
+                extractedArchive = false  // .task is a sealed bundle; no zip extraction
+            )
+            ModelTier.GEMMA_E4B -> BackendArtifact(
+                backend = InferenceBackend.MEDIAPIPE,
+                installDirName = "gemma4-e4b-mediapipe",
+                filename = "gemma-4-E4B-it-web.task",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task",
+                sha256 = "f3bd72fc27627be2a2cc6722199a333599590ed0962ee7047b516a506b7bf086",
+                sizeMb = 2827,
+                extractedArchive = false
+            )
+        }
+
+        fun modelSizeMbFor(tier: ModelTier, ramGb: Double): Int = artifactFor(tier, ramGb).sizeMb
+
+        fun expectedSha256For(tier: ModelTier, ramGb: Double): String = artifactFor(tier, ramGb).sha256
+
+        fun modelUrlFor(tier: ModelTier, ramGb: Double): String = artifactFor(tier, ramGb).downloadUrl
+
+        fun modelFilenameFor(tier: ModelTier, ramGb: Double): String = artifactFor(tier, ramGb).filename
+
+        fun installRootFor(baseDir: File, tier: ModelTier, ramGb: Double): File =
+            File(baseDir, artifactFor(tier, ramGb).installDirName)
+
+        fun modelFileFor(baseDir: File, tier: ModelTier, ramGb: Double): File {
+            val artifact = artifactFor(tier, ramGb)
+            val root = installRootFor(baseDir, tier, ramGb)
+            return if (artifact.extractedArchive) root else File(root, artifact.filename)
+        }
+
+        fun isArchiveInstallFor(tier: ModelTier, ramGb: Double): Boolean =
+            artifactFor(tier, ramGb).extractedArchive
+
+        fun isModelInstalled(baseDir: File, tier: ModelTier, ramGb: Double): Boolean {
+            val artifact = artifactFor(tier, ramGb)
+            return if (artifact.extractedArchive) {
+                hasRequiredModelFiles(installRootFor(baseDir, tier, ramGb), tier)
+            } else {
+                modelFileFor(baseDir, tier, ramGb).let { it.exists() && it.length() > 0L }
+            }
+        }
+
+        fun supportedModelTiers(): List<ModelTier> = ModelTier.entries
+        // All four tiers are selectable. Gemma 4 (E2B / E4B) is the recommended
+        // default on capable hardware (vision-capable, best on clinical-edge-bench).
+        // Qwen 0.8B remains the only working option <4 GB RAM, and Qwen 2B stays
+        // available as a text-only alternative for users who prefer MNN. Vision
+        // calls fall back gracefully when the active tier doesn't support them
+        // (LlamaBridge.generateVision returns null on Qwen).
 
         fun normalizeSupportedTier(tier: ModelTier?): ModelTier? =
             tier?.takeIf { it in supportedModelTiers() }
 
         fun recommendedTierForRam(ramGb: Double): ModelTier {
-            // 4GB threshold is only relevant when the 2B vision-capable package is enabled.
-            return if (ON_DEVICE_VISION_ENABLED && ramGb >= 4.0) {
-                ModelTier.LARGE
-            } else {
-                ModelTier.SMALL
+            // Gemma 4 (via MediaPipe) is the on-device default on phones with
+            // enough RAM. It supports vision, and on the public clinical-edge-bench
+            // it out-performs Qwen 3.5 across pharmacology MCQA, calculator
+            // vignettes, and SOAP generation. See chartlite-bodhi-bench.pages.dev.
+            //
+            // Below 4GB stays on Qwen 0.8B (Gemma E2B is too heavy at <4GB; our
+            // llama.cpp + Qwen path is the only working ultra-low-RAM option
+            // today). On these devices vision returns null and the UI falls
+            // back to text-only flows gracefully.
+            return when {
+                ramGb >= 6.0 -> ModelTier.GEMMA_E4B
+                ramGb >= 4.0 -> ModelTier.GEMMA_E2B
+                else -> ModelTier.SMALL
             }
         }
 

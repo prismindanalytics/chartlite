@@ -20,4 +20,7 @@ interface ClinicalPhotoDao {
 
     @Delete
     suspend fun delete(photo: ClinicalPhotoEntity)
+
+    @Query("DELETE FROM clinical_photos WHERE id = :id")
+    suspend fun deleteById(id: String)
 }

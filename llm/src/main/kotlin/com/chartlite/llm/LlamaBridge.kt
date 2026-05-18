@@ -5,10 +5,15 @@ import android.util.Log
 import java.io.File
 
 /**
- * JNI bridge to MNN-LLM for on-device Qwen inference.
- * Loads libchartlite-llm.so which wraps MNN's Llm C++ API.
+ * JNI bridge to the on-device Qwen runtimes.
+ * Loads libchartlite-llm.so which dispatches to MNN or llama.cpp.
  */
 object LlamaBridge {
+
+    enum class Backend {
+        MNN,
+        LLAMA_CPP
+    }
 
     private const val TAG = "LlamaBridge"
 
@@ -16,10 +21,10 @@ object LlamaBridge {
     private var initialized = false
     @Volatile
     private var cacheDirPath: String = ""
+    @Volatile
+    private var activeBackend: Backend? = null
 
-    /**
-     * Initialize the llama.cpp backend. Must be called once before any other method.
-     */
+    /** Initialize the shared native bridge. Must be called once before any other method. */
     fun initialize(context: Context) {
         if (initialized) return
         synchronized(this) {
@@ -28,13 +33,18 @@ object LlamaBridge {
             System.loadLibrary("chartlite-llm")
             nativeInit()
             initialized = true
-            Log.i(TAG, "MNN-LLM backend initialized")
+            Log.i(TAG, "On-device backend bridge initialized")
         }
     }
 
-    fun initGenerateModel(modelPath: String): Boolean {
+    fun initGenerateModel(modelPath: String, backend: Backend = Backend.MNN): Boolean {
         check(initialized) { "LlamaBridge.initialize() not called" }
-        return nativeInitGenerateModel(modelPath, cacheDirPath)
+        val success = nativeInitGenerateModel(modelPath, cacheDirPath, backend.ordinal)
+        if (success) {
+            activeBackend = backend
+            Log.i(TAG, "Active on-device backend: $backend")
+        }
+        return success
     }
 
     fun updateGenerateParams(
@@ -59,7 +69,7 @@ object LlamaBridge {
 
     /**
      * Generate a response using structured system/user messages.
-     * MNN applies the model's native chat template with proper special token handling.
+     * The active backend applies the model's chat template when available.
      */
     fun generateChat(systemPrompt: String, userMessage: String): String? {
         check(initialized) { "LlamaBridge.initialize() not called" }
@@ -83,7 +93,7 @@ object LlamaBridge {
 
     fun generateVision(systemPrompt: String, userMessage: String, imagePath: String): String? {
         check(initialized) { "LlamaBridge.initialize() not called" }
-        Log.w(TAG, "On-device vision is disabled; text-only MNN path in use")
+        Log.w(TAG, "On-device vision is disabled; text-only backend path in use")
         return null
     }
 
@@ -97,11 +107,12 @@ object LlamaBridge {
         // Unload the current model, but keep the bridge initialized so the next
         // on-device inference can reload without re-entering native bootstrap.
         nativeShutdown()
+        activeBackend = null
     }
 
     // JNI native methods
     private external fun nativeInit()
-    private external fun nativeInitGenerateModel(modelPath: String, tmpPath: String): Boolean
+    private external fun nativeInitGenerateModel(modelPath: String, tmpPath: String, backend: Int): Boolean
     private external fun nativeUpdateGenerateParams(
         temperature: Float, maxTokens: Int, topP: Float, topK: Int, repeatPenalty: Float
     )

@@ -52,10 +52,13 @@ enum class UserRole {
     val canViewDashboard: Boolean get() = this == ADMIN || this == DOCTOR || this == NURSE || this == PHARMACIST
 
     /** Can this role access sync? */
-    val canSync: Boolean get() = this == ADMIN
+    val canSync: Boolean get() = this == ADMIN || this == DOCTOR || this == NURSE
 
     /** Can this role change settings (full access, not just view)? */
     val canEditSettings: Boolean get() = this == ADMIN
+
+    /** Can this role change local device settings such as language and AI models? */
+    val canConfigureDevice: Boolean get() = this == ADMIN || this == DOCTOR || this == NURSE
 
     /** Can this role view clinical history (encounters, diagnoses, meds, vitals)? */
     val canViewClinicalHistory: Boolean get() = this != REGISTRATION_CLERK

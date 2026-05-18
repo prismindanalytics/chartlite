@@ -60,7 +60,12 @@ sealed class Screen(val route: String) {
     }
     data object SMSDecrypt : Screen("sms_decrypt")
     data object Sync : Screen("sync")
-    data object Settings : Screen("settings")
+    data object Settings : Screen("settings?tab={tab}") {
+        /** Optional `tab` query param: "ai" lands on AI &amp; Speech (used by the
+         *  encounter-screen "set up vision" deeplink); empty/missing = Essentials. */
+        fun createRoute(tab: String? = null): String =
+            if (tab.isNullOrBlank()) "settings" else "settings?tab=$tab"
+    }
     data object FacilityDashboard : Screen("facility_dashboard")
     data object Pharmacy : Screen("pharmacy/{visitId}") {
         fun createRoute(visitId: String) = "pharmacy/$visitId"
@@ -182,7 +187,7 @@ fun AppNavigation(
                 onFindPatient = { navController.navigate(Screen.PatientSearch.route) },
                 onReadSMS = { navController.navigate(Screen.SMSDecrypt.route) },
                 onSync = { navController.navigate(Screen.Sync.route) },
-                onSettings = { navController.navigate(Screen.Settings.route) },
+                onSettings = { navController.navigate(Screen.Settings.createRoute()) },
                 onDashboard = { navController.navigate(Screen.FacilityDashboard.route) },
                 onExtractionQueue = { navController.navigate(Screen.ExtractionQueue.route) },
                 onAppointments = { navController.navigate(Screen.Appointments.route) },
@@ -353,7 +358,11 @@ fun AppNavigation(
                         }
                     }
                 },
-                onBack = navigateBackOrMainMenu
+                onBack = navigateBackOrMainMenu,
+                // Land on the AI &amp; Speech tab so the user is one scroll
+                // away from the Notes AI Model picker — closing the
+                // "Settings → AI tab → scroll" friction loop.
+                onOpenSettings = { navController.navigate(Screen.Settings.createRoute("ai")) },
             )
         }
 
@@ -447,17 +456,34 @@ fun AppNavigation(
             )
         }
 
-        composable(Screen.Settings.route) {
+        composable(
+            route = Screen.Settings.route,
+            arguments = listOf(navArgument("tab") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }),
+        ) { backStackEntry ->
             val app = LocalContext.current.applicationContext as App
             val session = app.sessionManager.currentSession
-            // Allow if no auth session (solo mode) or admin role
-            if (session != null && session.role.canEditSettings != true) {
+            // Allow clinical users to fix device-local blockers such as language,
+            // speech, and notes AI. Admin-only panels remain hidden in Settings.
+            if (session != null && session.role.canConfigureDevice != true && session.role.canEditSettings != true) {
                 LaunchedEffect(Unit) { navController.navigateBackOrMainMenu(isSetupComplete) }
                 return@composable
             }
+            val tab = backStackEntry.arguments?.getString("tab")
+            val initialCategory = when (tab?.lowercase()) {
+                "ai" -> com.chartlite.app.ui.screens.SettingsCategory.AI_SPEECH
+                "operations" -> com.chartlite.app.ui.screens.SettingsCategory.OPERATIONS
+                "regions" -> com.chartlite.app.ui.screens.SettingsCategory.REGIONS
+                "admin" -> com.chartlite.app.ui.screens.SettingsCategory.ADMIN
+                else -> com.chartlite.app.ui.screens.SettingsCategory.ESSENTIALS
+            }
             SettingsScreen(
                 onBack = navigateBackOrMainMenu,
-                onUserManagement = { navController.navigate(Screen.UserManagement.route) }
+                onUserManagement = { navController.navigate(Screen.UserManagement.route) },
+                initialCategory = initialCategory,
             )
         }
 

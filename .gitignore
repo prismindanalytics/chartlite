@@ -49,3 +49,62 @@ ai/
 worker/*.json
 !worker/package.json
 !worker/tsconfig.json
+
+# Large model caches (Gemma 4 .task, ONNX, etc. — regenerated on first launch)
+models/
+
+# Duplicate build dirs (artifacts of build interruption)
+*build 2/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Kotlin daemon temp
+.kotlin/
+
+# Export logs
+.export.log
+
+# Vendored llama.cpp source (use submodule if you need to reproduce native builds)
+external/llama.cpp/
+
+# Large benchmark raw outputs — regenerable via scripts/benchmark_*.py
+scripts/*_raw/
+scripts/*_raw_v2/
+scripts/*_raw_timeout_backup/
+scripts/*_raw_v2_backup/
+scripts/bodhi_raw_generations/
+scripts/bodhi_raw/
+scripts/bodhi_normalized/
+scripts/aci_bench/
+scripts/aci_bench_raw/
+scripts/crescenddi/
+scripts/crescenddi_raw/
+
+# Adjudication intermediate artifacts (large, regenerable)
+scripts/adjudicated_items*.json
+scripts/silver_gt.json
+scripts/bodhi_benchmark_report.json
+scripts/bodhi_multi_run_aggregate.json
+scripts/bodhi_triage_audit.json
+scripts/aci_results_*.json
+scripts/dx_normalization*.json
+scripts/eka_real_*.json
+
+# Claude Code session artifacts
+.claude/
+benchmark_dashboard/.claude/
+
+# Per-language draft folders inside benchmark_dashboard/video
+benchmark_dashboard/video/placeholders/
+
+# Node.js dependencies
+worker/node_modules/
+node_modules/
+
+# Eka Care's clinical-note-generation dataset (redistribute via Eka, not us)
+scripts/eka_clinical_note_generation_dataset/
+
+# Backup of silver ground truth (regenerable; large)
+scripts/silver_gt.backup.json

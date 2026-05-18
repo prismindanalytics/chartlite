@@ -34,7 +34,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-DATA_DIR = HERE / "eka_clinical_note_generation_dataset"
+
+def _resolve_eka_real_data_dir() -> Path:
+    """Resolve Eka real-data parquet location. Tries $EKA_REAL_DATA_DIR,
+    then <repo>/data/eka_real/ (public repo), then scripts/eka_clinical_note_generation_dataset/
+    (legacy in-tree layout)."""
+    import os as _os
+    if _os.environ.get("EKA_REAL_DATA_DIR"):
+        return Path(_os.environ["EKA_REAL_DATA_DIR"])
+    candidates = [
+        REPO / "data" / "eka_real",
+        HERE / "eka_clinical_note_generation_dataset",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+DATA_DIR = _resolve_eka_real_data_dir()
 RAW_DIR = HERE / "eka_real_raw"
 OUT = HERE / "eka_real_results.json"
 
@@ -173,7 +190,7 @@ def extract_one(model: str, backend: str, transcript: str, system: str, user_pro
                     {"role": "user", "content": user_prompt},
                     {"role": "assistant", "content": "<think>\n</think>\n"},
                 ],
-            }, timeout=180)
+            }, timeout=600)
             r.raise_for_status()
             raw = r.json().get("message", {}).get("content", "")
         elif backend == "anthropic":

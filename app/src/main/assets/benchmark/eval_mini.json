@@ -1,0 +1,77 @@
+{
+  "_doc": "Mini in-app evaluation suite — 5 representative encounters from the synthetic-100 benchmark (scripts/benchmark_bodhi.py ENCOUNTERS). Each case lists the expected danger categories so the in-app InAppEvaluator can score the loaded LLM + StaticCDSS against a fixed ground truth, on-device. Used by Settings → Diagnostics → 'Run benchmark on this model'. To regenerate: subset 5 encounters from scripts/benchmark_bodhi.py ENCOUNTERS, copy dictation transcript + expected_dangers list. Expected dangers are matched at category level (drug-condition / triage / lab-rec / referral / drug-allergy / drug-drug / dosage / vitals).",
+  "version": "1.0",
+  "n_cases": 5,
+  "cases": [
+    {
+      "id": 1,
+      "name": "HTN visit, diabetes drug prescribed",
+      "category": "drug-condition",
+      "transcript": "55 year old male, complaining of headaches and dizziness for several days. Checked his pressure today, running 162 over 98, no current medications, no prior treatment. Going to start him on metformin 500 milligrams twice a day and bring him back in a fortnight to recheck.",
+      "expected_dangers": [
+        {"severity": "WARNING", "category": "Drug-Condition", "substring": "metformin"},
+        {"severity": "WARNING", "category": "Vitals", "substring": "162"}
+      ],
+      "expected_extraction": {
+        "diagnoses_any_of": ["hypertension", "high blood pressure", "HTN"],
+        "medications_must_include": ["metformin"]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Acute MI presentation",
+      "category": "triage",
+      "transcript": "62 year old male, sudden onset crushing chest pain for the last 45 minutes radiating to left arm and jaw. Diaphoretic, short of breath. BP 158 over 92. Pulse 110. Likely acute MI. Calling ambulance for transfer to hospital, giving aspirin 300 milligrams immediately.",
+      "expected_dangers": [
+        {"severity": "CRITICAL", "category": "Triage", "substring": "EMERGENCY"},
+        {"severity": "WARNING", "category": "Lab Recommendation", "substring": ""},
+        {"severity": "INFO", "category": "Referral Suggestion", "substring": ""}
+      ],
+      "expected_extraction": {
+        "diagnoses_any_of": ["myocardial infarction", "MI", "heart attack", "acute coronary syndrome", "ACS"],
+        "medications_must_include": ["aspirin"]
+      }
+    },
+    {
+      "id": 26,
+      "name": "Pediatric pneumonia",
+      "category": "lab-rec",
+      "transcript": "5 year old female with fever and cough for 4 days. Temperature 38.9 degrees. Respiratory rate 42. Heart rate 120. Oxygen saturation 94 percent. Bilateral crackles. Diagnosis pneumonia. Starting amoxicillin 250 milligrams three times daily for 7 days.",
+      "expected_dangers": [
+        {"severity": "WARNING", "category": "Lab Recommendation", "substring": ""},
+        {"severity": "INFO", "category": "Referral Suggestion", "substring": ""}
+      ],
+      "expected_extraction": {
+        "diagnoses_any_of": ["pneumonia", "lower respiratory tract infection", "LRTI"],
+        "medications_must_include": ["amoxicillin"]
+      }
+    },
+    {
+      "id": 33,
+      "name": "Asthma maintenance — well controlled",
+      "category": "referral",
+      "transcript": "28 year old female, well-controlled asthma on routine review. Currently maintained on beclomethasone inhaler two puffs twice daily as preventer and salbutamol inhaler as needed for rescue. Continue current regime.",
+      "expected_dangers": [
+        {"severity": "INFO", "category": "Referral Suggestion", "substring": ""}
+      ],
+      "expected_extraction": {
+        "diagnoses_any_of": ["asthma"],
+        "medications_must_include": ["beclomethasone", "salbutamol"]
+      }
+    },
+    {
+      "id": 78,
+      "name": "Penicillin allergy + amoxicillin prescription",
+      "category": "drug-allergy",
+      "transcript": "40 year old female, 3 day sore throat, odynophagia, febrile. Tonsils erythematous with exudate. Temp 38.5. Bacterial tonsillitis. Known penicillin allergy — previous generalized rash. Starting amoxicillin 500 three times daily for 7 days.",
+      "expected_dangers": [
+        {"severity": "CRITICAL", "category": "Drug-Allergy", "substring": "amoxicillin"}
+      ],
+      "expected_extraction": {
+        "diagnoses_any_of": ["tonsillitis", "bacterial tonsillitis"],
+        "medications_must_include": ["amoxicillin"],
+        "allergies_must_include": ["penicillin"]
+      }
+    }
+  ]
+}

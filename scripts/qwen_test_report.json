@@ -1,0 +1,71 @@
+{
+  "model": "qwen3.5:0.8b",
+  "timestamp": "2026-03-18 13:59:07",
+  "total_time_s": 270.2,
+  "rounds": 1,
+  "best_round": 1,
+  "best_both_pass": "21/26",
+  "final_note_system_prompt": "You are a clinical scribe. Summarize dictation into a concise clinical note.\nThird-person prose only \u2014 no direct quotes. Each fact once. Use ## headers, - bullets.\nOmit empty sections. No disclaimers.",
+  "final_extract_system_prompt": "Extract clinical facts from dictation as JSON. Only stated facts.\nnull for missing scalars, [] for missing lists. Valid JSON only.\nVaccines (Pentavalent, DTP, OPV, BCG, Measles, Hep B, Rotavirus,\nPCV, HPV, Td, MMR, IPV) go in \"immunizations\" NOT \"medications\".\nsms_summary: <=19 chars, shorthand (e.g. \"Fvr cgh 3y Amox\").",
+  "round_results": [
+    {
+      "round": 1,
+      "note_pass": 25,
+      "extract_pass": 22,
+      "both_pass": 21,
+      "failures": [
+        {
+          "name": "Pediatric vaccines - immunization vs medication",
+          "note_pass": true,
+          "note_issues": [],
+          "extract_pass": false,
+          "extract_issues": [
+            "VACCINE 'Pentavalent' in medications!",
+            "VACCINE 'OPV' in medications!",
+            "VACCINE 'Rotavirus' in medications!"
+          ]
+        },
+        {
+          "name": "Pediatric diarrhea - ORS + zinc",
+          "note_pass": true,
+          "note_issues": [],
+          "extract_pass": false,
+          "extract_issues": [
+            "sms_summary way too long: 117 chars ('18 month old male child with watery diarrhea, vomiting twice since yesterday. Mother says child is not drinking well.')",
+            "(warn) Missing medication 'zinc'"
+          ]
+        },
+        {
+          "name": "Neonatal BCG + birth vaccines",
+          "note_pass": true,
+          "note_issues": [],
+          "extract_pass": false,
+          "extract_issues": [
+            "VACCINE 'BCG' in medications!",
+            "VACCINE 'OPV' in medications!",
+            "VACCINE 'Hepatitis B' in medications!",
+            "(warn) Missing immunization 'Hepatitis B'"
+          ]
+        },
+        {
+          "name": "Multi-diagnosis complex visit",
+          "note_pass": true,
+          "note_issues": [],
+          "extract_pass": false,
+          "extract_issues": [
+            "Invalid JSON: Expecting ',' delimiter: line 10 column 44 (char 290)"
+          ]
+        },
+        {
+          "name": "Sick child + immunization",
+          "note_pass": false,
+          "note_issues": [
+            "Contains direct quotes or dialog lines"
+          ],
+          "extract_pass": true,
+          "extract_issues": []
+        }
+      ]
+    }
+  ]
+}

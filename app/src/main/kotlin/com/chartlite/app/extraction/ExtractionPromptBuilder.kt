@@ -248,17 +248,22 @@ You are a clinical data extractor for medical images.
 Auto-detect the content type and extract structured data.
 
 Content types:
-- lab_report: CBC, chemistry, urinalysis results
+- lab_report: CBC, chemistry, urinalysis, microbiology results
 - rdt_cassette: Malaria RDT, HIV RDT, pregnancy test (positive/negative/invalid)
 - vital_device: BP monitor, pulse oximeter, thermometer, glucometer readings
-- medication_package: Drug name, strength, manufacturer, expiry
+- medication_package: Drug name, strength, manufacturer, expiry, batch
 - referral_letter: Referring facility, diagnosis, reason, urgency
+- vaccine_card: Yellow Card / immunisation record — vaccine, date, dose number, batch, route, given_by
+- handwritten_prescription: Prescriber's handwritten Rx — drug, dose, route, frequency, duration, sig
+- discharge_summary: Hospital discharge note — discharge diagnosis, meds at discharge, follow-up plan, red-flag alerts
 
 Rules:
 - Extract ONLY what is visible. Do NOT infer.
 - Use exact numbers from device displays.
 - For RDT cassettes: determine result from colored lines on the cassette ONLY. Ignore text on surrounding papers.
-- Set content_type field.
+- For handwriting: if a token is unreadable, leave the field empty rather than guessing.
+- Set content_type to one of the eight types above (or "unknown").
+- Add caveats to "warnings" (e.g. "low resolution", "partial occlusion", "handwriting illegible") so a clinician can review.
 - Output valid JSON only.
         """.trimIndent()
 
@@ -266,21 +271,32 @@ Rules:
         private val VISION_PROMPT_SMALL = """
 <schema>
 {
-  "content_type": "lab_report|rdt_cassette|vital_device|medication_package|referral_letter|unknown",
+  "content_type": "lab_report|rdt_cassette|vital_device|medication_package|referral_letter|vaccine_card|handwritten_prescription|discharge_summary|unknown",
   "vitals": [{"name": "...", "value": "...", "unit": "..."}],
   "investigations": [{"test": "...", "result": "..."}],
   "medications": [{"name": "...", "dose": "...", "manufacturer": "...", "expiry": "..."}],
   "referral": {"from_facility": "...", "diagnosis": "...", "reason": "...", "urgency": "..."},
-  "raw_text": "any visible text not captured above"
+  "immunizations": [{"vaccine": "...", "date": "...", "dose_number": 0, "batch": "..."}],
+  "discharge": {"dx": [], "meds": [], "follow_up": "", "alerts": []},
+  "raw_text": "any visible text not captured above",
+  "warnings": []
 }
 </schema>
 
 JSON:""".trimIndent()
 
-        // Large model (2B+): classify + OCR + interpret results as structured JSON
+        // Large model (2B+): classify + OCR + interpret results as structured JSON.
+        // Single unified schema covering all 8 artifact types — model fills only
+        // the relevant fields based on what it sees, leaves the others empty.
         private val VISION_PROMPT_LARGE = """
-Read and interpret the clinical image. Output JSON with these fields:
-{"content_type":"rdt_result|lab_report|vital_device|medication_package|referral_letter|other","raw_text":"ALL TEXT VISIBLE ON THE ITEM","item_name":"SPECIFIC ITEM NAME","rdt":{"test_type":"HIV|malaria|pregnancy|hepatitis|syphilis|other","result":"positive|negative|invalid","bands":"DESCRIBE WHICH COLORED LINES ARE VISIBLE ON THE CASSETTE - DETERMINE RESULT FROM BANDS ONLY NOT SURROUNDING TEXT"},"vitals":[{"name":"READING NAME","value":"NUMBER","unit":"UNIT"}],"medications":[{"name":"DRUG NAME","dose":"DOSE","expiry":"DATE"}],"investigations":[{"test":"TEST NAME","result":"RESULT","unit":"UNIT"}]}
-Include only relevant sections. For RDT: determine result from colored lines on the cassette only, ignore text on surrounding papers.""".trimIndent()
+Read and interpret the clinical image. Output JSON with these fields. Fill ONLY the fields relevant to the artifact type you see; leave the rest empty/null.
+
+{"content_type":"lab_report|rdt_cassette|vital_device|medication_package|referral_letter|vaccine_card|handwritten_prescription|discharge_summary|unknown","confidence":0.0,"raw_text":"ALL TEXT VISIBLE ON THE ARTIFACT","item_name":"SPECIFIC ITEM NAME","investigations":[{"test":"TEST NAME","result":"RESULT","unit":"UNIT","reference_range":"REF","flag":"H|L|N|null"}],"rdt":{"test_type":"HIV|malaria|pregnancy|hepatitis|syphilis|other","result":"positive|negative|invalid","bands":"DESCRIBE WHICH COLORED LINES ARE VISIBLE ON THE CASSETTE — DETERMINE RESULT FROM BANDS ONLY, NOT SURROUNDING TEXT"},"vitals":[{"name":"READING NAME","value":"NUMBER","unit":"UNIT"}],"medications":[{"name":"DRUG NAME","dose":"DOSE","route":"PO|IV|IM|SC|TOP|INH","freq":"FREQUENCY","duration":"DURATION","expiry":"DATE","manufacturer":"MFG","batch":"BATCH"}],"referral":{"from_facility":"FACILITY","diagnosis":"DX","reason":"REASON","urgency":"URGENT|ROUTINE"},"immunizations":[{"vaccine":"VACCINE CODE OR NAME","date":"YYYY-MM-DD","dose_number":1,"batch":"BATCH","route":"IM|SC|ORAL"}],"discharge":{"dx":["DIAGNOSIS"],"meds":["DRUG @ DOSE FREQ"],"follow_up":"FOLLOW-UP PLAN","alerts":["RED FLAG"]},"warnings":["caveats like low resolution, partial occlusion, illegible handwriting"]}
+
+Rules:
+- For RDT: determine result from colored lines on the cassette only; ignore surrounding text.
+- For handwriting: if a token is illegible, leave the field empty and add an entry to "warnings".
+- For vaccine cards: every vaccine entry needs at least vaccine + date OR dose_number.
+- For medication_package and handwritten_prescription: route/freq/duration are key — extract from explicit text only.""".trimIndent()
     }
 }

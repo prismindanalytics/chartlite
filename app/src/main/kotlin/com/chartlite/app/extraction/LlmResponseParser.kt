@@ -1,5 +1,6 @@
 package com.chartlite.app.extraction
 
+import com.chartlite.app.cdss.BodhiKnowledgeGraph
 import com.chartlite.app.model.*
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -19,7 +20,8 @@ import java.util.UUID
  */
 class LlmResponseParser(
     private val icd10: ICD10Index,
-    private val formulary: Formulary
+    private val formulary: Formulary,
+    private val bodhiGraph: BodhiKnowledgeGraph? = null
 ) {
     internal data class ParseReport(
         val encounter: StructuredEncounter?,
@@ -522,7 +524,27 @@ class LlmResponseParser(
                 entry != null -> transcriptSupportsDiagnosis(entry, context)
                 else -> isNarrativeGrounded(diagnosis.description, context)
             }
+        }.map { diagnosis ->
+            val boost = bodhiConfidenceBoost(diagnosis, context)
+            if (boost > 0f) diagnosis.copy(confidence = (diagnosis.confidence + boost).coerceAtMost(1f))
+            else diagnosis
         }.distinctBy { it.icd10Code }
+
+    /**
+     * Boost diagnosis confidence using BODHI symptom-condition data.
+     * Counts how many BODHI-listed symptoms for this condition appear in the transcript.
+     */
+    private fun bodhiConfidenceBoost(diagnosis: Diagnosis, context: TranscriptContext): Float {
+        val condition = bodhiGraph?.findConditionForDiagnosis(diagnosis) ?: return 0f
+        val symptoms = bodhiGraph?.getSymptomsForCondition(condition.snomedId)
+        if (symptoms.isNullOrEmpty()) return 0f
+
+        val matched = symptoms.count { symptom ->
+            isNarrativeGrounded(symptom.name, context)
+        }
+        // +0.05 per matched symptom, max +0.15
+        return (matched * 0.05f).coerceAtMost(0.15f)
+    }
 
     private fun groundMedications(medications: List<Medication>, context: TranscriptContext): List<Medication> {
         val transcriptMeds = medicationExtractor.extract(context.transcript).associateBy { it.formularyCode }

@@ -1174,10 +1174,58 @@ object BinaryEncoder {
         )
     }
 
-    private fun codeToIndex(icd10Code: String): Int {
-        // Simple hash to map ICD-10 code to a 9-bit index (0-511)
-        return (icd10Code.hashCode() and 0x1FF)
+    // ── Stable ICD-10 code ↔ 9-bit index table ──
+    // Populated at app startup by initialize(). Before then, codeToIndex falls back
+    // to 0 (= "unmapped"), which is safer than a collision-prone hash.
+    @Volatile private var icdCodeToIndex: Map<String, Int> = emptyMap()
+    @Volatile private var icdIndexToCode: Map<Int, String> = emptyMap()
+
+    /**
+     * Load the stable ICD-10 code index from PHC top-300 assets. Must be called
+     * once at app startup (App.onCreate). Safe to call multiple times.
+     *
+     * This replaces the old hash-based codeToIndex which had a ~30% collision rate
+     * across our 300 PHC codes. With a stable 1-based index, decoding recovers the
+     * original code exactly.
+     *
+     * Index 0 is reserved for "unknown" (code not in PHC top-300).
+     */
+    @Synchronized
+    fun initialize(context: android.content.Context) {
+        if (icdCodeToIndex.isNotEmpty()) return
+        try {
+            val json = context.assets.open("icd10/phc_top300.json")
+                .bufferedReader().use { it.readText() }
+            val index = com.google.gson.Gson()
+                .fromJson(json, com.chartlite.app.model.ICD10Index::class.java)
+            val codes = index.codes
+            require(codes.size < 511) { "PHC code list exceeds 9-bit capacity" }
+
+            val forward = mutableMapOf<String, Int>()
+            val reverse = mutableMapOf<Int, String>()
+            codes.forEachIndexed { i, entry ->
+                val idx = i + 1  // reserve 0 for unknown
+                forward[entry.code] = idx
+                reverse[idx] = entry.code
+            }
+            icdCodeToIndex = forward
+            icdIndexToCode = reverse
+        } catch (e: Exception) {
+            android.util.Log.w("BinaryEncoder", "Failed to load ICD-10 index", e)
+        }
     }
+
+    /**
+     * Map an ICD-10 code to its stable 9-bit index. Returns 0 if the code is not
+     * in the PHC top-300 list (decoder will render as "#0" placeholder).
+     */
+    private fun codeToIndex(icd10Code: String): Int = icdCodeToIndex[icd10Code] ?: 0
+
+    /**
+     * Reverse the 9-bit index back to the original ICD-10 code. Returns null if
+     * the index is 0 (unmapped) or the index table isn't loaded yet.
+     */
+    fun indexToCode(index: Int): String? = icdIndexToCode[index]
 
     /**
      * Write bit-packed values into exactly [totalBytes] bytes.

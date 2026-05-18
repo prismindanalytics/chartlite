@@ -76,25 +76,42 @@ fun PatientRegistrationScreen(
     var lastName by rememberSaveable { mutableStateOf("") }
     var dateOfBirth by rememberSaveable { mutableStateOf("") }
     var ageYears by rememberSaveable { mutableStateOf("") }
-    var gender by rememberSaveable { mutableStateOf("male") }
+    // Gender starts unset — defaulting to "male" defaulted female and
+    // non-binary patients into a wrong category. Voice extraction can fill it
+    // automatically; otherwise the clinician picks one before Register enables.
+    var gender by rememberSaveable { mutableStateOf("") }
     var phoneNumber by rememberSaveable { mutableStateOf("") }
     var nationalId by rememberSaveable { mutableStateOf("") }
     // PIN must NOT survive config changes — use remember for security
     var pin by remember { mutableStateOf("") }
     var allergies by rememberSaveable { mutableStateOf(prefillAllergies ?: "") }
     var consentGiven by rememberSaveable { mutableStateOf(false) }
+    var emergencyOrGuardianConsent by rememberSaveable { mutableStateOf(false) }
     var generatedId by rememberSaveable { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     // Track which fields were filled by voice
     var voiceFilledFields by remember { mutableStateOf(setOf<String>()) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var preparingVoiceModel by remember { mutableStateOf(false) }
 
-    // Track whether form has any user-entered data
-    val hasUnsavedData = firstName.isNotBlank() || lastName.isNotBlank() ||
-        dateOfBirth.isNotBlank() || ageYears.isNotBlank() || phoneNumber.isNotBlank() ||
-        nationalId.isNotBlank() || allergies.isNotBlank()
+    // Optional-section disclosure state. Hidden by default to keep the form
+    // short — most LMIC PHC visits only need name + age + gender + allergies.
+    // Auto-expands if voice-extraction or prefill populated those fields, so
+    // the clinician sees the data they need to verify.
+    var showDob by rememberSaveable { mutableStateOf(false) }
+    var showContactDetails by rememberSaveable { mutableStateOf(false) }
+    val dobVisible = showDob || dateOfBirth.isNotBlank() || "dob" in voiceFilledFields
+    val contactDetailsVisible = showContactDetails ||
+        nationalId.isNotBlank() || phoneNumber.isNotBlank() ||
+        "phone" in voiceFilledFields
+
+    // Track whether form has *substantive* user-entered data — first name
+    // with more than one character is the gate. A single stray keystroke
+    // ("J") shouldn't trigger the discard dialog when the clinician backs
+    // out; only an intentional registration attempt should.
+    val hasUnsavedData = firstName.trim().length > 1
     var showDiscardDialog by remember { mutableStateOf(false) }
 
     // Country-aware date format (e.g., DD/MM/YYYY or MM/DD/YYYY)
@@ -474,10 +491,14 @@ fun PatientRegistrationScreen(
                     { VoiceChip() }
                 } else null
             )
+            // Last name dropped from "required" — many patients in LMIC PHC
+            // settings have a single name, or a family name that already
+            // appears in their national-ID. Forcing two name fields was
+            // gating registration unnecessarily.
             OutlinedTextField(
                 value = lastName,
                 onValueChange = { lastName = it },
-                label = { Text(stringResource(R.string.last_name_required)) },
+                label = { Text(stringResource(R.string.last_name_optional)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -486,31 +507,51 @@ fun PatientRegistrationScreen(
                 } else null
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = dateOfBirth,
-                    onValueChange = { dateOfBirth = it },
-                    label = { Text(stringResource(R.string.dob_format_label, dateFormatDisplay)) },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    isError = dobError,
-                    supportingText = if (dobError) {{ Text(stringResource(R.string.date_format_hint, dateFormatDisplay)) }} else null,
-                    trailingIcon = if ("dob" in voiceFilledFields) {
-                        { VoiceChip() }
-                    } else null
-                )
-                Text(stringResource(R.string.or), modifier = Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Default: show only the Age field (faster + clinically sufficient
+            // for most encounters). Reveal DOB on demand for cases where the
+            // exact birth date matters (peds growth charts, pregnancy dating,
+            // legal records). Auto-revealed if voice-extracted or pre-populated.
+            if (dobVisible) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = dateOfBirth,
+                        onValueChange = { dateOfBirth = it },
+                        label = { Text(stringResource(R.string.dob_format_label, dateFormatDisplay)) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        isError = dobError,
+                        supportingText = if (dobError) {{ Text(stringResource(R.string.date_format_hint, dateFormatDisplay)) }} else null,
+                        trailingIcon = if ("dob" in voiceFilledFields) {
+                            { VoiceChip() }
+                        } else null
+                    )
+                    Text(stringResource(R.string.or), modifier = Modifier.align(Alignment.CenterVertically),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(
+                        value = ageYears,
+                        onValueChange = { ageYears = it },
+                        label = { Text(stringResource(R.string.age_years)) },
+                        modifier = Modifier.weight(0.6f),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        isError = ageError,
+                        supportingText = if (ageError) {{ Text(stringResource(R.string.age_range)) }} else null,
+                        trailingIcon = if ("age" in voiceFilledFields) {
+                            { VoiceChip() }
+                        } else null
+                    )
+                }
+            } else {
                 OutlinedTextField(
                     value = ageYears,
                     onValueChange = { ageYears = it },
                     label = { Text(stringResource(R.string.age_years)) },
-                    modifier = Modifier.weight(0.6f),
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     isError = ageError,
@@ -519,6 +560,12 @@ fun PatientRegistrationScreen(
                         { VoiceChip() }
                     } else null
                 )
+                TextButton(
+                    onClick = { showDob = true },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text(stringResource(R.string.use_exact_dob))
+                }
             }
 
             // Gender — segmented button
@@ -544,48 +591,61 @@ fun PatientRegistrationScreen(
             Spacer(Modifier.height(4.dp))
 
             // ══════════════════════════════════════
-            // ── Contact Details ──
+            // ── Contact Details ── (collapsed by default)
             // ══════════════════════════════════════
-            Text(
-                stringResource(R.string.contact_details),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+            // National ID, phone, and per-patient PIN are all optional and only
+            // matter for SMS-relay / shared-device workflows. Hiding them by
+            // default cuts the visible form to ~5 fields and gets the
+            // clinician to "Register" faster on the common case.
+            if (!contactDetailsVisible) {
+                TextButton(
+                    onClick = { showContactDetails = true },
+                    modifier = Modifier.align(Alignment.Start),
+                ) {
+                    Text(stringResource(R.string.add_contact_details))
+                }
+            } else {
+                Text(
+                    stringResource(R.string.contact_details),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
 
-            OutlinedTextField(
-                value = nationalId,
-                onValueChange = { nationalId = it },
-                label = { Text(stringResource(R.string.national_id_optional, app.appConfig.countryNationalIdLabel)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-            )
-
-            OutlinedTextField(
-                value = phoneNumber,
-                onValueChange = { phoneNumber = it },
-                label = { Text(stringResource(R.string.phone_optional)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
-                supportingText = { Text(stringResource(R.string.phone_enables_sms)) },
-                trailingIcon = if ("phone" in voiceFilledFields) {
-                    { VoiceChip() }
-                } else null
-            )
-
-            if (phoneNumber.isNotBlank()) {
                 OutlinedTextField(
-                    value = pin,
-                    onValueChange = { if (it.length <= 4) pin = it },
-                    label = { Text(stringResource(R.string.optional_pin)) },
+                    value = nationalId,
+                    onValueChange = { nationalId = it },
+                    label = { Text(stringResource(R.string.national_id_optional, app.appConfig.countryNationalIdLabel)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
-                    visualTransformation = PasswordVisualTransformation(),
-                    supportingText = { Text(stringResource(R.string.pin_shared_phone_hint)) }
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                 )
-            }
+
+                OutlinedTextField(
+                    value = phoneNumber,
+                    onValueChange = { phoneNumber = it },
+                    label = { Text(stringResource(R.string.phone_optional)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
+                    supportingText = { Text(stringResource(R.string.phone_enables_sms)) },
+                    trailingIcon = if ("phone" in voiceFilledFields) {
+                        { VoiceChip() }
+                    } else null
+                )
+
+                if (phoneNumber.isNotBlank()) {
+                    OutlinedTextField(
+                        value = pin,
+                        onValueChange = { if (it.length <= 4) pin = it },
+                        label = { Text(stringResource(R.string.optional_pin)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
+                        visualTransformation = PasswordVisualTransformation(),
+                        supportingText = { Text(stringResource(R.string.pin_shared_phone_hint)) }
+                    )
+                }
+            }  // end Contact Details (if contactDetailsVisible)
 
             Spacer(Modifier.height(4.dp))
 
@@ -598,18 +658,44 @@ fun PatientRegistrationScreen(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            OutlinedTextField(
-                value = allergies,
-                onValueChange = { allergies = it },
-                label = { Text(stringResource(R.string.known_allergies)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                supportingText = { Text(stringResource(R.string.allergies_hint)) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                trailingIcon = if ("allergies" in voiceFilledFields) {
-                    { VoiceChip() }
-                } else null
-            )
+            // "No known drug allergies" quick toggle — the clinically standard
+            // shorthand. Saves typing for the ~70%+ of patients with no
+            // documented allergies. Toggle is mutually exclusive with the
+            // free-text field (clearing one when the other is set).
+            val isNkda = allergies.trim().equals("NKDA", ignoreCase = true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        allergies = if (isNkda) "" else "NKDA"
+                    }
+                    .padding(vertical = 4.dp)
+            ) {
+                Checkbox(
+                    checked = isNkda,
+                    onCheckedChange = { checked ->
+                        allergies = if (checked) "NKDA" else ""
+                    }
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.nkda_label),
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            if (!isNkda) {
+                OutlinedTextField(
+                    value = allergies,
+                    onValueChange = { allergies = it },
+                    label = { Text(stringResource(R.string.known_allergies)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    supportingText = { Text(stringResource(R.string.allergies_hint)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    trailingIcon = if ("allergies" in voiceFilledFields) {
+                        { VoiceChip() }
+                    } else null
+                )
+            }
 
             // Consent
             Spacer(Modifier.height(4.dp))
@@ -625,13 +711,63 @@ fun PatientRegistrationScreen(
                 Text(stringResource(R.string.consent_checkbox),
                     style = MaterialTheme.typography.bodyMedium)
             }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { emergencyOrGuardianConsent = !emergencyOrGuardianConsent }
+                    .padding(vertical = 4.dp)
+            ) {
+                Checkbox(
+                    checked = emergencyOrGuardianConsent,
+                    onCheckedChange = { emergencyOrGuardianConsent = it }
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Emergency, verbal, or guardian consent documented",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
+            saveError?.let { message ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            val registrationAuthorized = consentGiven || emergencyOrGuardianConsent
+            val registerDisabledReason = when {
+                firstName.isBlank() -> "Enter the patient's first name."
+                gender.isBlank() -> "Select sex/gender."
+                !registrationAuthorized -> "Document consent, emergency care, or guardian/verbal consent."
+                dobError -> "Check the date of birth."
+                ageError -> "Check the age."
+                pin.isNotBlank() && pin.length != 4 -> "SMS PIN must be 4 digits."
+                else -> null
+            }
+            registerDisabledReason?.takeIf { !saving }?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+            }
 
             // Register button
             Button(
                 onClick = {
                     saving = true
+                    saveError = null
                     scope.launch {
                         try {
                             // Only use linkPatientId when it's a valid ID from an intentional
@@ -659,8 +795,8 @@ fun PatientRegistrationScreen(
                                 nationalId = nationalId.takeIf { it.isNotBlank() },
                                 pin = pin.takeIf { it.isNotBlank() },
                                 allergies = Gson().toJson(allergyList),
-                                consentGiven = consentGiven,
-                                consentTimestamp = if (consentGiven) System.currentTimeMillis() else null
+                                consentGiven = registrationAuthorized,
+                                consentTimestamp = if (registrationAuthorized) System.currentTimeMillis() else null
                             )
                             app.patientRepository.register(patient)
 
@@ -691,15 +827,28 @@ fun PatientRegistrationScreen(
                                 }
                             }
 
-                            generatedId = patientId
+                            // Skip the PATIENT-ID confirmation screen in
+                            // solo-station mode — the timeline shows the ID
+                            // prominently with tap-to-copy. Multi-station
+                            // still needs the explicit confirmation because
+                            // the flow ENDS there (patient queued, not seen).
+                            if (app.appConfig.isMultiStation) {
+                                generatedId = patientId
+                            } else {
+                                onPatientRegistered(patientId)
+                            }
                         } catch (e: Exception) {
                             android.util.Log.e("PatientReg", "Registration failed", e)
+                            saveError = "Registration failed: ${e.message ?: "Please try again."}"
                         } finally {
                             saving = false
                         }
                     }
                 },
-                enabled = firstName.isNotBlank() && lastName.isNotBlank() && consentGiven && !saving
+                // Last name no longer required — first name + gender + consent
+                // is the minimum bar. Gender no longer defaults to "male", so
+                // it now needs explicit selection (or voice extraction).
+                enabled = registerDisabledReason == null && !saving
                         && !dobError && !ageError
                         && (pin.isBlank() || pin.length == 4),
                 modifier = Modifier.fillMaxWidth().height(52.dp)

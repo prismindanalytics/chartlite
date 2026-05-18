@@ -1,0 +1,3127 @@
+{
+  "n_vignettes": 1066,
+  "dataset": "ekacare/medical_calculator_eval (test split)",
+  "license": "Open release, May 2026 \u2014 see ekacare HF org",
+  "models": {
+    "qwen3.5:0.8b": {
+      "n_evaluated": 1058,
+      "n_correct": 325,
+      "accuracy": 30.7,
+      "n_parse_fail": 20,
+      "median_latency_s": 0.84,
+      "by_category": {
+        "geriatric_medicine_calculators": {
+          "correct": 2,
+          "total": 24,
+          "accuracy": 8.3
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 19,
+          "total": 114,
+          "accuracy": 16.7
+        },
+        "urology_nephrology_calculators": {
+          "correct": 11,
+          "total": 57,
+          "accuracy": 19.3
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 30,
+          "total": 95,
+          "accuracy": 31.6
+        },
+        "digestive_system_calculators": {
+          "correct": 8,
+          "total": 27,
+          "accuracy": 29.6
+        },
+        "dietary_calculators": {
+          "correct": 47,
+          "total": 85,
+          "accuracy": 55.3
+        },
+        "radiology_calculators": {
+          "correct": 4,
+          "total": 12,
+          "accuracy": 33.3
+        },
+        "addiction_medicine_calculators": {
+          "correct": 11,
+          "total": 48,
+          "accuracy": 22.9
+        },
+        "hematology_calculators": {
+          "correct": 23,
+          "total": 72,
+          "accuracy": 31.9
+        },
+        "bmi_calculators": {
+          "correct": 5,
+          "total": 21,
+          "accuracy": 23.8
+        },
+        "body_measurements_calculators": {
+          "correct": 12,
+          "total": 60,
+          "accuracy": 20.0
+        },
+        "diabetes_calculators": {
+          "correct": 13,
+          "total": 30,
+          "accuracy": 43.3
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 0,
+          "total": 15,
+          "accuracy": 0.0
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 9,
+          "total": 47,
+          "accuracy": 19.1
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 30,
+          "total": 65,
+          "accuracy": 46.2
+        },
+        "sleep_calculators": {
+          "correct": 0,
+          "total": 16,
+          "accuracy": 0.0
+        },
+        "dosage_calculators": {
+          "correct": 36,
+          "total": 72,
+          "accuracy": 50.0
+        },
+        "pulmonary_calculators": {
+          "correct": 25,
+          "total": 57,
+          "accuracy": 43.9
+        },
+        "epidemiology_calculators": {
+          "correct": 3,
+          "total": 21,
+          "accuracy": 14.3
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 9,
+          "total": 17,
+          "accuracy": 52.9
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 9,
+          "total": 21,
+          "accuracy": 42.9
+        },
+        "pediatric_calculators": {
+          "correct": 15,
+          "total": 39,
+          "accuracy": 38.5
+        },
+        "other_calculators": {
+          "correct": 2,
+          "total": 27,
+          "accuracy": 7.4
+        },
+        "percentile_calculators": {
+          "correct": 2,
+          "total": 16,
+          "accuracy": 12.5
+        }
+      },
+      "by_difficulty": {
+        "medium": {
+          "correct": 73,
+          "total": 336,
+          "accuracy": 21.7
+        },
+        "easy": {
+          "correct": 252,
+          "total": 722,
+          "accuracy": 34.9
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 240,
+          "total": 803,
+          "accuracy": 29.9
+        },
+        "medical_shorthand": {
+          "correct": 84,
+          "total": 253,
+          "accuracy": 33.2
+        },
+        "regional_english": {
+          "correct": 1,
+          "total": 2,
+          "accuracy": 50.0
+        }
+      },
+      "by_calculator_top": {
+        "barthel_index_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "framingham_risk_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "fena_calculator_fractional_excretion_of_sodium": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "crownrump_length_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "nafld_fibrosis_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "katchmcardle_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bed_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "finnegan_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "absolute_reticulocyte_count_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "bmi_calculator_for_kids": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "metastatic_prostate_cancer_prognosis_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "grace_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "skinfold_body_fat_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "chances_of_having_twins_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "harrisbenedict_calculator_basal_metabolic_rate": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "blood_sugar_converter": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "epds_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "apache_ii_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "heart_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "psa_density_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        }
+      }
+    },
+    "gpt-5.4": {
+      "n_evaluated": 1066,
+      "n_correct": 638,
+      "accuracy": 59.8,
+      "n_parse_fail": 0,
+      "median_latency_s": 1.29,
+      "by_category": {
+        "dosage_calculators": {
+          "correct": 43,
+          "total": 73,
+          "accuracy": 58.9
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 63,
+          "total": 114,
+          "accuracy": 55.3
+        },
+        "bmi_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "hematology_calculators": {
+          "correct": 56,
+          "total": 72,
+          "accuracy": 77.8
+        },
+        "pulmonary_calculators": {
+          "correct": 37,
+          "total": 57,
+          "accuracy": 64.9
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 19,
+          "total": 48,
+          "accuracy": 39.6
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 14,
+          "total": 17,
+          "accuracy": 82.4
+        },
+        "urology_nephrology_calculators": {
+          "correct": 37,
+          "total": 57,
+          "accuracy": 64.9
+        },
+        "diabetes_calculators": {
+          "correct": 23,
+          "total": 30,
+          "accuracy": 76.7
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 51,
+          "total": 96,
+          "accuracy": 53.1
+        },
+        "body_measurements_calculators": {
+          "correct": 35,
+          "total": 60,
+          "accuracy": 58.3
+        },
+        "sleep_calculators": {
+          "correct": 6,
+          "total": 18,
+          "accuracy": 33.3
+        },
+        "other_calculators": {
+          "correct": 15,
+          "total": 27,
+          "accuracy": 55.6
+        },
+        "pediatric_calculators": {
+          "correct": 27,
+          "total": 39,
+          "accuracy": 69.2
+        },
+        "dietary_calculators": {
+          "correct": 63,
+          "total": 87,
+          "accuracy": 72.4
+        },
+        "addiction_medicine_calculators": {
+          "correct": 33,
+          "total": 49,
+          "accuracy": 67.3
+        },
+        "digestive_system_calculators": {
+          "correct": 9,
+          "total": 27,
+          "accuracy": 33.3
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 13,
+          "total": 21,
+          "accuracy": 61.9
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 47,
+          "total": 65,
+          "accuracy": 72.3
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 7,
+          "total": 24,
+          "accuracy": 29.2
+        },
+        "percentile_calculators": {
+          "correct": 4,
+          "total": 16,
+          "accuracy": 25.0
+        },
+        "radiology_calculators": {
+          "correct": 9,
+          "total": 12,
+          "accuracy": 75.0
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 3,
+          "total": 15,
+          "accuracy": 20.0
+        },
+        "epidemiology_calculators": {
+          "correct": 7,
+          "total": 21,
+          "accuracy": 33.3
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 491,
+          "total": 729,
+          "accuracy": 67.4
+        },
+        "medium": {
+          "correct": 147,
+          "total": 337,
+          "accuracy": 43.6
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 484,
+          "total": 810,
+          "accuracy": 59.8
+        },
+        "medical_shorthand": {
+          "correct": 152,
+          "total": 254,
+          "accuracy": 59.8
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "lidocaine_dose_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "ecg_boxes_to_seconds_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "bmi_calculator_for_men": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "dic_syndrome_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "dead_space_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "gcs_calculator_glasgow_coma_scale": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "perc_calculator_pulmonary_embolism_ruleout_criteria": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "amoxicillin_pediatric_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "kidney_stone_calculator_for_percutaneous_neprolithotomy": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "quicki_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "due_date_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "fresh_frozen_plasma_dose_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "cvd_risk_calculator_cardiovascular_disease_10year_risk": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "local_anesthetic_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "ponderal_index_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "stopbang_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "endotracheal_tube_size_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "basdai_score_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bladder_volume_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "apgar_score_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        }
+      }
+    },
+    "medgemma1.5": {
+      "n_evaluated": 1043,
+      "n_correct": 319,
+      "accuracy": 30.6,
+      "n_parse_fail": 21,
+      "median_latency_s": 1.04,
+      "by_category": {
+        "hematology_calculators": {
+          "correct": 24,
+          "total": 72,
+          "accuracy": 33.3
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 6,
+          "total": 16,
+          "accuracy": 37.5
+        },
+        "body_measurements_calculators": {
+          "correct": 14,
+          "total": 59,
+          "accuracy": 23.7
+        },
+        "dietary_calculators": {
+          "correct": 46,
+          "total": 83,
+          "accuracy": 55.4
+        },
+        "pulmonary_calculators": {
+          "correct": 25,
+          "total": 57,
+          "accuracy": 43.9
+        },
+        "pediatric_calculators": {
+          "correct": 15,
+          "total": 37,
+          "accuracy": 40.5
+        },
+        "epidemiology_calculators": {
+          "correct": 4,
+          "total": 20,
+          "accuracy": 20.0
+        },
+        "urology_nephrology_calculators": {
+          "correct": 11,
+          "total": 57,
+          "accuracy": 19.3
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 22,
+          "total": 95,
+          "accuracy": 23.2
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 24,
+          "total": 109,
+          "accuracy": 22.0
+        },
+        "addiction_medicine_calculators": {
+          "correct": 13,
+          "total": 48,
+          "accuracy": 27.1
+        },
+        "sleep_calculators": {
+          "correct": 1,
+          "total": 18,
+          "accuracy": 5.6
+        },
+        "other_calculators": {
+          "correct": 7,
+          "total": 26,
+          "accuracy": 26.9
+        },
+        "diabetes_calculators": {
+          "correct": 11,
+          "total": 30,
+          "accuracy": 36.7
+        },
+        "dosage_calculators": {
+          "correct": 32,
+          "total": 72,
+          "accuracy": 44.4
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 29,
+          "total": 64,
+          "accuracy": 45.3
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 9,
+          "total": 21,
+          "accuracy": 42.9
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 3,
+          "total": 24,
+          "accuracy": 12.5
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 7,
+          "total": 45,
+          "accuracy": 15.6
+        },
+        "bmi_calculators": {
+          "correct": 6,
+          "total": 21,
+          "accuracy": 28.6
+        },
+        "digestive_system_calculators": {
+          "correct": 5,
+          "total": 27,
+          "accuracy": 18.5
+        },
+        "percentile_calculators": {
+          "correct": 1,
+          "total": 15,
+          "accuracy": 6.7
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 0,
+          "total": 15,
+          "accuracy": 0.0
+        },
+        "radiology_calculators": {
+          "correct": 4,
+          "total": 12,
+          "accuracy": 33.3
+        }
+      },
+      "by_difficulty": {
+        "medium": {
+          "correct": 79,
+          "total": 325,
+          "accuracy": 24.3
+        },
+        "easy": {
+          "correct": 240,
+          "total": 718,
+          "accuracy": 33.4
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 250,
+          "total": 793,
+          "accuracy": 31.5
+        },
+        "medical_shorthand": {
+          "correct": 68,
+          "total": 248,
+          "accuracy": 27.4
+        },
+        "regional_english": {
+          "correct": 1,
+          "total": 2,
+          "accuracy": 50.0
+        }
+      },
+      "by_calculator_top": {
+        "diffuse_large_bcell_lymphoma_prognosis_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "paracetamol_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "body_frame_size_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "carb_calculator_carbohydrates": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "rsbi_calculator_rapid_shallow_breathing_index": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "nnt_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "feurea_calculator_acute_kidney_injury_cause_differentiation": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "nuchal_translucency_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "mean_sac_diameter_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "calorie_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "lean_body_mass_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "anc_calculator_absolute_neutrophil_count": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "hsi_calculator_heaviness_of_smoking_index": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "lung_capacity_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "ecg_heart_rate_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "bbt_calculator_basal_body_temperature": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "sleep_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "padua_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "iron_deficiency_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "adjusted_body_weight_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        }
+      }
+    },
+    "claude-sonnet-4-6": {
+      "n_evaluated": 1066,
+      "n_correct": 714,
+      "accuracy": 67.0,
+      "n_parse_fail": 41,
+      "median_latency_s": 5.24,
+      "by_category": {
+        "pediatric_calculators": {
+          "correct": 23,
+          "total": 39,
+          "accuracy": 59.0
+        },
+        "body_measurements_calculators": {
+          "correct": 44,
+          "total": 60,
+          "accuracy": 73.3
+        },
+        "hematology_calculators": {
+          "correct": 57,
+          "total": 72,
+          "accuracy": 79.2
+        },
+        "dietary_calculators": {
+          "correct": 56,
+          "total": 87,
+          "accuracy": 64.4
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 56,
+          "total": 96,
+          "accuracy": 58.3
+        },
+        "dosage_calculators": {
+          "correct": 46,
+          "total": 73,
+          "accuracy": 63.0
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 30,
+          "total": 48,
+          "accuracy": 62.5
+        },
+        "urology_nephrology_calculators": {
+          "correct": 39,
+          "total": 57,
+          "accuracy": 68.4
+        },
+        "sleep_calculators": {
+          "correct": 11,
+          "total": 18,
+          "accuracy": 61.1
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 68,
+          "total": 114,
+          "accuracy": 59.6
+        },
+        "diabetes_calculators": {
+          "correct": 26,
+          "total": 30,
+          "accuracy": 86.7
+        },
+        "addiction_medicine_calculators": {
+          "correct": 29,
+          "total": 49,
+          "accuracy": 59.2
+        },
+        "pulmonary_calculators": {
+          "correct": 38,
+          "total": 57,
+          "accuracy": 66.7
+        },
+        "epidemiology_calculators": {
+          "correct": 9,
+          "total": 21,
+          "accuracy": 42.9
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 13,
+          "total": 24,
+          "accuracy": 54.2
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 61,
+          "total": 65,
+          "accuracy": 93.8
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 10,
+          "total": 15,
+          "accuracy": 66.7
+        },
+        "digestive_system_calculators": {
+          "correct": 19,
+          "total": 27,
+          "accuracy": 70.4
+        },
+        "bmi_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "other_calculators": {
+          "correct": 16,
+          "total": 27,
+          "accuracy": 59.3
+        },
+        "percentile_calculators": {
+          "correct": 6,
+          "total": 16,
+          "accuracy": 37.5
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 13,
+          "total": 17,
+          "accuracy": 76.5
+        },
+        "radiology_calculators": {
+          "correct": 10,
+          "total": 12,
+          "accuracy": 83.3
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 543,
+          "total": 729,
+          "accuracy": 74.5
+        },
+        "medium": {
+          "correct": 171,
+          "total": 337,
+          "accuracy": 50.7
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 534,
+          "total": 810,
+          "accuracy": 65.9
+        },
+        "medical_shorthand": {
+          "correct": 178,
+          "total": 254,
+          "accuracy": 70.1
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "maintenance_fluids_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bedridden_patient_height_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "diffuse_large_bcell_lymphoma_prognosis_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "vitamin_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "bishop_score_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "peptide_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "alvarado_score_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "fena_calculator_fractional_excretion_of_sodium": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "stopbang_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "pvr_calculator_pulmonary_vascular_resistance": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "insulin_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bac_calculator_blood_alcohol_content": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "weight_watchers_points_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "anc_calculator_absolute_neutrophil_count": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "tpa_calculator_stroke_dosing": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "breastfeeding_calorie_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "protein_creatinine_ratio_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "vital_capacity_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "iron_deficiency_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "fiber_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        }
+      }
+    },
+    "gpt-4.1": {
+      "n_evaluated": 1066,
+      "n_correct": 592,
+      "accuracy": 55.5,
+      "n_parse_fail": 1,
+      "median_latency_s": 1.05,
+      "by_category": {
+        "electrolytes_fluids_calculators": {
+          "correct": 48,
+          "total": 65,
+          "accuracy": 73.8
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 54,
+          "total": 114,
+          "accuracy": 47.4
+        },
+        "hematology_calculators": {
+          "correct": 53,
+          "total": 72,
+          "accuracy": 73.6
+        },
+        "pediatric_calculators": {
+          "correct": 25,
+          "total": 39,
+          "accuracy": 64.1
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 0,
+          "total": 24,
+          "accuracy": 0.0
+        },
+        "other_calculators": {
+          "correct": 15,
+          "total": 27,
+          "accuracy": 55.6
+        },
+        "dietary_calculators": {
+          "correct": 62,
+          "total": 87,
+          "accuracy": 71.3
+        },
+        "dosage_calculators": {
+          "correct": 42,
+          "total": 73,
+          "accuracy": 57.5
+        },
+        "body_measurements_calculators": {
+          "correct": 31,
+          "total": 60,
+          "accuracy": 51.7
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 48,
+          "total": 96,
+          "accuracy": 50.0
+        },
+        "pulmonary_calculators": {
+          "correct": 38,
+          "total": 57,
+          "accuracy": 66.7
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 16,
+          "total": 48,
+          "accuracy": 33.3
+        },
+        "diabetes_calculators": {
+          "correct": 21,
+          "total": 30,
+          "accuracy": 70.0
+        },
+        "addiction_medicine_calculators": {
+          "correct": 30,
+          "total": 49,
+          "accuracy": 61.2
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 12,
+          "total": 21,
+          "accuracy": 57.1
+        },
+        "urology_nephrology_calculators": {
+          "correct": 25,
+          "total": 57,
+          "accuracy": 43.9
+        },
+        "digestive_system_calculators": {
+          "correct": 10,
+          "total": 27,
+          "accuracy": 37.0
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 5,
+          "total": 15,
+          "accuracy": 33.3
+        },
+        "percentile_calculators": {
+          "correct": 4,
+          "total": 16,
+          "accuracy": 25.0
+        },
+        "epidemiology_calculators": {
+          "correct": 7,
+          "total": 21,
+          "accuracy": 33.3
+        },
+        "bmi_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 12,
+          "total": 17,
+          "accuracy": 70.6
+        },
+        "radiology_calculators": {
+          "correct": 7,
+          "total": 12,
+          "accuracy": 58.3
+        },
+        "sleep_calculators": {
+          "correct": 10,
+          "total": 18,
+          "accuracy": 55.6
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 464,
+          "total": 729,
+          "accuracy": 63.6
+        },
+        "medium": {
+          "correct": 128,
+          "total": 337,
+          "accuracy": 38.0
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 455,
+          "total": 810,
+          "accuracy": 56.2
+        },
+        "medical_shorthand": {
+          "correct": 135,
+          "total": 254,
+          "accuracy": 53.1
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "arterial_blood_ph_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "hasbled_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "anc_calculator_absolute_neutrophil_count": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "maintenance_fluids_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "charlson_comorbidity_index_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "dasi_calculator_duke_activity_status_index": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "macro_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "mme_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "ideal_weight_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "diffuse_large_bcell_lymphoma_prognosis_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "eroa_mitral_regurgitation_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "gupta_risk_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "luteal_phase_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "vital_capacity_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "sofa_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "absi_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "quarantine_activity_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "tramadol_dosage_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "period_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "padua_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        }
+      }
+    },
+    "qwen3.5:9b": {
+      "n_evaluated": 1066,
+      "n_correct": 451,
+      "accuracy": 42.3,
+      "n_parse_fail": 1,
+      "median_latency_s": 1.24,
+      "by_category": {
+        "cardiovascular_system_calculators": {
+          "correct": 34,
+          "total": 114,
+          "accuracy": 29.8
+        },
+        "hematology_calculators": {
+          "correct": 42,
+          "total": 72,
+          "accuracy": 58.3
+        },
+        "percentile_calculators": {
+          "correct": 5,
+          "total": 16,
+          "accuracy": 31.2
+        },
+        "dietary_calculators": {
+          "correct": 58,
+          "total": 87,
+          "accuracy": 66.7
+        },
+        "sleep_calculators": {
+          "correct": 3,
+          "total": 18,
+          "accuracy": 16.7
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 35,
+          "total": 96,
+          "accuracy": 36.5
+        },
+        "addiction_medicine_calculators": {
+          "correct": 17,
+          "total": 49,
+          "accuracy": 34.7
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 1,
+          "total": 15,
+          "accuracy": 6.7
+        },
+        "body_measurements_calculators": {
+          "correct": 22,
+          "total": 60,
+          "accuracy": 36.7
+        },
+        "pulmonary_calculators": {
+          "correct": 29,
+          "total": 57,
+          "accuracy": 50.9
+        },
+        "radiology_calculators": {
+          "correct": 5,
+          "total": 12,
+          "accuracy": 41.7
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 13,
+          "total": 21,
+          "accuracy": 61.9
+        },
+        "urology_nephrology_calculators": {
+          "correct": 16,
+          "total": 57,
+          "accuracy": 28.1
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 40,
+          "total": 65,
+          "accuracy": 61.5
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 8,
+          "total": 48,
+          "accuracy": 16.7
+        },
+        "diabetes_calculators": {
+          "correct": 16,
+          "total": 30,
+          "accuracy": 53.3
+        },
+        "pediatric_calculators": {
+          "correct": 21,
+          "total": 39,
+          "accuracy": 53.8
+        },
+        "other_calculators": {
+          "correct": 13,
+          "total": 27,
+          "accuracy": 48.1
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 3,
+          "total": 24,
+          "accuracy": 12.5
+        },
+        "dosage_calculators": {
+          "correct": 34,
+          "total": 73,
+          "accuracy": 46.6
+        },
+        "digestive_system_calculators": {
+          "correct": 9,
+          "total": 27,
+          "accuracy": 33.3
+        },
+        "bmi_calculators": {
+          "correct": 16,
+          "total": 21,
+          "accuracy": 76.2
+        },
+        "epidemiology_calculators": {
+          "correct": 5,
+          "total": 21,
+          "accuracy": 23.8
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 6,
+          "total": 17,
+          "accuracy": 35.3
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 357,
+          "total": 729,
+          "accuracy": 49.0
+        },
+        "medium": {
+          "correct": 94,
+          "total": 337,
+          "accuracy": 27.9
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 335,
+          "total": 810,
+          "accuracy": 41.4
+        },
+        "medical_shorthand": {
+          "correct": 114,
+          "total": 254,
+          "accuracy": 44.9
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "pvr_calculator_pulmonary_vascular_resistance": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "blood_volume_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "height_percentile_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "iifym_calculator_if_it_fits_your_macros": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "epworth_sleepiness_scale_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "pregnancy_test_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "finnegan_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "epds_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "waist_to_height_ratio_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "vital_capacity_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "doppler_echo_cardiac_output_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "bed_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "calorie_deficit_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "ldl_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "arterial_age_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "metastatic_prostate_cancer_prognosis_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "pregnancy_weight_gain_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "adjusted_body_weight_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "parkland_formula_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "qsofa_score_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        }
+      }
+    },
+    "claude-opus-4-7": {
+      "n_evaluated": 1066,
+      "n_correct": 678,
+      "accuracy": 63.6,
+      "n_parse_fail": 2,
+      "median_latency_s": 2.07,
+      "by_category": {
+        "intensive_emergency_care_calculators": {
+          "correct": 23,
+          "total": 48,
+          "accuracy": 47.9
+        },
+        "radiology_calculators": {
+          "correct": 9,
+          "total": 12,
+          "accuracy": 75.0
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 4,
+          "total": 24,
+          "accuracy": 16.7
+        },
+        "digestive_system_calculators": {
+          "correct": 18,
+          "total": 27,
+          "accuracy": 66.7
+        },
+        "dietary_calculators": {
+          "correct": 64,
+          "total": 87,
+          "accuracy": 73.6
+        },
+        "pulmonary_calculators": {
+          "correct": 41,
+          "total": 57,
+          "accuracy": 71.9
+        },
+        "addiction_medicine_calculators": {
+          "correct": 29,
+          "total": 49,
+          "accuracy": 59.2
+        },
+        "epidemiology_calculators": {
+          "correct": 8,
+          "total": 21,
+          "accuracy": 38.1
+        },
+        "body_measurements_calculators": {
+          "correct": 37,
+          "total": 60,
+          "accuracy": 61.7
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 54,
+          "total": 65,
+          "accuracy": 83.1
+        },
+        "percentile_calculators": {
+          "correct": 6,
+          "total": 16,
+          "accuracy": 37.5
+        },
+        "other_calculators": {
+          "correct": 18,
+          "total": 27,
+          "accuracy": 66.7
+        },
+        "bmi_calculators": {
+          "correct": 18,
+          "total": 21,
+          "accuracy": 85.7
+        },
+        "diabetes_calculators": {
+          "correct": 25,
+          "total": 30,
+          "accuracy": 83.3
+        },
+        "pediatric_calculators": {
+          "correct": 25,
+          "total": 39,
+          "accuracy": 64.1
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 65,
+          "total": 114,
+          "accuracy": 57.0
+        },
+        "dosage_calculators": {
+          "correct": 45,
+          "total": 73,
+          "accuracy": 61.6
+        },
+        "hematology_calculators": {
+          "correct": 56,
+          "total": 72,
+          "accuracy": 77.8
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 60,
+          "total": 96,
+          "accuracy": 62.5
+        },
+        "urology_nephrology_calculators": {
+          "correct": 33,
+          "total": 57,
+          "accuracy": 57.9
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 13,
+          "total": 17,
+          "accuracy": 76.5
+        },
+        "sleep_calculators": {
+          "correct": 7,
+          "total": 18,
+          "accuracy": 38.9
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 14,
+          "total": 21,
+          "accuracy": 66.7
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 6,
+          "total": 15,
+          "accuracy": 40.0
+        }
+      },
+      "by_difficulty": {
+        "medium": {
+          "correct": 159,
+          "total": 337,
+          "accuracy": 47.2
+        },
+        "easy": {
+          "correct": 519,
+          "total": 729,
+          "accuracy": 71.2
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 508,
+          "total": 810,
+          "accuracy": 62.7
+        },
+        "medical_shorthand": {
+          "correct": 168,
+          "total": 254,
+          "accuracy": 66.1
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "injury_severity_score_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "medical_radiation_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "tinetti_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "apri_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "fiber_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "peak_flow_calculator_estimated_peak_expiratory_flow": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "dudit_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "infectious_disease_and_epidemic_calculator_sir_model": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "overweight_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "sodium_change_calculator_in_hypertriglyceridemia": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "birth_weight_percentile_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "dri_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "skinfold_body_fat_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "dasi_calculator_duke_activity_status_index": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "ciwa_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "sodium_deficit_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bmi_calculator_for_teens": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "insulin_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "vitamin_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "iq_percentile_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        }
+      }
+    },
+    "qwen3.5:2b": {
+      "n_evaluated": 1065,
+      "n_correct": 360,
+      "accuracy": 33.8,
+      "n_parse_fail": 12,
+      "median_latency_s": 0.83,
+      "by_category": {
+        "hematology_calculators": {
+          "correct": 32,
+          "total": 72,
+          "accuracy": 44.4
+        },
+        "urology_nephrology_calculators": {
+          "correct": 11,
+          "total": 57,
+          "accuracy": 19.3
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 25,
+          "total": 114,
+          "accuracy": 21.9
+        },
+        "dietary_calculators": {
+          "correct": 53,
+          "total": 86,
+          "accuracy": 61.6
+        },
+        "dosage_calculators": {
+          "correct": 34,
+          "total": 73,
+          "accuracy": 46.6
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 30,
+          "total": 96,
+          "accuracy": 31.2
+        },
+        "pediatric_calculators": {
+          "correct": 16,
+          "total": 39,
+          "accuracy": 41.0
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 12,
+          "total": 21,
+          "accuracy": 57.1
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 29,
+          "total": 65,
+          "accuracy": 44.6
+        },
+        "diabetes_calculators": {
+          "correct": 12,
+          "total": 30,
+          "accuracy": 40.0
+        },
+        "pulmonary_calculators": {
+          "correct": 23,
+          "total": 57,
+          "accuracy": 40.4
+        },
+        "digestive_system_calculators": {
+          "correct": 8,
+          "total": 27,
+          "accuracy": 29.6
+        },
+        "body_measurements_calculators": {
+          "correct": 15,
+          "total": 60,
+          "accuracy": 25.0
+        },
+        "other_calculators": {
+          "correct": 7,
+          "total": 27,
+          "accuracy": 25.9
+        },
+        "percentile_calculators": {
+          "correct": 1,
+          "total": 16,
+          "accuracy": 6.2
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 6,
+          "total": 48,
+          "accuracy": 12.5
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 8,
+          "total": 17,
+          "accuracy": 47.1
+        },
+        "addiction_medicine_calculators": {
+          "correct": 14,
+          "total": 49,
+          "accuracy": 28.6
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 3,
+          "total": 15,
+          "accuracy": 20.0
+        },
+        "epidemiology_calculators": {
+          "correct": 2,
+          "total": 21,
+          "accuracy": 9.5
+        },
+        "bmi_calculators": {
+          "correct": 10,
+          "total": 21,
+          "accuracy": 47.6
+        },
+        "radiology_calculators": {
+          "correct": 6,
+          "total": 12,
+          "accuracy": 50.0
+        },
+        "sleep_calculators": {
+          "correct": 1,
+          "total": 18,
+          "accuracy": 5.6
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 2,
+          "total": 24,
+          "accuracy": 8.3
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 281,
+          "total": 728,
+          "accuracy": 38.6
+        },
+        "medium": {
+          "correct": 79,
+          "total": 337,
+          "accuracy": 23.4
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 265,
+          "total": 809,
+          "accuracy": 32.8
+        },
+        "medical_shorthand": {
+          "correct": 95,
+          "total": 254,
+          "accuracy": 37.4
+        },
+        "regional_english": {
+          "correct": 0,
+          "total": 2,
+          "accuracy": 0.0
+        }
+      },
+      "by_calculator_top": {
+        "inr_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "bladder_volume_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "pisa_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "keto_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "isotretinoin_dose_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "fundal_height_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "mipi_calculator_mantle_cell_lymphoma_international_prognostic_index": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "baby_formula_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "cholesterol_ratio_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "kidney_failure_risk_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "benzodiazepine_conversion_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "tdee_calculator_total_daily_energy_expenditure": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "sodium_correction_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "insulin_dosage_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "lung_cancer_risk_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "ast_alt_ratio_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "pediatric_gfr_calculator_glomerular_filtration_rate": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "dic_syndrome_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "creatinine_clearance_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "calorie_intake_calculator_simple": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        }
+      }
+    },
+    "gemma4:e4b": {
+      "n_evaluated": 1066,
+      "n_correct": 535,
+      "accuracy": 50.2,
+      "n_parse_fail": 1,
+      "median_latency_s": 11.98,
+      "by_category": {
+        "pediatric_calculators": {
+          "correct": 22,
+          "total": 39,
+          "accuracy": 56.4
+        },
+        "sleep_calculators": {
+          "correct": 9,
+          "total": 18,
+          "accuracy": 50.0
+        },
+        "dosage_calculators": {
+          "correct": 41,
+          "total": 73,
+          "accuracy": 56.2
+        },
+        "hematology_calculators": {
+          "correct": 47,
+          "total": 72,
+          "accuracy": 65.3
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 14,
+          "total": 48,
+          "accuracy": 29.2
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 44,
+          "total": 96,
+          "accuracy": 45.8
+        },
+        "other_calculators": {
+          "correct": 6,
+          "total": 27,
+          "accuracy": 22.2
+        },
+        "pulmonary_calculators": {
+          "correct": 35,
+          "total": 57,
+          "accuracy": 61.4
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 3,
+          "total": 15,
+          "accuracy": 20.0
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 44,
+          "total": 114,
+          "accuracy": 38.6
+        },
+        "dietary_calculators": {
+          "correct": 62,
+          "total": 87,
+          "accuracy": 71.3
+        },
+        "urology_nephrology_calculators": {
+          "correct": 27,
+          "total": 57,
+          "accuracy": 47.4
+        },
+        "bmi_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "digestive_system_calculators": {
+          "correct": 9,
+          "total": 27,
+          "accuracy": 33.3
+        },
+        "percentile_calculators": {
+          "correct": 4,
+          "total": 16,
+          "accuracy": 25.0
+        },
+        "addiction_medicine_calculators": {
+          "correct": 20,
+          "total": 49,
+          "accuracy": 40.8
+        },
+        "radiology_calculators": {
+          "correct": 4,
+          "total": 12,
+          "accuracy": 33.3
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 3,
+          "total": 24,
+          "accuracy": 12.5
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 48,
+          "total": 65,
+          "accuracy": 73.8
+        },
+        "body_measurements_calculators": {
+          "correct": 25,
+          "total": 60,
+          "accuracy": 41.7
+        },
+        "diabetes_calculators": {
+          "correct": 19,
+          "total": 30,
+          "accuracy": 63.3
+        },
+        "epidemiology_calculators": {
+          "correct": 7,
+          "total": 21,
+          "accuracy": 33.3
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 14,
+          "total": 17,
+          "accuracy": 82.4
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 11,
+          "total": 21,
+          "accuracy": 52.4
+        }
+      },
+      "by_difficulty": {
+        "medium": {
+          "correct": 107,
+          "total": 337,
+          "accuracy": 31.8
+        },
+        "easy": {
+          "correct": 428,
+          "total": 729,
+          "accuracy": 58.7
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 405,
+          "total": 810,
+          "accuracy": 50.0
+        },
+        "medical_shorthand": {
+          "correct": 128,
+          "total": 254,
+          "accuracy": 50.4
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "newborn_hyperbilirubinemia_assessment_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "epworth_sleepiness_scale_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "mme_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "allowable_blood_loss_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "shock_index_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "clomid_ovulation_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "centor_score_calculator_modifiedmcisaac": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "endotracheal_tube_size_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "happiness_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "ecg_boxes_to_seconds_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "vitamin_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "pearl_index_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "kidney_failure_risk_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "anc_calculator_without_bands": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "geriatric_bmi_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "timi_score_calculator_for_uanstemi": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "ast_alt_ratio_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "luteal_phase_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "cardiac_index_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "bmi_calculator_for_teens": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        }
+      }
+    },
+    "gpt-5.5": {
+      "n_evaluated": 1066,
+      "n_correct": 733,
+      "accuracy": 68.8,
+      "n_parse_fail": 120,
+      "median_latency_s": 7.15,
+      "by_category": {
+        "cardiovascular_system_calculators": {
+          "correct": 71,
+          "total": 114,
+          "accuracy": 62.3
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 58,
+          "total": 96,
+          "accuracy": 60.4
+        },
+        "dosage_calculators": {
+          "correct": 38,
+          "total": 73,
+          "accuracy": 52.1
+        },
+        "urology_nephrology_calculators": {
+          "correct": 42,
+          "total": 57,
+          "accuracy": 73.7
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 58,
+          "total": 65,
+          "accuracy": 89.2
+        },
+        "dietary_calculators": {
+          "correct": 55,
+          "total": 87,
+          "accuracy": 63.2
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 16,
+          "total": 21,
+          "accuracy": 76.2
+        },
+        "body_measurements_calculators": {
+          "correct": 46,
+          "total": 60,
+          "accuracy": 76.7
+        },
+        "hematology_calculators": {
+          "correct": 61,
+          "total": 72,
+          "accuracy": 84.7
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 39,
+          "total": 48,
+          "accuracy": 81.2
+        },
+        "digestive_system_calculators": {
+          "correct": 22,
+          "total": 27,
+          "accuracy": 81.5
+        },
+        "addiction_medicine_calculators": {
+          "correct": 32,
+          "total": 49,
+          "accuracy": 65.3
+        },
+        "radiology_calculators": {
+          "correct": 9,
+          "total": 12,
+          "accuracy": 75.0
+        },
+        "bmi_calculators": {
+          "correct": 18,
+          "total": 21,
+          "accuracy": 85.7
+        },
+        "pediatric_calculators": {
+          "correct": 22,
+          "total": 39,
+          "accuracy": 56.4
+        },
+        "other_calculators": {
+          "correct": 17,
+          "total": 27,
+          "accuracy": 63.0
+        },
+        "percentile_calculators": {
+          "correct": 3,
+          "total": 16,
+          "accuracy": 18.8
+        },
+        "sleep_calculators": {
+          "correct": 14,
+          "total": 18,
+          "accuracy": 77.8
+        },
+        "diabetes_calculators": {
+          "correct": 25,
+          "total": 30,
+          "accuracy": 83.3
+        },
+        "pulmonary_calculators": {
+          "correct": 40,
+          "total": 57,
+          "accuracy": 70.2
+        },
+        "epidemiology_calculators": {
+          "correct": 8,
+          "total": 21,
+          "accuracy": 38.1
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 13,
+          "total": 24,
+          "accuracy": 54.2
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 14,
+          "total": 17,
+          "accuracy": 82.4
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 12,
+          "total": 15,
+          "accuracy": 80.0
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 550,
+          "total": 729,
+          "accuracy": 75.4
+        },
+        "medium": {
+          "correct": 183,
+          "total": 337,
+          "accuracy": 54.3
+        }
+      },
+      "by_language": {
+        "medical_shorthand": {
+          "correct": 184,
+          "total": 254,
+          "accuracy": 72.4
+        },
+        "hinglish_clinical": {
+          "correct": 547,
+          "total": 810,
+          "accuracy": 67.5
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "rate_pressure_product_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "chances_of_having_twins_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "mme_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "protein_creatinine_ratio_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "venous_blood_ph_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "katchmcardle_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "cholesterol_ratio_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "cefdinir_dose_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "waist_to_height_ratio_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "plasma_volume_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "luteal_phase_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "mews_score_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "nafld_fibrosis_score_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "total_body_water_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "hsi_calculator_heaviness_of_smoking_index": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "reverse_due_date_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "medical_radiation_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "nlr_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "waist_to_hip_ratio_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "peptide_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        }
+      }
+    },
+    "gemma4:e2b": {
+      "n_evaluated": 1065,
+      "n_correct": 464,
+      "accuracy": 43.6,
+      "n_parse_fail": 12,
+      "median_latency_s": 8.16,
+      "by_category": {
+        "sleep_calculators": {
+          "correct": 7,
+          "total": 18,
+          "accuracy": 38.9
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 33,
+          "total": 114,
+          "accuracy": 28.9
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 38,
+          "total": 65,
+          "accuracy": 58.5
+        },
+        "addiction_medicine_calculators": {
+          "correct": 20,
+          "total": 49,
+          "accuracy": 40.8
+        },
+        "dietary_calculators": {
+          "correct": 60,
+          "total": 87,
+          "accuracy": 69.0
+        },
+        "dosage_calculators": {
+          "correct": 35,
+          "total": 73,
+          "accuracy": 47.9
+        },
+        "pediatric_calculators": {
+          "correct": 21,
+          "total": 39,
+          "accuracy": 53.8
+        },
+        "hematology_calculators": {
+          "correct": 45,
+          "total": 72,
+          "accuracy": 62.5
+        },
+        "urology_nephrology_calculators": {
+          "correct": 22,
+          "total": 57,
+          "accuracy": 38.6
+        },
+        "percentile_calculators": {
+          "correct": 3,
+          "total": 16,
+          "accuracy": 18.8
+        },
+        "gynecology_pregnancy_calculators": {
+          "correct": 40,
+          "total": 96,
+          "accuracy": 41.7
+        },
+        "pulmonary_calculators": {
+          "correct": 30,
+          "total": 57,
+          "accuracy": 52.6
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 10,
+          "total": 48,
+          "accuracy": 20.8
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 2,
+          "total": 24,
+          "accuracy": 8.3
+        },
+        "other_calculators": {
+          "correct": 4,
+          "total": 27,
+          "accuracy": 14.8
+        },
+        "body_measurements_calculators": {
+          "correct": 18,
+          "total": 60,
+          "accuracy": 30.0
+        },
+        "diabetes_calculators": {
+          "correct": 15,
+          "total": 30,
+          "accuracy": 50.0
+        },
+        "digestive_system_calculators": {
+          "correct": 7,
+          "total": 27,
+          "accuracy": 25.9
+        },
+        "radiology_calculators": {
+          "correct": 5,
+          "total": 12,
+          "accuracy": 41.7
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 3,
+          "total": 15,
+          "accuracy": 20.0
+        },
+        "bmi_calculators": {
+          "correct": 16,
+          "total": 21,
+          "accuracy": 76.2
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 13,
+          "total": 17,
+          "accuracy": 76.5
+        },
+        "epidemiology_calculators": {
+          "correct": 7,
+          "total": 20,
+          "accuracy": 35.0
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 10,
+          "total": 21,
+          "accuracy": 47.6
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 368,
+          "total": 729,
+          "accuracy": 50.5
+        },
+        "medium": {
+          "correct": 96,
+          "total": 336,
+          "accuracy": 28.6
+        }
+      },
+      "by_language": {
+        "hinglish_clinical": {
+          "correct": 351,
+          "total": 809,
+          "accuracy": 43.4
+        },
+        "medical_shorthand": {
+          "correct": 111,
+          "total": 254,
+          "accuracy": 43.7
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "ahi_calculator_apneahypopnea_index": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "cerebral_perfusion_pressure_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "sodium_change_calculator_in_hypertriglyceridemia": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "audit_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "weight_gain_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "tylenol_overdose_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "pediatric_gfr_calculator_glomerular_filtration_rate": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "blood_volume_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "adrenal_washout_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "height_percentile_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "fat_intake_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "stillbirth_risk_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "sodium_deficit_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "tidal_volume_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "nih_stroke_scale_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "cefdinir_dose_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "baby_formula_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "head_circumference_percentile_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "bims_calculator_brief_interview_for_mental_status": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "iv_flow_rate_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        }
+      }
+    },
+    "claude-haiku-4-5-20251001": {
+      "n_evaluated": 1066,
+      "n_correct": 524,
+      "accuracy": 49.2,
+      "n_parse_fail": 1,
+      "median_latency_s": 1.04,
+      "by_category": {
+        "gynecology_pregnancy_calculators": {
+          "correct": 42,
+          "total": 96,
+          "accuracy": 43.8
+        },
+        "body_measurements_calculators": {
+          "correct": 21,
+          "total": 60,
+          "accuracy": 35.0
+        },
+        "dosage_calculators": {
+          "correct": 36,
+          "total": 73,
+          "accuracy": 49.3
+        },
+        "addiction_medicine_calculators": {
+          "correct": 24,
+          "total": 49,
+          "accuracy": 49.0
+        },
+        "hematology_calculators": {
+          "correct": 48,
+          "total": 72,
+          "accuracy": 66.7
+        },
+        "percentile_calculators": {
+          "correct": 6,
+          "total": 16,
+          "accuracy": 37.5
+        },
+        "sleep_calculators": {
+          "correct": 4,
+          "total": 18,
+          "accuracy": 22.2
+        },
+        "electrolytes_fluids_calculators": {
+          "correct": 46,
+          "total": 65,
+          "accuracy": 70.8
+        },
+        "pediatric_calculators": {
+          "correct": 25,
+          "total": 39,
+          "accuracy": 64.1
+        },
+        "cardiovascular_system_calculators": {
+          "correct": 39,
+          "total": 114,
+          "accuracy": 34.2
+        },
+        "dietary_calculators": {
+          "correct": 60,
+          "total": 87,
+          "accuracy": 69.0
+        },
+        "pediatric_dosage_calculators": {
+          "correct": 12,
+          "total": 17,
+          "accuracy": 70.6
+        },
+        "epidemiology_calculators": {
+          "correct": 6,
+          "total": 21,
+          "accuracy": 28.6
+        },
+        "pulmonary_calculators": {
+          "correct": 36,
+          "total": 57,
+          "accuracy": 63.2
+        },
+        "other_calculators": {
+          "correct": 14,
+          "total": 27,
+          "accuracy": 51.9
+        },
+        "urology_nephrology_calculators": {
+          "correct": 21,
+          "total": 57,
+          "accuracy": 36.8
+        },
+        "intensive_emergency_care_calculators": {
+          "correct": 13,
+          "total": 48,
+          "accuracy": 27.1
+        },
+        "bmi_calculators": {
+          "correct": 17,
+          "total": 21,
+          "accuracy": 81.0
+        },
+        "diabetes_calculators": {
+          "correct": 22,
+          "total": 30,
+          "accuracy": 73.3
+        },
+        "digestive_system_calculators": {
+          "correct": 8,
+          "total": 27,
+          "accuracy": 29.6
+        },
+        "geriatric_medicine_calculators": {
+          "correct": 2,
+          "total": 24,
+          "accuracy": 8.3
+        },
+        "metabolic_disorders_calculators": {
+          "correct": 11,
+          "total": 21,
+          "accuracy": 52.4
+        },
+        "psychiatry_psychology_calculators": {
+          "correct": 4,
+          "total": 15,
+          "accuracy": 26.7
+        },
+        "radiology_calculators": {
+          "correct": 7,
+          "total": 12,
+          "accuracy": 58.3
+        }
+      },
+      "by_difficulty": {
+        "easy": {
+          "correct": 414,
+          "total": 729,
+          "accuracy": 56.8
+        },
+        "medium": {
+          "correct": 110,
+          "total": 337,
+          "accuracy": 32.6
+        }
+      },
+      "by_language": {
+        "medical_shorthand": {
+          "correct": 131,
+          "total": 254,
+          "accuracy": 51.6
+        },
+        "hinglish_clinical": {
+          "correct": 391,
+          "total": 810,
+          "accuracy": 48.3
+        },
+        "regional_english": {
+          "correct": 2,
+          "total": 2,
+          "accuracy": 100.0
+        }
+      },
+      "by_calculator_top": {
+        "progesterone_to_estrogen_ratio_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "ponderal_index_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "adderall_dosage_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "dudit_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "plasma_volume_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "bmi_percentile_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "sleep_debt_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "iv_flow_rate_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "height_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "duke_treadmill_score_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "micronutrient_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        },
+        "paracetamol_dosage_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "hand_sanitizer_calculator_coronavirus": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "epworth_sleepiness_scale_calculator": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "psi_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "centor_score_calculator_modifiedmcisaac": {
+          "correct": 1,
+          "total": 3,
+          "accuracy": 33.3
+        },
+        "rcri_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "body_fat_calculator": {
+          "correct": 0,
+          "total": 3,
+          "accuracy": 0.0
+        },
+        "sodium_deficit_calculator": {
+          "correct": 3,
+          "total": 3,
+          "accuracy": 100.0
+        },
+        "prescription_refill_calculator": {
+          "correct": 2,
+          "total": 3,
+          "accuracy": 66.7
+        }
+      }
+    }
+  }
+}

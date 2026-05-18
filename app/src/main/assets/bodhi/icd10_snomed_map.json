@@ -1,0 +1,421 @@
+{
+  "version": 1,
+  "source": "Derived from PHC top 300 ICD-10 + BODHI (Eka.Care) Disorder conditions",
+  "attribution": "BODHI knowledge graph: https://github.com/eka-care/BODHI (CC BY-NC 4.0)",
+  "generatedFrom": {
+    "icdVersion": "2026.1",
+    "bodhiDisorders": 587,
+    "thresholdAuto": 0.65,
+    "manualOverrides": 23
+  },
+  "mappings": {
+    "A02.0": {
+      "snomedId": "75258004",
+      "bodhiName": "Food poisoning",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Salmonella enteritis",
+      "source": "auto"
+    },
+    "A09": {
+      "snomedId": "69776003",
+      "bodhiName": "Acute gastroenteritis",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Infectious gastroenteritis and colitis, unspecified",
+      "source": "manual"
+    },
+    "A15.3": {
+      "snomedId": "154283005",
+      "bodhiName": "Pulmonary tuberculosis",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Tuberculosis of lung, confirmed by unspecified means",
+      "source": "auto"
+    },
+    "A56.2": {
+      "snomedId": "186729003",
+      "bodhiName": "Chlamydial genitourinary infection",
+      "confidence": 0.69,
+      "triage": "opd_managed",
+      "icdDesc": "Chlamydial infection of genitourinary tract, unspecified",
+      "source": "auto"
+    },
+    "A63.0": {
+      "snomedId": "266113007",
+      "bodhiName": "Genital warts",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Anogenital (venereal) warts",
+      "source": "auto"
+    },
+    "A90": {
+      "snomedId": "38362002",
+      "bodhiName": "Dengue fever",
+      "confidence": 0.75,
+      "triage": "worrisome",
+      "icdDesc": "Dengue fever",
+      "source": "auto"
+    },
+    "B17.1": {
+      "snomedId": "3738000",
+      "bodhiName": "Viral Hepatitis",
+      "confidence": 0.75,
+      "triage": "worrisome",
+      "icdDesc": "Acute hepatitis C",
+      "source": "auto"
+    },
+    "B35.6": {
+      "snomedId": "399029005",
+      "bodhiName": "Tinea cruris (jock itch)",
+      "confidence": 0.79,
+      "triage": "opd_managed",
+      "icdDesc": "Tinea cruris",
+      "source": "auto"
+    },
+    "B50.9": {
+      "snomedId": "61462000",
+      "bodhiName": "Malaria",
+      "confidence": 1.0,
+      "triage": "worrisome",
+      "icdDesc": "Plasmodium falciparum malaria, unspecified",
+      "source": "manual"
+    },
+    "B54": {
+      "snomedId": "61462000",
+      "bodhiName": "Malaria",
+      "confidence": 1.0,
+      "triage": "worrisome",
+      "icdDesc": "Unspecified malaria",
+      "source": "manual"
+    },
+    "B77.9": {
+      "snomedId": "27601005",
+      "bodhiName": "Worm Infestation",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Ascariasis, unspecified",
+      "source": "auto"
+    },
+    "C46.9": {
+      "snomedId": "109385007",
+      "bodhiName": "Kaposi's sarcoma",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Kaposi sarcoma, unspecified",
+      "source": "auto"
+    },
+    "D50.9": {
+      "snomedId": "87522002",
+      "bodhiName": "Iron deficiency anemia",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Iron deficiency anaemia, unspecified",
+      "source": "auto"
+    },
+    "D51.9": {
+      "snomedId": "190634004",
+      "bodhiName": "Vitamin B12 deficiency",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Vitamin B12 deficiency anaemia, unspecified",
+      "source": "auto"
+    },
+    "E10.9": {
+      "snomedId": "46635009",
+      "bodhiName": "Diabetes mellitus type 1",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Type 1 diabetes mellitus without complications",
+      "source": "manual"
+    },
+    "E11.9": {
+      "snomedId": "44054006",
+      "bodhiName": "Diabetes Type 2",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Type 2 diabetes mellitus without complications",
+      "source": "manual"
+    },
+    "E11.2": {
+      "snomedId": "127013003",
+      "bodhiName": "Disorder of kidney due to diabetes mellitus",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Type 2 diabetes mellitus with kidney complications",
+      "source": "auto"
+    },
+    "E11.5": {
+      "snomedId": "371087003",
+      "bodhiName": "Diabetic Foot Ulcer",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Type 2 diabetes mellitus with peripheral circulatory complications",
+      "source": "auto"
+    },
+    "E55.9": {
+      "snomedId": "190634004",
+      "bodhiName": "Vitamin B12 deficiency",
+      "confidence": 0.7,
+      "triage": "opd_managed",
+      "icdDesc": "Vitamin D deficiency, unspecified",
+      "source": "auto"
+    },
+    "F32.9": {
+      "snomedId": "35489007",
+      "bodhiName": "Depression",
+      "confidence": 1.0,
+      "triage": "emergency",
+      "icdDesc": "Depressive episode, unspecified",
+      "source": "manual"
+    },
+    "F41.1": {
+      "snomedId": "21897009",
+      "bodhiName": "Generalised Anxiety disorder (GAD)",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Generalized anxiety disorder",
+      "source": "manual"
+    },
+    "G43.9": {
+      "snomedId": "37796009",
+      "bodhiName": "Migraine",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Migraine, unspecified",
+      "source": "manual"
+    },
+    "G44.2": {
+      "snomedId": "398057008",
+      "bodhiName": "Tension Headache",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Tension-type headache",
+      "source": "manual"
+    },
+    "I10": {
+      "snomedId": "38341003",
+      "bodhiName": "Hypertension",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Essential (primary) hypertension",
+      "source": "manual"
+    },
+    "I13.9": {
+      "snomedId": "38481006",
+      "bodhiName": "Disorder of kidney due to hypertension",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Hypertensive heart and renal disease, unspecified",
+      "source": "auto"
+    },
+    "I21.9": {
+      "snomedId": "57054005",
+      "bodhiName": "Acute myocardial infarction",
+      "confidence": 1.0,
+      "triage": "emergency",
+      "icdDesc": "Acute myocardial infarction, unspecified",
+      "source": "manual"
+    },
+    "I50.9": {
+      "snomedId": "42343007",
+      "bodhiName": "Congestive heart failure",
+      "confidence": 0.69,
+      "triage": "worrisome",
+      "icdDesc": "Heart failure, unspecified",
+      "source": "auto"
+    },
+    "I01.9": {
+      "snomedId": "368009",
+      "bodhiName": "Valvular heart disease",
+      "confidence": 0.7,
+      "triage": "emergency",
+      "icdDesc": "Acute rheumatic heart disease, unspecified",
+      "source": "auto"
+    },
+    "J06.9": {
+      "snomedId": "54150009",
+      "bodhiName": "Upper respiratory infection",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Acute upper respiratory infection, unspecified",
+      "source": "manual"
+    },
+    "J18.9": {
+      "snomedId": "233604007",
+      "bodhiName": "Pneumonia",
+      "confidence": 1.0,
+      "triage": "emergency",
+      "icdDesc": "Pneumonia, unspecified organism",
+      "source": "manual"
+    },
+    "J44.9": {
+      "snomedId": "13645005",
+      "bodhiName": "Chronic obstructive lung disease",
+      "confidence": 1.0,
+      "triage": "worrisome",
+      "icdDesc": "Chronic obstructive pulmonary disease, unspecified",
+      "source": "manual"
+    },
+    "J45.9": {
+      "snomedId": "195967001",
+      "bodhiName": "Asthma",
+      "confidence": 1.0,
+      "triage": "worrisome",
+      "icdDesc": "Asthma, unspecified",
+      "source": "manual"
+    },
+    "K29.7": {
+      "snomedId": "4556007",
+      "bodhiName": "Gastritis",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Gastritis, unspecified",
+      "source": "manual"
+    },
+    "K74.6": {
+      "snomedId": "19943007",
+      "bodhiName": "Cirrhosis",
+      "confidence": 0.67,
+      "triage": "emergency",
+      "icdDesc": "Other and unspecified cirrhosis of liver",
+      "source": "auto"
+    },
+    "L08.9": {
+      "snomedId": "128045006",
+      "bodhiName": "Cellulitis",
+      "confidence": 1.0,
+      "triage": "worrisome",
+      "icdDesc": "Local infection of skin and subcutaneous tissue, unspecified",
+      "source": "manual"
+    },
+    "L70.0": {
+      "snomedId": "88616000",
+      "bodhiName": "Acne vulgaris",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Acne vulgaris",
+      "source": "auto"
+    },
+    "M06.9": {
+      "snomedId": "69896004",
+      "bodhiName": "Rheumatoid arthritis",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Rheumatoid arthritis, unspecified",
+      "source": "auto"
+    },
+    "M16.9": {
+      "snomedId": "239872002",
+      "bodhiName": "Hip osteoarthritis",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Osteoarthritis of hip, unspecified",
+      "source": "auto"
+    },
+    "M17.9": {
+      "snomedId": "239873007",
+      "bodhiName": "Osteoarthritis of knee",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Osteoarthritis of knee, unspecified",
+      "source": "auto"
+    },
+    "M54.5": {
+      "snomedId": "279040009",
+      "bodhiName": "Mechanical back pain",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Low back pain",
+      "source": "manual"
+    },
+    "M75.1": {
+      "snomedId": "239960007",
+      "bodhiName": "Shoulder impingement syndrome",
+      "confidence": 0.67,
+      "triage": "opd_managed",
+      "icdDesc": "Rotator cuff syndrome",
+      "source": "auto"
+    },
+    "N30.0": {
+      "snomedId": "38822007",
+      "bodhiName": "Cystitis",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Acute cystitis",
+      "source": "manual"
+    },
+    "N39.0": {
+      "snomedId": "68566005",
+      "bodhiName": "UTI (Urinary tract infectious disease)",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Urinary tract infection, site not specified",
+      "source": "manual"
+    },
+    "N40": {
+      "snomedId": "266569009",
+      "bodhiName": "Benign prostatic hyperplasia",
+      "confidence": 0.69,
+      "triage": "worrisome",
+      "icdDesc": "Hyperplasia of prostate",
+      "source": "auto"
+    },
+    "O00.9": {
+      "snomedId": "34801009",
+      "bodhiName": "Ectopic Pregnancy",
+      "confidence": 0.7,
+      "triage": "emergency",
+      "icdDesc": "Ectopic pregnancy, unspecified",
+      "source": "auto"
+    },
+    "O06.9": {
+      "snomedId": "16607004",
+      "bodhiName": "Missed abortion",
+      "confidence": 0.67,
+      "triage": "emergency",
+      "icdDesc": "Unspecified abortion without complication",
+      "source": "auto"
+    },
+    "O14.1": {
+      "snomedId": "398254007",
+      "bodhiName": "Pre eclampsia",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Severe pre-eclampsia",
+      "source": "auto"
+    },
+    "O24.4": {
+      "snomedId": "11687002",
+      "bodhiName": "Gestational Diabetes Mellitus",
+      "confidence": 1.0,
+      "triage": "opd_managed",
+      "icdDesc": "Gestational diabetes mellitus",
+      "source": "manual"
+    },
+    "O85": {
+      "snomedId": "2858002",
+      "bodhiName": "Puerperal Sepsis",
+      "confidence": 0.67,
+      "triage": "emergency",
+      "icdDesc": "Puerperal sepsis",
+      "source": "auto"
+    },
+    "Q24.9": {
+      "snomedId": "13213009",
+      "bodhiName": "Congenital heart disease",
+      "confidence": 0.67,
+      "triage": "worrisome",
+      "icdDesc": "Congenital malformation of heart, unspecified",
+      "source": "auto"
+    },
+    "S42.0": {
+      "snomedId": "58150001",
+      "bodhiName": "Clavicle fracture",
+      "confidence": 0.7,
+      "triage": "emergency",
+      "icdDesc": "Fracture of clavicle",
+      "source": "auto"
+    }
+  }
+}

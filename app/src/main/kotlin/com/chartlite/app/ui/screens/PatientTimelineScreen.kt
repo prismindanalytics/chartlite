@@ -1,6 +1,7 @@
 package com.chartlite.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -251,12 +252,37 @@ fun PatientTimelineScreen(
                                             color = Neutral600
                                         )
                                     }
-                                    // ID with copy hint
-                                    Text(
-                                        "ID: ${p.id}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Neutral500
-                                    )
+                                    // ID with tap-to-copy. Since solo-mode
+                                    // registration now skips the dedicated
+                                    // PATIENT-ID screen, this is where the
+                                    // clinician copies it for the booklet.
+                                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                                    val idCopiedMsg = stringResource(R.string.id_copied_clipboard)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clickable {
+                                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(p.id))
+                                                android.widget.Toast.makeText(
+                                                    context, idCopiedMsg, android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            .padding(vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            "ID: ${p.id}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Icon(
+                                            Icons.Default.ContentCopy,
+                                            contentDescription = stringResource(R.string.id_copied_clipboard),
+                                            modifier = Modifier.size(12.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
 
@@ -825,32 +851,42 @@ fun PatientTimelineScreen(
 
             if (encounters.isEmpty()) {
                 item(key = "empty_state") {
+                    // Empty-state used to be a decorative card pointing the user
+                    // at a small FAB in the corner — wasted ~60% of the screen
+                    // and forced an extra finger trip. Now the empty state IS
+                    // a primary CTA: thumb-reachable, large hit area, kicks off
+                    // the same onNewEncounter callback as the FAB.
                     Card(
-                        Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = onCheckIn == null) { onNewEncounter() },
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Neutral50)
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
-                                Icons.Default.Description,
+                                Icons.Default.Add,
                                 contentDescription = null,
                                 modifier = Modifier.size(48.dp),
-                                tint = Neutral400
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(
-                                stringResource(R.string.no_encounters_recorded_yet),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Neutral500
+                                stringResource(R.string.start_first_encounter_cta),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(4.dp))
                             Text(
-                                stringResource(R.string.tap_new_encounter_hint),
+                                stringResource(R.string.start_first_encounter_sub),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Neutral400
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -1018,7 +1054,7 @@ private fun EditPatientSheet(
                         )
                         onSave(updated)
                     },
-                    enabled = firstName.isNotBlank() && lastName.isNotBlank(),
+                    enabled = firstName.isNotBlank(),
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(stringResource(R.string.save))

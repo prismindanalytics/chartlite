@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +54,8 @@ import com.chartlite.app.extraction.EncounterSaveCoordinator
 import com.chartlite.app.extraction.ExtractionQueueRepository
 import com.chartlite.app.model.ClinicStation
 import com.chartlite.app.model.Medication
+import com.chartlite.app.model.StructuredEncounter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.chartlite.app.R
@@ -68,17 +71,22 @@ fun QueuedExtractionReviewScreen(
     val app = context.applicationContext as App
     val scope = rememberCoroutineScope()
     val queueState by app.extractionQueue.state.collectAsState()
+    val llmPreparing by app.llmModelManager.isPreparingModel.collectAsState()
+    var actionError by remember { mutableStateOf<String?>(null) }
 
-    // ── SMS permission — request once so encounter save can send natively ──
+    var hasSmsPermission by remember {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.SEND_SMS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
     val smsPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { /* granted state not needed — SMSSender checks at send time */ }
-    LaunchedEffect(Unit) {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                context, android.Manifest.permission.SEND_SMS
-            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            smsPermissionLauncher.launch(android.Manifest.permission.SEND_SMS)
+    ) { granted ->
+        hasSmsPermission = granted
+        if (!granted) {
+            actionError = "SMS permission was denied. Save only, or grant permission before sending SMS."
         }
     }
 
@@ -87,7 +95,9 @@ fun QueuedExtractionReviewScreen(
     var isSaving by remember { mutableStateOf(false) }
     var isProcessingItem by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var actionError by remember { mutableStateOf<String?>(null) }
+    var pendingSmsEncounter by remember { mutableStateOf<StructuredEncounter?>(null) }
+    var pendingSmsItem by remember { mutableStateOf<ExtractionQueueRepository.QueueItem?>(null) }
+    var pendingSmsPhone by remember { mutableStateOf<String?>(null) }
     val queuedNoteNotFoundMsg = stringResource(R.string.queued_note_not_found)
     val statusMsg = stringResource(R.string.status)
     val loadingMsg = stringResource(R.string.loading)
@@ -115,8 +125,111 @@ fun QueuedExtractionReviewScreen(
         reloadQueueItem()
     }
 
+    fun saveQueuedEncounter(
+        editedEncounter: StructuredEncounter,
+        currentItem: ExtractionQueueRepository.QueueItem,
+        sendPatientSms: Boolean
+    ) {
+        if (isSaving) return
+        isSaving = true
+        actionError = null
+        scope.launch {
+            try {
+                val station = currentItem.stationType?.let {
+                    runCatching { ClinicStation.valueOf(it) }.getOrNull()
+                }
+                val savedId = EncounterSaveCoordinator.saveEncounter(
+                    app = app,
+                    encounter = editedEncounter,
+                    patientId = currentItem.patientId,
+                    visitId = currentItem.visitId,
+                    station = station,
+                    sendPatientSms = sendPatientSms
+                )
+                app.extractionQueue.markSaved(queueId, savedId)
+                onSaved(savedId, currentItem.visitId)
+            } catch (e: Exception) {
+                actionError = "Save failed: ${e.message}"
+                isSaving = false
+            }
+        }
+    }
+
+    pendingSmsEncounter?.let { pendingEncounter ->
+        val currentPendingItem = pendingSmsItem
+        if (currentPendingItem != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    pendingSmsEncounter = null
+                    pendingSmsItem = null
+                    pendingSmsPhone = null
+                },
+                title = { Text("Send SMS health record?") },
+                text = {
+                    Text(
+                        "This will send an encrypted clinical SMS to ***${pendingSmsPhone.orEmpty().takeLast(4)}. Use Save only if the phone is shared, consent is unclear, or SMS costs should be avoided."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (!hasSmsPermission && app.appConfig.twilioAccountSid.isBlank()) {
+                            smsPermissionLauncher.launch(android.Manifest.permission.SEND_SMS)
+                            actionError = "Grant SMS permission, then tap Save and send again."
+                            return@TextButton
+                        }
+                        pendingSmsEncounter = null
+                        pendingSmsItem = null
+                        pendingSmsPhone = null
+                        saveQueuedEncounter(pendingEncounter, currentPendingItem, sendPatientSms = true)
+                    }) {
+                        Text("Save and send")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            pendingSmsEncounter = null
+                            pendingSmsItem = null
+                            pendingSmsPhone = null
+                            saveQueuedEncounter(pendingEncounter, currentPendingItem, sendPatientSms = false)
+                        }) {
+                            Text("Save only")
+                        }
+                        TextButton(onClick = {
+                            pendingSmsEncounter = null
+                            pendingSmsItem = null
+                            pendingSmsPhone = null
+                        }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
+                }
+            )
+        }
+    }
+
     val queueItem = item
     val encounter = queueItem?.encounter
+    val shouldPrewarmOnDeviceNotes =
+        queueItem != null &&
+            app.appConfig.aiMode == "on_device" &&
+            (
+                queueItem.status == ExtractionQueueRepository.QueueStatus.QUEUED ||
+                    queueItem.status == ExtractionQueueRepository.QueueStatus.FAILED ||
+                    (
+                        queueItem.status == ExtractionQueueRepository.QueueStatus.PROCESSING &&
+                            queueState == com.chartlite.app.extraction.ExtractionQueue.QueueState.IDLE
+                    )
+                )
+            
+
+    LaunchedEffect(queueId, shouldPrewarmOnDeviceNotes, isProcessingItem) {
+        if (!shouldPrewarmOnDeviceNotes || isProcessingItem) return@LaunchedEffect
+        delay(900)
+        if (shouldPrewarmOnDeviceNotes && !isProcessingItem) {
+            app.prewarmOnDeviceNotesForLikelyImmediateUse()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -248,6 +361,13 @@ fun QueuedExtractionReviewScreen(
                                         currentItem.errorMessage ?: stringResource(R.string.last_processing_failed)
                                 }
                             )
+
+                            if (llmPreparing) {
+                                SummaryBlock(
+                                    stringResource(R.string.preparing_notes_ai),
+                                    stringResource(R.string.preparing_notes_ai_hint)
+                                )
+                            }
 
                             Button(
                                 onClick = {
@@ -394,8 +514,6 @@ fun QueuedExtractionReviewScreen(
                             Button(
                                 onClick = {
                                     if (isSaving) return@Button
-                                    isSaving = true
-                                    actionError = null
                                     scope.launch {
                                         try {
                                             val editedEncounter = readyEncounter.copy(
@@ -408,21 +526,17 @@ fun QueuedExtractionReviewScreen(
                                                 plan = editPlan.lines().map { it.trim() }.filter { it.isNotBlank() },
                                                 allergies = editAllergies.lines().map { it.trim() }.filter { it.isNotBlank() }
                                             )
-                                            val station = currentItem.stationType?.let {
-                                                runCatching { ClinicStation.valueOf(it) }.getOrNull()
+                                            val patient = app.patientRepository.getById(currentItem.patientId)
+                                            val phone = patient?.phoneNumber
+                                            if (!phone.isNullOrBlank()) {
+                                                pendingSmsEncounter = editedEncounter
+                                                pendingSmsItem = currentItem
+                                                pendingSmsPhone = phone
+                                            } else {
+                                                saveQueuedEncounter(editedEncounter, currentItem, sendPatientSms = false)
                                             }
-                                            val savedId = EncounterSaveCoordinator.saveEncounter(
-                                                app = app,
-                                                encounter = editedEncounter,
-                                                patientId = currentItem.patientId,
-                                                visitId = currentItem.visitId,
-                                                station = station
-                                            )
-                                            app.extractionQueue.markSaved(queueId, savedId)
-                                            onSaved(savedId, currentItem.visitId)
                                         } catch (e: Exception) {
-                                            actionError = "Save failed: ${e.message}"
-                                            isSaving = false
+                                            actionError = "Unable to prepare save: ${e.message}"
                                         }
                                     }
                                 },

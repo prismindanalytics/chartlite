@@ -14,6 +14,8 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 
+#include "chartlite_llama_backend.h"
+
 #define TAG "ChartLiteLLM"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGw(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
@@ -103,6 +105,14 @@ static int compute_littlecore_decrease_rate(const CpuProfile& profile) {
 static Llm *g_llm = nullptr;
 static std::mutex g_mutex;
 
+enum BackendKind {
+    BACKEND_NONE = 0,
+    BACKEND_MNN = 1,
+    BACKEND_LLAMA_CPP = 2,
+};
+
+static BackendKind g_backend_kind = BACKEND_NONE;
+
 // Sampling parameters (applied via set_config JSON)
 static float g_temperature    = 0.3f;
 static int   g_max_tokens     = 2048;
@@ -153,6 +163,13 @@ static void apply_params() {
     g_llm->set_config(config);
 }
 
+static void destroy_mnn_locked() {
+    if (g_llm) {
+        Llm::destroy(g_llm);
+        g_llm = nullptr;
+    }
+}
+
 // Custom output stream buffer that checks cancellation.
 // Pre-reserves 16 KB to avoid O(n^2) reallocation from char-by-char overflow() calls.
 class CancelCheckBuf : public std::streambuf {
@@ -184,30 +201,55 @@ Java_com_chartlite_llm_LlamaBridge_nativeInit(JNIEnv *, jobject) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject, jstring jModelPath, jstring jTmpPath) {
+Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject, jstring jModelPath, jstring jTmpPath, jint backend) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
-    // Shutdown previous model if any
-    if (g_llm) {
-        Llm::destroy(g_llm);
-        g_llm = nullptr;
-    }
 
     const char *modelPath = env->GetStringUTFChars(jModelPath, nullptr);
     const char *tmpPathChars = env->GetStringUTFChars(jTmpPath, nullptr);
-    LOGi("initGenerateModel (MNN): %s", modelPath);
+
+    if (g_backend_kind == BACKEND_MNN) {
+        destroy_mnn_locked();
+    } else if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        chartlite::llama_backend::shutdown();
+    }
+
+    const std::string modelPathStr = modelPath ? modelPath : "";
+    const std::string tmpPath = tmpPathChars ? tmpPathChars : "";
+    if (modelPath) {
+        env->ReleaseStringUTFChars(jModelPath, modelPath);
+    }
+    if (tmpPathChars) {
+        env->ReleaseStringUTFChars(jTmpPath, tmpPathChars);
+    }
+
+    if (backend == BACKEND_LLAMA_CPP) {
+        LOGi("initGenerateModel (llama.cpp): %s", modelPathStr.c_str());
+        const bool success = chartlite::llama_backend::init_model(modelPathStr);
+        g_backend_kind = success ? BACKEND_LLAMA_CPP : BACKEND_NONE;
+        if (!success) {
+            LOGe("llama.cpp init failed");
+            return JNI_FALSE;
+        }
+        chartlite::llama_backend::update_generate_params(
+            g_temperature,
+            g_max_tokens,
+            g_top_p,
+            g_top_k,
+            g_repeat_penalty
+        );
+        return JNI_TRUE;
+    }
+
+    g_backend_kind = BACKEND_NONE;
+
+    LOGi("initGenerateModel (MNN): %s", modelPathStr.c_str());
 
     // MNN expects path to the directory containing llm_config.json, with trailing /
-    std::string configDir(modelPath);
-    std::string tmpPath = tmpPathChars ? tmpPathChars : "";
+    std::string configDir(modelPathStr);
     if (!configDir.empty() && configDir.back() != '/') {
         configDir += '/';
     }
     g_llm = Llm::createLLM(configDir);
-    env->ReleaseStringUTFChars(jModelPath, modelPath);
-    if (tmpPathChars) {
-        env->ReleaseStringUTFChars(jTmpPath, tmpPathChars);
-    }
 
     if (!g_llm) {
         LOGe("Llm::createLLM failed");
@@ -330,6 +372,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeInitGenerateModel(JNIEnv *env, jobject,
         symmetric_soc ? 1 : 0,
         pinned_core_ids.empty() ? 0 : 1
     );
+    g_backend_kind = BACKEND_MNN;
     return JNI_TRUE;
 }
 
@@ -344,21 +387,38 @@ Java_com_chartlite_llm_LlamaBridge_nativeUpdateGenerateParams(
     g_top_p          = topP;
     g_top_k          = topK;
     g_repeat_penalty = repeatPenalty;
-    apply_params();
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        chartlite::llama_backend::update_generate_params(
+            g_temperature,
+            g_max_tokens,
+            g_top_p,
+            g_top_k,
+            g_repeat_penalty
+        );
+    } else {
+        apply_params();
+    }
     LOGi("Params updated: temp=%.2f, max=%d, topP=%.2f, topK=%d, repeat=%.2f",
          g_temperature, g_max_tokens, g_top_p, g_top_k, g_repeat_penalty);
 }
 
 // Internal generate without mutex — called by locked entry points
 static jstring generate_internal_jni(JNIEnv *env, jstring jPrompt) {
-    if (!g_llm) {
-        LOGe("generate_internal_jni: model not loaded");
-        return nullptr;
-    }
     const char *prompt = env->GetStringUTFChars(jPrompt, nullptr);
     if (!prompt) return nullptr;
     std::string promptStr(prompt);
     env->ReleaseStringUTFChars(jPrompt, prompt);
+
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        std::string result = chartlite::llama_backend::generate(promptStr);
+        if (result.empty()) return nullptr;
+        return env->NewStringUTF(result.c_str());
+    }
+
+    if (!g_llm) {
+        LOGe("generate_internal_jni: model not loaded");
+        return nullptr;
+    }
 
     g_cancel_generation.store(false);
     CancelCheckBuf buf;
@@ -393,15 +453,25 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateChat(
     jstring jSystemPrompt, jstring jUserMessage
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_llm) {
-        LOGe("nativeGenerateChat: model not loaded");
-        return nullptr;
-    }
-
     const char *sys = env->GetStringUTFChars(jSystemPrompt, nullptr);
     if (!sys) { LOGe("nativeGenerateChat: GetStringUTFChars failed for system"); return nullptr; }
     const char *usr = env->GetStringUTFChars(jUserMessage, nullptr);
     if (!usr) { env->ReleaseStringUTFChars(jSystemPrompt, sys); LOGe("nativeGenerateChat: GetStringUTFChars failed for user"); return nullptr; }
+
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        std::string result = chartlite::llama_backend::generate_chat(sys, usr, false);
+        env->ReleaseStringUTFChars(jSystemPrompt, sys);
+        env->ReleaseStringUTFChars(jUserMessage, usr);
+        if (result.empty()) return nullptr;
+        return env->NewStringUTF(result.c_str());
+    }
+
+    if (!g_llm) {
+        env->ReleaseStringUTFChars(jSystemPrompt, sys);
+        env->ReleaseStringUTFChars(jUserMessage, usr);
+        LOGe("nativeGenerateChat: model not loaded");
+        return nullptr;
+    }
 
     ChatMessages messages = {
         {"system", std::string(sys)},
@@ -447,7 +517,7 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateJson(
     JNIEnv *env, jobject, jstring jPrompt, jstring /* jJsonSchema */
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    LOGw("nativeGenerateJson: grammar not supported in MNN, using standard generation");
+    LOGw("nativeGenerateJson: grammar not supported in current backend, using standard generation");
     return generate_internal_jni(env, jPrompt);
 }
 
@@ -457,6 +527,10 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
     jstring jSystemPrompt, jstring jUserMessage, jbyteArray jRgbData, jint width, jint height
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_backend_kind != BACKEND_MNN) {
+        LOGw("nativeGenerateVision: vision is unavailable for the active backend");
+        return nullptr;
+    }
     if (!g_llm) {
         LOGe("nativeGenerateVision: model not loaded");
         return nullptr;
@@ -534,25 +608,43 @@ Java_com_chartlite_llm_LlamaBridge_nativeGenerateVision(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeCancelGeneration(JNIEnv *, jobject) {
-    g_cancel_generation.store(true);
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        chartlite::llama_backend::cancel_generation();
+    } else {
+        g_cancel_generation.store(true);
+    }
     LOGw("Cancellation requested");
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeApplyChatTemplate(
     JNIEnv *env, jobject,
-    jstring jSystemPrompt, jstring jUserMessage, jboolean /* enableThinking */
+    jstring jSystemPrompt, jstring jUserMessage, jboolean enableThinking
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_llm) {
-        LOGe("applyChatTemplate: model not loaded");
-        return nullptr;
-    }
-
     const char *systemPrompt = env->GetStringUTFChars(jSystemPrompt, nullptr);
     if (!systemPrompt) { LOGe("applyChatTemplate: GetStringUTFChars failed for system"); return nullptr; }
     const char *userMessage  = env->GetStringUTFChars(jUserMessage, nullptr);
-    if (!userMessage) { env->ReleaseStringUTFChars(jSystemPrompt, systemPrompt); LOGe("applyChatTemplate: GetStringUTFChars failed for user"); return nullptr; }
+    if (!userMessage) {
+        env->ReleaseStringUTFChars(jSystemPrompt, systemPrompt);
+        LOGe("applyChatTemplate: GetStringUTFChars failed for user");
+        return nullptr;
+    }
+
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        std::string result = chartlite::llama_backend::apply_chat_template(systemPrompt, userMessage, enableThinking);
+        env->ReleaseStringUTFChars(jSystemPrompt, systemPrompt);
+        env->ReleaseStringUTFChars(jUserMessage, userMessage);
+        if (result.empty()) return nullptr;
+        return env->NewStringUTF(result.c_str());
+    }
+
+    if (!g_llm) {
+        env->ReleaseStringUTFChars(jSystemPrompt, systemPrompt);
+        env->ReleaseStringUTFChars(jUserMessage, userMessage);
+        LOGe("applyChatTemplate: model not loaded");
+        return nullptr;
+    }
 
     // Use MNN's built-in chat template from model metadata
     ChatMessages messages = {
@@ -576,9 +668,11 @@ Java_com_chartlite_llm_LlamaBridge_nativeApplyChatTemplate(
 extern "C" JNIEXPORT void JNICALL
 Java_com_chartlite_llm_LlamaBridge_nativeShutdown(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_llm) {
-        Llm::destroy(g_llm);
-        g_llm = nullptr;
+    if (g_backend_kind == BACKEND_LLAMA_CPP) {
+        chartlite::llama_backend::shutdown();
+    } else {
+        destroy_mnn_locked();
     }
-    LOGi("MNN model unloaded");
+    g_backend_kind = BACKEND_NONE;
+    LOGi("On-device model unloaded");
 }

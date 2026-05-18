@@ -113,6 +113,16 @@ fun CDSSAlertBanner(
                     maxLines = if (expanded) Int.MAX_VALUE else 2
                 )
 
+                // BODHI attribution — shown only when alert is sourced from BODHI knowledge graph.
+                if (alert.category in BODHI_SOURCED_CATEGORIES) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Powered by BODHI (Eka.Care)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textColor.copy(alpha = 0.65f)
+                    )
+                }
+
                 if (expanded && onAcknowledge != null &&
                     alert.severity in listOf(AlertSeverity.CRITICAL, AlertSeverity.WARNING)
                 ) {
@@ -139,4 +149,11 @@ private data class AlertStyle(
     val iconColor: Color,
     val textColor: Color,
     val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+private val BODHI_SOURCED_CATEGORIES = setOf(
+    "Triage Advisory",
+    "Drug-Condition",
+    "Lab Recommendation",
+    "Referral Suggestion",
 )

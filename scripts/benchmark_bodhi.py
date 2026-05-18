@@ -39,8 +39,28 @@ import requests
 print = functools.partial(print, flush=True)
 
 # ── Paths ──
+# BODHI knowledge graph location. Resolves in this order:
+#   1. $BODHI_DIR env var if set
+#   2. <repo_root>/data/bodhi/ (public clinical-edge-bench layout)
+#   3. <repo_root>/app/src/main/assets/bodhi/ (ChartLite app layout)
+# This dual-layout pattern lets the same file work in both repos without edits.
 SCRIPT_DIR = Path(__file__).parent
-ASSETS_DIR = SCRIPT_DIR.parent / "app" / "src" / "main" / "assets"
+REPO_ROOT = SCRIPT_DIR.parent
+
+def _resolve_bodhi_dir() -> Path:
+    if os.environ.get("BODHI_DIR"):
+        return Path(os.environ["BODHI_DIR"])
+    candidates = [
+        REPO_ROOT / "data" / "bodhi",                              # public repo
+        REPO_ROOT / "app" / "src" / "main" / "assets" / "bodhi",   # ChartLite app
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]  # default; fetch_bodhi.sh writes here
+
+BODHI_DIR = _resolve_bodhi_dir()
+ASSETS_DIR = BODHI_DIR.parent  # for the existing `ASSETS_DIR / "bodhi/<file>"` path-join
 REPORT_PATH = SCRIPT_DIR / "bodhi_benchmark_report.json"
 
 # ── LLM Config ──
@@ -2679,10 +2699,16 @@ class CDSS:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _strip_think(text):
+    # <think>...</think> — Qwen / OpenAI o1-style
     text = re.sub(r"<think>[\s\S]*?</think>", "", text)
-    text = re.sub(r"<unused\d+>(?:thought|reasoning)[\s\S]*?(?=\n\n|\*\*|```|\Z)", "", text, flags=re.IGNORECASE)
-    i = text.find("<think>")
-    return text[:i].strip() if i >= 0 else text.strip()
+    # <unusedNN>...<unusedNN> — Gemma / MedGemma thinking tokens
+    # Match opening <unusedN> through closing <unusedM> (any pair); greedy across newlines.
+    # MedGemma typically uses <unused94>thought ... <unused95>JSON
+    text = re.sub(r"<unused\d+>[\s\S]*?<unused\d+>", "", text)
+    # Strip orphaned opening/closing thinking tokens if no matching pair
+    text = re.sub(r"<unused\d+>", "", text)
+    text = re.sub(r"</?think>", "", text)
+    return text.strip()
 
 
 def _parse_json(text):
@@ -2729,6 +2755,25 @@ def call_ollama(model, transcript):
     except Exception as e:
         return None, f"[ERROR] {e}", time.time() - t0
 
+def _anthropic_kwargs(model: str, temperature: float, max_tokens: int = 4096) -> dict:
+    """Build the kwargs for anthropic.messages.create.
+
+    Extended-thinking models (claude-opus-4-7, claude-sonnet-4-7, claude-sonnet-4-6
+    in their thinking variants) deprecated `temperature` — passing it returns
+    HTTP 400 `temperature is deprecated for this model`. We omit temperature for
+    those and pass it for older / haiku models.
+    """
+    kw = {"model": model, "max_tokens": max_tokens}
+    deprecates_temperature = (
+        "opus-4-7" in model or
+        "sonnet-4-7" in model or
+        "sonnet-4-6" in model
+    )
+    if not deprecates_temperature:
+        kw["temperature"] = temperature
+    return kw
+
+
 def call_anthropic(model, transcript):
     """Returns (parsed_dict|None, raw_text, elapsed_s)."""
     try:
@@ -2741,7 +2786,8 @@ def call_anthropic(model, transcript):
     t0 = time.time()
     try:
         r = anthropic.Anthropic(api_key=key).messages.create(
-            model=model, max_tokens=4096, system=EXTRACT_SYSTEM,
+            **_anthropic_kwargs(model, temperature=0.1),
+            system=EXTRACT_SYSTEM,
             messages=[{"role": "user", "content": EXTRACT_USER.format(schema=EXTRACT_SCHEMA, transcript=transcript)}],
         )
         raw = r.content[0].text
@@ -2761,7 +2807,11 @@ def call_openai(model, transcript):
         return None, "[no OPENAI_API_KEY]", 0
     t0 = time.time()
     try:
-        kw = {"max_completion_tokens": 4096} if model.startswith(("gpt-5", "o1", "o3", "o4")) else {"max_tokens": 4096}
+        # GPT-5/o1/o3/o4 are reasoning models — they don't accept temperature
+        # (the platform fixes their sampling). For all other OpenAI models we
+        # pass temperature=0.1 to match the documented benchmark setting.
+        is_reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
+        kw = {"max_completion_tokens": 4096} if is_reasoning else {"max_tokens": 4096, "temperature": 0.1}
         r = openai.OpenAI(api_key=key).chat.completions.create(
             model=model, **kw,
             messages=[{"role": "system", "content": EXTRACT_SYSTEM},
@@ -2882,7 +2932,8 @@ def clinical_review(model, backend, transcript):
         t0 = time.time()
         try:
             r = anthropic.Anthropic(api_key=key).messages.create(
-                model=model, max_tokens=4096, system=CLINICAL_REVIEW_SYSTEM,
+                **_anthropic_kwargs(model, temperature=0.1),
+                system=CLINICAL_REVIEW_SYSTEM,
                 messages=[{"role": "user", "content": user_msg}],
             )
             raw = r.content[0].text
@@ -2901,7 +2952,8 @@ def clinical_review(model, backend, transcript):
             return [], "[no OPENAI_API_KEY]", 0
         t0 = time.time()
         try:
-            kw = {"max_completion_tokens": 4096} if model.startswith(("gpt-5", "o1", "o3", "o4")) else {"max_tokens": 4096}
+            is_reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
+            kw = {"max_completion_tokens": 4096} if is_reasoning else {"max_tokens": 4096, "temperature": 0.1}
             r = openai.OpenAI(api_key=key).chat.completions.create(
                 model=model, **kw,
                 messages=[{"role": "system", "content": CLINICAL_REVIEW_SYSTEM},
@@ -3189,9 +3241,9 @@ def _silver_gt_for(enc) -> dict | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SCORING (SequenceMatcher ≥ 0.5 — matches the 50-case × 5-run benchmark
-# methodology described in Benchmark_0.8B_Narrative.pptx and implemented in
-# /Users/haohu/Documents/GitHub/benchmark/evaluation/extraction_evaluator.py)
+# SCORING (SequenceMatcher ≥ 0.5 threshold; near-miss band [0.3, 0.5);
+# decomposition into duplication / near_miss / miscategorization / fabrication.
+# Methodology documented in benchmark_dashboard/METHODOLOGY_ASSESSMENT.md.)
 # ═══════════════════════════════════════════════════════════════════════════
 
 _SM_THRESHOLD = 0.5
@@ -3537,8 +3589,7 @@ def _decompose_category(extracted, gt_items, match_fn,
                         match_fns_by_cat=None) -> dict:
     """Greedy one-to-one match; decompose unmatched extractions into
     {duplication, near_miss, miscategorization, fabrication}. Returns per-field
-    P/R/F1 + counts + error breakdown. Matches the scheme in
-    /Users/haohu/Documents/GitHub/benchmark/evaluation/extraction_evaluator.py.
+    P/R/F1 + counts + error breakdown.
     """
     extracted = extracted or []
     gt_items = gt_items or []
@@ -3876,7 +3927,8 @@ def generate_note(model, backend, transcript):
         t0 = time.time()
         try:
             r = anthropic.Anthropic(api_key=key).messages.create(
-                model=model, max_tokens=4096, system=NOTE_SYSTEM,
+                **_anthropic_kwargs(model, temperature=0.3),
+                system=NOTE_SYSTEM,
                 messages=[{"role": "user", "content": user_msg}],
             )
             raw = r.content[0].text
@@ -3892,7 +3944,8 @@ def generate_note(model, backend, transcript):
         if not key: return None, "[no OPENAI_API_KEY]", 0
         t0 = time.time()
         try:
-            kw = {"max_completion_tokens": 4096} if model.startswith(("gpt-5", "o1", "o3", "o4")) else {"max_tokens": 4096}
+            is_reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
+            kw = {"max_completion_tokens": 4096} if is_reasoning else {"max_tokens": 4096, "temperature": 0.3}
             r = openai.OpenAI(api_key=key).chat.completions.create(
                 model=model, **kw,
                 messages=[{"role": "system", "content": NOTE_SYSTEM},

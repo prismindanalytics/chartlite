@@ -1,0 +1,31 @@
+# Clinical-AI benchmark suite dependencies.
+# Pinned to versions used to generate the dashboard at https://chartlite-bodhi-bench.pages.dev
+# Install:  python3 -m pip install -r scripts/requirements.txt
+
+# API clients (used by benchmark_*.py for cloud models)
+anthropic>=0.55.0,<1.0
+openai>=1.93.0,<2.0
+
+# Local-model HTTP client (used to call ollama for on-device models)
+requests>=2.32.0,<3.0
+
+# Data I/O
+pandas>=2.2.0,<3.0
+openpyxl>=3.1.0,<4.0       # required by pandas to read CRESCENDDI .xlsx files
+
+# HuggingFace datasets (used for ACI-Bench, Eka NFI MCQA, Eka Calculator Eval)
+datasets>=4.0.0,<5.0
+huggingface_hub>=1.0.0,<2.0
+
+# ── Notes on environment ───────────────────────────────────────────────────────
+# 1. On-device models require Ollama (https://ollama.com) running locally.
+#    Pull the 6 on-device models before running:
+#      ollama pull qwen3.5:9b qwen3.5:2b qwen3.5:0.8b
+#      ollama pull gemma4:e4b gemma4:e2b
+#      ollama pull medgemma1.5
+#
+# 2. API access requires environment variables:
+#      ANTHROPIC_API_KEY=...     # for claude-opus-4-7 / sonnet-4-6 / haiku-4-5
+#      OPENAI_API_KEY=...        # for gpt-5.5 / gpt-5.4 / gpt-4.1
+#
+# 3. Python 3.10+ recommended (uses dataclasses, type hints, f-string =, walrus).

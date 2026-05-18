@@ -1795,7 +1795,7 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
             // Gemma 4 (via MediaPipe) is the on-device default on phones with
             // enough RAM. It supports vision, and on the public clinical-edge-bench
             // it out-performs Qwen 3.5 across pharmacology MCQA, calculator
-            // vignettes, and SOAP generation. See chartlite-bodhi-bench.pages.dev.
+            // vignettes, and SOAP generation. See benchmark.chartlite.health.
             //
             // Below 4GB stays on Qwen 0.8B (Gemma E2B is too heavy at <4GB; our
             // llama.cpp + Qwen path is the only working ultra-low-RAM option

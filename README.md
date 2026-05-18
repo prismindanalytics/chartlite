@@ -11,7 +11,7 @@ Built for sub-Saharan Africa first, expanding globally.
 ChartLite's hackathon submission:
 
 - **Kaggle writeup** — [see Kaggle submission link](https://kaggle.com/competitions/gemma-4-good-hackathon)
-- **Live benchmark dashboard** — [chartlite-bodhi-bench.pages.dev](https://chartlite-bodhi-bench.pages.dev) (12 models × 6 datasets, ~54K model-question evaluations, Apache 2.0)
+- **Live benchmark dashboard** — [benchmark.chartlite.health](https://benchmark.chartlite.health) (12 models × 6 datasets, ~54K model-question evaluations, Apache 2.0)
 - **Live demo** — [chartlite.health/hackathon.html](https://chartlite.health/hackathon.html)
 - **Demo video** — see Kaggle Media Gallery
 - **APK download** — [v1.0.0-hackathon release](https://github.com/prismindanalytics/chartlite/releases/tag/v1.0.0-hackathon) (Android 8+, debug-signed, 330 MB)

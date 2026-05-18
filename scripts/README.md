@@ -1,6 +1,6 @@
 # Benchmark scripts — reproduction guide
 
-Reproducibility entry point for the benchmark suite at https://chartlite-bodhi-bench.pages.dev.
+Reproducibility entry point for the benchmark suite at https://benchmark.chartlite.health.
 
 License: Apache 2.0. Methodology: [`../docs/METHODOLOGY.md`](../docs/METHODOLOGY.md). Model versions: [`../docs/MODEL_VERSIONS.md`](../docs/MODEL_VERSIONS.md).
 

@@ -4,7 +4,7 @@ The benchmark code lives here in `emr/` (alongside the ChartLite app). A curated
 
 **Public repo:** https://github.com/prismindanalytics/clinical-edge-bench
 **Local clone:** `~/Documents/GitHub/clinical-edge-bench`
-**Live dashboard:** https://chartlite-bodhi-bench.pages.dev
+**Live dashboard:** https://benchmark.chartlite.health
 
 ## How to keep the public repo in sync
 

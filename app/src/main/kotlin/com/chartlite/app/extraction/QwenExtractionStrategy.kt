@@ -34,9 +34,16 @@ class QwenExtractionStrategy(
     )
 
     override val name: String
-        get() {
-            val tier = modelManager.activeTier()
-            return "Qwen 3.5 ${if (tier == LlmModelManager.ModelTier.LARGE) "2B" else "0.8B"} (on-device)"
+        get() = when (val tier = modelManager.activeTier()) {
+            // Class is named QwenExtractionStrategy for historical reasons,
+            // but it dispatches through LlmModelManager.runChatInference, which
+            // routes Qwen tiers through MNN/llama.cpp and Gemma tiers through
+            // MediaPipe LiteRT. Report the *actual* active model so the
+            // orchestrator's strategyUsed metadata is accurate.
+            LlmModelManager.ModelTier.GEMMA_E4B -> "Gemma 4 E4B (on-device)"
+            LlmModelManager.ModelTier.GEMMA_E2B -> "Gemma 4 E2B (on-device)"
+            LlmModelManager.ModelTier.LARGE -> "Qwen 3.5 2B (on-device)"
+            LlmModelManager.ModelTier.SMALL -> "Qwen 3.5 0.8B (on-device)"
         }
 
     override suspend fun isAvailable(): Boolean {

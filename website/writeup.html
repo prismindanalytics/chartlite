@@ -157,57 +157,78 @@ Gemma function-calls pick BODHI tools by artifact type).</p>
 or photo and walks away with a structured clinical note, a billing claim,
 and a real-time safety check on every drug and diagnosis &mdash; running
 entirely on the phone, no internet.</p>
+<p><strong>The 3-minute demo:</strong> a mother brings her 4-year-old daughter to a
+rural clinic with fever and cough. The doctor dictates the encounter and
+prescribes amoxicillin syrup. The patient is allergic to penicillin.
+Gemma 4 &mdash; running on the phone &mdash; catches the error before the
+prescription leaves the room. Then the same alert fires from a different
+input: a handwritten prescription captured on camera. Same model, two
+modalities, one safety net.</p>
 <h2>1. The problem</h2>
 <p>Frontline clinical workers spend a third of their day on paperwork. The
 places that need clinical AI most have the least connectivity, and most
 &ldquo;clinical AI&rdquo; tools assume a cloud call per visit &mdash; which fails on
 rural 2G.</p>
 <p>ChartLite runs the entire visit on a mid-range Android phone with the
-data plan off: voice transcription, structured note, safety check
-against a real medical knowledge graph, encrypted SMS relay.</p>
+data plan off: voice transcription, structured note, safety check against
+a real medical knowledge graph, encrypted SMS relay.</p>
 <h2>2. We benchmarked before we shipped</h2>
 <p>A 3% hallucination on dosages is a coroner&rsquo;s inquest, not a rounding
 error. So we built the benchmark first.</p>
-<p>12 models &mdash; 6 cloud (Opus / Sonnet / Haiku 4.x, GPT-5.5 / 5.4 / 4.1)
-and 6 on-device (Qwen 3.5 0.8B / 2B / 9B, Gemma 4 e2b / e4b, MedGemma
-1.5) &mdash; across six clinical evals: 100 synthetic visits; 156 real
-clinician-annotated Eka Care transcripts; <strong>ACI-Bench</strong>
-dialogue-to-SOAP (n=207&times;5); <strong>CRESCENDDI</strong> drug-drug
-interactions; Eka&rsquo;s <strong>NFI Pharmacology MCQA</strong> (925 questions);
-Eka&rsquo;s <strong>Medical Calculator Eval</strong> (1,066 vignettes, 26
-specialties). Per-(model, case) JSON, scoring code, and methodology open
-at <a href="https://benchmark.chartlite.health">benchmark.chartlite.health</a>.</p>
+<p>12 models &mdash; 6 cloud (Claude Opus / Sonnet / Haiku 4.x,
+GPT-5.5 / 5.4 / 4.1) and 6 on-device (Qwen 3.5 0.8B / 2B / 9B, Gemma 4
+e2b / e4b, MedGemma 1.5) &mdash; across six clinical evals: 100 synthetic
+visits; 156 real doctor-patient transcripts annotated by clinicians at
+<strong>Eka Care</strong> (India&rsquo;s largest digital-health platform, 80M+ patient
+records); <strong>ACI-Bench</strong> (a peer-reviewed benchmark that converts
+doctor-patient dialogue into the SOAP note clinicians write after every
+visit &mdash; Subjective, Objective, Assessment, Plan; 207 transcripts &times;
+5 splits); <strong>CRESCENDDI</strong> (a public dataset of dangerous drug-drug
+interactions); <strong>NFI Pharmacology MCQA</strong> (925-question pharmacology exam
+from India&rsquo;s National Formulary, multiple choice); and the <strong>Medical
+Calculator Eval</strong> (1,066 clinical-math vignettes across 26 specialties).
+Per-(model, case) JSON, scoring code, and methodology open at
+<a href="https://benchmark.chartlite.health">benchmark.chartlite.health</a>.</p>
 <p>Two findings shaped what we shipped:</p>
 <p><strong>Gemma 4 e4b is the first on-device model good enough to ship for
-clinical note generation.</strong> ACI-Bench: 82.74, tied with Claude Haiku
-4.5 and 6 points behind the GPT-5.5 leader. Real Eka transcripts: 82.6,
-5 points behind Haiku 4.5. Zero API cost, on the phone. Where it lags
-&mdash; pharmacology MCQ and drug-dose math &mdash; ChartLite calls BODHI
-instead of asking the model.</p>
-<p><strong>BODHI</strong> &mdash; Eka Care&rsquo;s medical knowledge graph (779 diagnoses,
-1,186 drugs, 812 lab tests, 10,352 symptom-to-diagnosis links) &mdash;
-<strong>matters most for the small on-device models frontline clinics
-actually run.</strong> Wiring BODHI into every model lifts raw safety-alert
-detection by 26&ndash;63 points. Honest audit: <strong>~40% is real catch</strong>,
-<strong>~60% is scoring artifact</strong> (the model said the same thing in
-different words; our text matcher didn&rsquo;t credit it), and <strong>~20% of
-BODHI alerts are false positives</strong> (fuzzy match firing the wrong rule).
-Net of artifact and noise, value lands where it matters: <strong>Qwen 3.5
-0.8B 3% &rarr; 66%, Gemma 4 e4b 30% &rarr; 57%</strong>. Top cloud models
-already near the ceiling gain least. BODHI is a deterministic safety net
-under clinician judgement, not a substitute.</p>
+clinical note generation.</strong> On ACI-Bench (scored 0&ndash;100) it lands at
+<strong>82.74</strong>, tied with Claude Haiku 4.5 (82.72) and 6 points behind the
+GPT-5.5 leader (88.48). On 156 real Eka transcripts it scores 82.6 &mdash;
+within 5 points of Haiku 4.5. Zero API cost, runs entirely on the phone.
+Where it lags &mdash; pharmacology MCQ and drug-dose math &mdash; ChartLite
+delegates to <strong>BODHI</strong> instead of asking the model.</p>
+<p><strong>BODHI is a medical knowledge graph from Eka Care</strong> &mdash; 779
+diagnoses, 1,186 drugs, 812 lab tests, 10,352 symptom-to-diagnosis links
+&mdash; published as open data for non-commercial use. It&rsquo;s a deterministic
+lookup: if a drug appears with an allergy on the patient record, the rule
+fires. When we ran every model with BODHI as an additional safety check,
+<strong>raw alert-detection lifted 26&ndash;63 percentage points</strong>. Honest audit of
+that lift: <strong>~40% is a real catch</strong> the model would otherwise miss;
+<strong>~60% is scoring artifact</strong> (the model said the right thing in different
+words and our text-match scorer didn&rsquo;t credit it); <strong>~20% of BODHI alerts
+are false positives</strong> (e.g. fuzzy match firing the wrong rule). Net of
+artifact and noise, value lands where it matters most &mdash; small on-device
+models that frontline clinics actually run: <strong>Qwen 3.5 0.8B 3% &rarr; 66%;
+Gemma 4 e4b 30% &rarr; 57%</strong>. Top cloud models already near the ceiling
+gain least. BODHI is a safety net under clinician judgement, not a
+substitute.</p>
 <h2>3. How ChartLite works</h2>
 <ul>
-<li><strong>Voice &rarr; text:</strong> Parakeet TDT v3 (1.69% English WER) on
-  4 GB+ phones, Omnilingual ASR (1,600+ languages) elsewhere.</li>
-<li><strong>Note generation:</strong> Gemma 4 e2b / e4b on-device, or Sonnet over
-  the network &mdash; same downstream code.</li>
-<li><strong>Encrypted DB:</strong> HL7 FHIR + AES-256-GCM.</li>
-<li><strong>Safety:</strong> drug-allergy, drug-drug, dose-by-weight, vitals out
-  of range, plus BODHI for diagnosis-level checks.</li>
-<li><strong>SMS relay:</strong> a full visit in one 160-character SMS.</li>
-<li><strong>Billing:</strong> ICD-10 &rarr; CPT / HCPCS. <strong>Sync:</strong> phone-to-phone
-  over BT or local WiFi.</li>
+<li><strong>Voice &rarr; text:</strong> NVIDIA Parakeet TDT v3 (1.69% word-error rate
+  on English) on 4 GB+ phones; Meta Omnilingual ASR (1,600+ languages) on
+  smaller devices.</li>
+<li><strong>Note generation:</strong> Gemma 4 e2b or e4b on-device, or Claude Sonnet
+  over the network &mdash; same downstream code.</li>
+<li><strong>Encrypted database</strong> on the international medical-records standard
+  (HL7 FHIR), with the encryption online banking uses (AES-256-GCM).</li>
+<li><strong>Safety checks:</strong> drug allergies, drug-drug interactions,
+  dose-by-weight, vitals out of range &mdash; plus BODHI for diagnosis-level
+  checks.</li>
+<li><strong>Encrypted SMS relay:</strong> a whole visit packed into one 160-character
+  SMS, for clinics on 2G.</li>
+<li><strong>Billing:</strong> ICD-10 (diagnosis) &rarr; CPT / HCPCS (procedure / supply)
+  codes for insurance claims.</li>
+<li><strong>Phone-to-phone sync</strong> over Bluetooth or local WiFi when offline.</li>
 </ul>
 <h2>4. Multimodal capture: 8 artifacts, one button</h2>
 <p>Clinicians work with paper. One &ldquo;&#128247; Capture clinical
@@ -237,15 +258,17 @@ setting: multimodal perception, structured tool calls, deterministic
 medical lookups.</p>
 <h2>5. Deployment readiness</h2>
 <p><strong>Privacy.</strong> Voice and model run on the phone. Nothing leaves the
-device unless the clinician syncs. SMS relay uses AES-256-GCM.</p>
-<p><strong>Footprint.</strong> Gemma 4 e2b in 4-bit quantization is ~1.6 GB, runs on
-2 GB-RAM phones. e4b is ~3.1 GB, needs 4 GB. The app ships both and
+device unless the clinician syncs. The SMS relay encrypts each visit with
+AES-256-GCM (the same algorithm online banking uses).</p>
+<p><strong>Footprint.</strong> Gemma 4 e2b in 4-bit quantization is ~1.6 GB and runs
+on 2 GB-RAM phones. e4b is ~3.1 GB and needs 4 GB. The app ships both and
 picks one by RAM at install. The submission demo runs e2b on a Galaxy
-Fold 7: vision + safety-tool trace takes 30&ndash;50 s end-to-end. The
-video&rsquo;s wall-clock is honest, no speed-ramps.</p>
-<p><strong>Governance.</strong> BODHI &copy; Eka Care, CC BY-NC 4.0 &mdash; commercial
+Fold 7: vision-extraction + safety-tool trace takes 30&ndash;50 s end-to-end.
+The video&rsquo;s wall-clock is honest &mdash; no speed-ramps.</p>
+<p><strong>Governance.</strong> BODHI is &copy; Eka Care, CC BY-NC 4.0 &mdash; commercial
 deployment needs an Eka license. Everything else (benchmark, methodology,
-app) is Apache 2.0. ChartLite is production-ready and awaiting pilot.</p>
+app) is Apache 2.0. ChartLite is production-ready and awaiting clinical
+pilot.</p>
 <h2>6. What we built for this hackathon</h2>
 <p>In eight days:</p>
 <ul>
@@ -253,10 +276,10 @@ app) is Apache 2.0. ChartLite is production-ready and awaiting pilot.</p>
   handles text and image.</li>
 <li><strong>Three new artifact prompts</strong> (vaccine card, handwritten Rx,
   discharge summary) on top of five existing.</li>
-<li><strong>Function-calling refactor</strong> so Gemma 4 picks which of four
-  safety checks to run per artifact.</li>
+<li><strong>Function-calling refactor</strong> so Gemma 4 picks which of four safety
+  checks to run per artifact.</li>
 <li><strong>Universal capture button</strong> on the encounter screen.</li>
-<li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types,
+<li><strong>Multimodal benchmark:</strong> ~105 images across 8 artifact types &mdash;
   per-type accuracy + per-field precision/recall on a new dashboard tab.</li>
 <li><strong>Default on-device model flipped</strong> to Gemma 4 based on the
   benchmark.</li>

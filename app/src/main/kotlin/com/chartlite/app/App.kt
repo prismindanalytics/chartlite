@@ -193,11 +193,14 @@ class App : Application() {
         cachedIsLowRamDevice || cachedTotalRamGb <= 3.5
 
     /**
-     * Modes that can execute the local Qwen fallback should inherit low-RAM
-     * protections even when cloud is tried first.
+     * Modes that can execute the local on-device fallback should inherit
+     * low-RAM protections even when cloud is tried first. "cloud" is included
+     * because cloud mode now falls back to on-device when offline / API key
+     * absent — the user otherwise lands on the regex baseline which is a
+     * confusing UX (clinic note generation silently degrades).
      */
     fun aiModeCanUseOnDeviceFallback(mode: String = appConfig.aiMode): Boolean =
-        mode == "on_device" || mode == "auto"
+        mode == "on_device" || mode == "auto" || mode == "cloud"
 
     /**
      * 3 GB / low-RAM phones need strict mutual exclusion between offline ASR and
@@ -738,28 +741,31 @@ class App : Application() {
             }
         }
 
-        when (appConfig.aiMode) {
-            "cloud" -> addCloudStrategy()
-            "on_device" -> {
-                strategies.add(
-                    QwenExtractionStrategy(
-                        modelManagerProvider = { llmModelManager },
-                        promptBuilder = promptBuilder,
-                        responseParser = responseParser,
-                        prepareForLowRamInference = lowRamInferencePreflight
-                    )
+        // Cloud mode falls back to on-device when offline / API key absent.
+        // This is the only sane behavior for clinic workflows: a brief loss of
+        // connectivity should not silently drop the user onto the regex baseline.
+        // The on-device strategy gates itself behind isAvailable(), so it adds
+        // no cost when the local LLM model isn't downloaded.
+        fun addOnDeviceStrategy() {
+            strategies.add(
+                QwenExtractionStrategy(
+                    modelManagerProvider = { llmModelManager },
+                    promptBuilder = promptBuilder,
+                    responseParser = responseParser,
+                    prepareForLowRamInference = lowRamInferencePreflight
                 )
+            )
+        }
+
+        when (appConfig.aiMode) {
+            "cloud" -> {
+                addCloudStrategy()
+                addOnDeviceStrategy()
             }
+            "on_device" -> addOnDeviceStrategy()
             else -> {
                 addCloudStrategy()
-                strategies.add(
-                    QwenExtractionStrategy(
-                        modelManagerProvider = { llmModelManager },
-                        promptBuilder = promptBuilder,
-                        responseParser = responseParser,
-                        prepareForLowRamInference = lowRamInferencePreflight
-                    )
-                )
+                addOnDeviceStrategy()
             }
         }
 
@@ -826,28 +832,28 @@ class App : Application() {
             }
         }
 
-        when (appConfig.aiMode) {
-            "cloud" -> addCloudStrategy()
-            "on_device" -> {
-                strategies.add(
-                    QwenExtractionStrategy(
-                        modelManagerProvider = { llmModelManager },
-                        promptBuilder = promptBuilder,
-                        responseParser = responseParser,
-                        prepareForLowRamInference = lowRamInferencePreflight
-                    )
+        // Same fallback rule as buildNoteGenerationOrchestrator: cloud mode
+        // also tries on-device before degrading to the regex baseline.
+        fun addOnDeviceStrategy() {
+            strategies.add(
+                QwenExtractionStrategy(
+                    modelManagerProvider = { llmModelManager },
+                    promptBuilder = promptBuilder,
+                    responseParser = responseParser,
+                    prepareForLowRamInference = lowRamInferencePreflight
                 )
+            )
+        }
+
+        when (appConfig.aiMode) {
+            "cloud" -> {
+                addCloudStrategy()
+                addOnDeviceStrategy()
             }
+            "on_device" -> addOnDeviceStrategy()
             else -> {
                 addCloudStrategy()
-                strategies.add(
-                    QwenExtractionStrategy(
-                        modelManagerProvider = { llmModelManager },
-                        promptBuilder = promptBuilder,
-                        responseParser = responseParser,
-                        prepareForLowRamInference = lowRamInferencePreflight
-                    )
-                )
+                addOnDeviceStrategy()
             }
         }
 
@@ -860,13 +866,12 @@ class App : Application() {
             transcriptValidator = transcriptValidator,
             vitalsExtractor = vitalsExtractor
         )
-        Log.d(
+        Log.i(
             "App",
             "Extraction pipeline rebuilt for aiMode=${appConfig.aiMode}: " +
                 strategies.joinToString(" -> ") { strategy ->
                     when (strategy) {
-                        is QwenExtractionStrategy -> "Qwen 3.5 (on-device)"
-                        is RegexExtractionStrategy -> "Regex (offline)"
+                        is RegexExtractionStrategy -> "Regex (offline baseline)"
                         else -> strategy.name
                     }
                 }

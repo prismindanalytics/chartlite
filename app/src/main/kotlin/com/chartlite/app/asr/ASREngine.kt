@@ -165,7 +165,7 @@ class ASREngine(private val context: Context) {
                         val tier = modelDownloader.configuredTier()
                         val loaded = if (tier != null) {
                             sherpaPipeline.loadModel(
-                                modelDownloader.modelsDir,
+                                modelDownloader.tierDir(tier),
                                 SherpaASRPipeline.Architecture.valueOf(tier.architecture.name),
                                 modelDownloader.vocabFile,
                                 context
@@ -401,7 +401,7 @@ class ASREngine(private val context: Context) {
                 val tier = modelDownloader.configuredTier()
                 if (tier != null) {
                     sherpaPipeline.loadModel(
-                        modelDownloader.modelsDir,
+                        modelDownloader.tierDir(tier),
                         SherpaASRPipeline.Architecture.valueOf(tier.architecture.name),
                         modelDownloader.vocabFile,
                         context

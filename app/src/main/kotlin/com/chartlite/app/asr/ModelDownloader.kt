@@ -64,14 +64,66 @@ class ModelDownloader(private val context: Context) {
     // Cached AppConfig to avoid re-creating EncryptedSharedPreferences on every call.
     private val appConfig by lazy { AppConfig(context) }
 
-    // Legacy single-file accessors (used by existing code for CTC models)
-    val modelFile: File get() = File(modelsDir, "model.int8.onnx")
-    val vocabFile: File get() = File(modelsDir, "tokens.txt")
+    /**
+     * Per-tier subdirectory so switching between ASR tiers does not delete
+     * each other's files. Each tier writes to `modelsDir/<tier_slug>/`,
+     * keyed off the enum name in lowercase.
+     *
+     * Legacy installs that wrote artifacts directly into [modelsDir] are
+     * migrated on first call via [migrateLegacyLayoutIfNeeded].
+     */
+    fun tierDir(tier: ModelTier): File =
+        File(modelsDir, tier.name.lowercase()).apply { mkdirs() }
+
+    /** Convenience: directory for the currently-configured tier, or a fallback root. */
+    fun activeTierDir(): File = configuredTier()?.let { tierDir(it) } ?: modelsDir
+
+    // Legacy single-file accessors — now resolved against the per-tier dir.
+    val modelFile: File get() = File(activeTierDir(), "model.int8.onnx")
+    val vocabFile: File get() = File(activeTierDir(), "tokens.txt")
+
+    /**
+     * One-time migration: if a previous version of the app wrote artifacts
+     * directly into [modelsDir] (the pre-per-tier layout), move them into the
+     * subdir for the configured tier so the user doesn't re-download.
+     */
+    @Synchronized
+    fun migrateLegacyLayoutIfNeeded() {
+        val tier = configuredTier() ?: return
+        val target = tierDir(tier)
+        // Skip if migration has already run (tier dir already has the artifacts).
+        val artifactsHere = tier.artifacts.all { File(target, it.filename).exists() }
+        if (artifactsHere) return
+        // Look for legacy files at modelsDir root that match this tier's expected layout.
+        val candidates = (tier.artifacts.map { it.filename } + listOf("tokens.txt"))
+        var moved = 0
+        for (name in candidates) {
+            val src = File(modelsDir, name)
+            if (src.exists() && src.isFile && src.length() > 0) {
+                val dst = File(target, name)
+                if (!dst.exists()) {
+                    if (src.renameTo(dst)) {
+                        moved++
+                    } else {
+                        // Cross-volume or atomic-rename failed; copy then delete.
+                        src.copyTo(dst, overwrite = true)
+                        src.delete()
+                        moved++
+                    }
+                }
+            }
+        }
+        if (moved > 0) {
+            Log.i(TAG, "Migrated $moved legacy ASR artifact(s) into ${target.name}/")
+        }
+    }
 
     fun isModelDownloaded(): Boolean {
         val tier = configuredTier() ?: return modelFile.exists() && modelFile.length() > 0
+        migrateLegacyLayoutIfNeeded()
+        val dir = tierDir(tier)
         return tier.artifacts.all { artifact ->
-            val file = File(modelsDir, artifact.filename)
+            val file = File(dir, artifact.filename)
             file.exists() && file.length() > 0
         }
     }
@@ -109,7 +161,8 @@ class ModelDownloader(private val context: Context) {
     fun modelSizeBytes(): Long {
         val tier = configuredTier()
         return if (tier != null) {
-            tier.artifacts.sumOf { File(modelsDir, it.filename).let { f -> if (f.exists()) f.length() else 0L } }
+            val dir = tierDir(tier)
+            tier.artifacts.sumOf { File(dir, it.filename).let { f -> if (f.exists()) f.length() else 0L } }
         } else {
             if (modelFile.exists()) modelFile.length() else 0
         }
@@ -146,18 +199,23 @@ class ModelDownloader(private val context: Context) {
             // Note: wake locks removed — ModelDownloadService foreground service
             // keeps the process alive during screen-off / Doze mode.
             try {
-                // Clean up files from a different tier to avoid stale artifacts
+                // Per-tier subdir keeps other tiers' files intact when switching.
+                val tierFolder = tierDir(tier)
+                // Clean only stale partials/wrong-arch leftovers WITHIN this tier's
+                // dir. Other tiers' artifacts live in their own dirs and are
+                // untouched, so switching back to a previously-downloaded tier
+                // no longer forces a re-download.
                 cleanModelFiles(tier)
 
-                // Download vocab
+                // Download vocab into the tier dir.
                 _state.value = DownloadState.Downloading(0, -1)
-                downloadVocabFile(tier.vocabUrl, tier.vocabSha256)
+                downloadVocabFile(tier.vocabUrl, tier.vocabSha256, tierFolder)
 
-                // Download each model artifact
+                // Download each model artifact into the tier dir.
                 var totalDownloaded = 0L
                 val totalSize = tier.sizeMb.toLong() * 1024 * 1024
                 for ((index, artifact) in tier.artifacts.withIndex()) {
-                    val targetFile = File(modelsDir, artifact.filename)
+                    val targetFile = File(tierFolder, artifact.filename)
                     if (targetFile.exists() && targetFile.length() > 0) {
                         // Already downloaded (e.g., resuming after partial tier download)
                         val actualSha = sha256(targetFile)
@@ -169,7 +227,7 @@ class ModelDownloader(private val context: Context) {
                         targetFile.delete()
                     }
 
-                    val tmpFile = File(modelsDir, "${artifact.filename}.tmp")
+                    val tmpFile = File(tierFolder, "${artifact.filename}.tmp")
                     var resumeFromByte = if (tmpFile.exists()) tmpFile.length() else 0L
                     var verified = false
                     var verificationError: String? = null
@@ -269,7 +327,7 @@ class ModelDownloader(private val context: Context) {
                 }
 
                 if (!modelFile.exists() || modelFile.length() == 0L) {
-                    val tmpFile = File(modelsDir, "model.int8.onnx.tmp")
+                    val tmpFile = File(activeTierDir(), "model.int8.onnx.tmp")
                     var resumeFromByte = if (tmpFile.exists()) tmpFile.length() else 0L
                     var verified = false
                     var verificationError: String? = null
@@ -343,23 +401,47 @@ class ModelDownloader(private val context: Context) {
 
     fun deleteModel() {
         cancel()
-        // Delete all known model artifact filenames
-        val knownFiles = ModelTier.entries.flatMap { tier ->
-            tier.artifacts.map { it.filename } +
-                tier.artifacts.map { "${it.filename}.tmp" }
-        }.toSet() + setOf(
-            "model.int8.onnx", "model.int8.onnx.tmp",
-            "omni_asr.onnx", "omni_asr.onnx.tmp",
-            "tokens.txt", "tokens.txt.tmp",
-            // Legacy Moonshine v1 files
-            "preprocess.onnx", "preprocess.onnx.tmp",
-            "encode.int8.onnx", "encode.int8.onnx.tmp",
-            "uncached_decode.int8.onnx", "uncached_decode.int8.onnx.tmp",
-            "cached_decode.int8.onnx", "cached_decode.int8.onnx.tmp",
-            // Legacy files
-            "mms_asr.onnx", "mms_asr.onnx.tmp", "vocab.json"
-        )
-        knownFiles.forEach { File(modelsDir, it).delete() }
+        // Delete only the currently-configured tier's files. Other tiers'
+        // downloads stay intact in their own subdirs so switching back to a
+        // previously-installed tier does not force a re-download.
+        val tier = configuredTier()
+        if (tier != null) {
+            val dir = tierDir(tier)
+            dir.listFiles()?.forEach { it.delete() }
+        } else {
+            // No tier configured — clean known filenames at the legacy root.
+            val knownFiles = ModelTier.entries.flatMap { t ->
+                t.artifacts.map { it.filename } +
+                    t.artifacts.map { "${it.filename}.tmp" }
+            }.toSet() + setOf(
+                "model.int8.onnx", "model.int8.onnx.tmp",
+                "omni_asr.onnx", "omni_asr.onnx.tmp",
+                "tokens.txt", "tokens.txt.tmp",
+                "preprocess.onnx", "preprocess.onnx.tmp",
+                "encode.int8.onnx", "encode.int8.onnx.tmp",
+                "uncached_decode.int8.onnx", "uncached_decode.int8.onnx.tmp",
+                "cached_decode.int8.onnx", "cached_decode.int8.onnx.tmp",
+                "mms_asr.onnx", "mms_asr.onnx.tmp", "vocab.json"
+            )
+            knownFiles.forEach { File(modelsDir, it).delete() }
+        }
+        clearVerifiedArtifactsFingerprint()
+        _state.value = DownloadState.Idle
+    }
+
+    /**
+     * Wipe ALL downloaded ASR tiers (every subdir). Use this only when the
+     * user explicitly asks for a full reset, not when switching tiers.
+     */
+    fun deleteAllModels() {
+        cancel()
+        modelsDir.listFiles()?.forEach { entry ->
+            if (entry.isDirectory) {
+                entry.deleteRecursively()
+            } else {
+                entry.delete()
+            }
+        }
         clearVerifiedArtifactsFingerprint()
         _state.value = DownloadState.Idle
     }
@@ -368,15 +450,21 @@ class ModelDownloader(private val context: Context) {
      * Clean up model files that don't belong to the given tier.
      * Called before downloading a new tier to avoid stale artifacts from a different architecture.
      */
+    /**
+     * Clean stale partials within the given tier's directory only. Files
+     * belonging to other tiers live in their own subdirs and are never touched
+     * — switching between tiers preserves prior downloads.
+     */
     private fun cleanModelFiles(tier: ModelTier) {
         val keepFiles = tier.artifacts.map { it.filename }.toSet() +
             tier.artifacts.map { "${it.filename}.tmp" }.toSet() +
             setOf("tokens.txt", "tokens.txt.tmp", "silero_vad.onnx")
 
-        modelsDir.listFiles()?.forEach { file ->
+        val dir = tierDir(tier)
+        dir.listFiles()?.forEach { file ->
             if (file.name !in keepFiles && (file.name.endsWith(".onnx") || file.name.endsWith(".onnx.tmp") ||
                     file.name.endsWith(".ort") || file.name.endsWith(".ort.tmp"))) {
-                Log.d(TAG, "Cleaning stale model file: ${file.name}")
+                Log.d(TAG, "Cleaning stale partial: ${tier.name.lowercase()}/${file.name}")
                 file.delete()
             }
         }
@@ -470,7 +558,7 @@ class ModelDownloader(private val context: Context) {
                     )
                     return false
                 }
-                srcFile.copyTo(File(modelsDir, artifact.filename), overwrite = true)
+                srcFile.copyTo(File(tierDir(tier), artifact.filename), overwrite = true)
             }
 
             // Copy and verify vocab
@@ -631,11 +719,19 @@ class ModelDownloader(private val context: Context) {
     }
 
     private fun hasTmpFiles(): Boolean {
-        return modelsDir.listFiles()?.any { it.name.endsWith(".tmp") } ?: false
+        // Check the active tier's dir first (most common case), then fall back
+        // to scanning the legacy root for pre-migration installs.
+        val active = activeTierDir()
+        if (active.listFiles()?.any { it.name.endsWith(".tmp") } == true) return true
+        return modelsDir.listFiles()?.any { it.isFile && it.name.endsWith(".tmp") } ?: false
     }
 
-    private suspend fun downloadVocabFile(url: String, expectedSha256: String) {
-        val tmpVocab = File(modelsDir, "tokens.txt.tmp")
+    private suspend fun downloadVocabFile(
+        url: String,
+        expectedSha256: String,
+        targetDir: File = activeTierDir(),
+    ) {
+        val tmpVocab = File(targetDir, "tokens.txt.tmp")
         if (tmpVocab.exists()) tmpVocab.delete()
 
         downloadFile(url, tmpVocab, null)
@@ -650,8 +746,9 @@ class ModelDownloader(private val context: Context) {
             )
         }
 
-        if (!tmpVocab.renameTo(vocabFile)) {
-            tmpVocab.copyTo(vocabFile, overwrite = true)
+        val finalVocab = File(targetDir, "tokens.txt")
+        if (!tmpVocab.renameTo(finalVocab)) {
+            tmpVocab.copyTo(finalVocab, overwrite = true)
             tmpVocab.delete()
         }
         clearVerifiedArtifactsFingerprint()
@@ -1017,10 +1114,11 @@ class ModelDownloader(private val context: Context) {
             ?: throw IllegalStateException("Trusted ASR tier is not configured. Select one of the built-in speech tiers.")
 
         // Build fingerprint from all artifacts
+        val dir = tierDir(tier)
         val fingerprint = buildString {
             append(tier.name)
             for (artifact in tier.artifacts) {
-                val file = File(modelsDir, artifact.filename)
+                val file = File(dir, artifact.filename)
                 append(':')
                 append(file.absolutePath)
                 append(':')
@@ -1039,7 +1137,7 @@ class ModelDownloader(private val context: Context) {
 
         // Verify each artifact
         for (artifact in tier.artifacts) {
-            val file = File(modelsDir, artifact.filename)
+            val file = File(dir, artifact.filename)
             val expectedSha = normalizeSha256(artifact.sha256)
                 ?: throw IllegalStateException("Trusted SHA-256 is not configured for ${artifact.filename}.")
             val actualSha = sha256(file)

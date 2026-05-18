@@ -49,8 +49,15 @@ class QwenExtractionStrategy(
     override suspend fun isAvailable(): Boolean {
         val ready = modelManager.isReady()
         val headroom = ready && modelManager.hasRuntimeHeadroom()
-        if (!ready || !headroom) {
-            Log.d(TAG, "isAvailable=false: ready=$ready, headroom=$headroom")
+        val active = if (ready) name else "(no on-device model installed)"
+        if (ready && headroom) {
+            Log.i(TAG, "On-device extraction available: $active")
+        } else {
+            Log.i(
+                TAG,
+                "On-device extraction unavailable (ready=$ready, headroom=$headroom, " +
+                    "tier=$active) — orchestrator will skip to next strategy"
+            )
         }
         return ready && headroom
     }

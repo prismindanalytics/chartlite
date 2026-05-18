@@ -156,15 +156,11 @@ call per encounter, which does not work in a Kenyan rural health post on 2G.</p>
 <p>ChartLite is an Android app that runs the entire clinical encounter loop on a
 mid-tier phone with no internet: voice transcription, structured extraction,
 clinical-decision support against a real medical knowledge graph, encrypted SMS
-relay when paper-thin connectivity returns. Nine months of building. The Gemma
-4 hackathon is the first moment a small open model is good enough to be the
-brain.</p>
+relay when paper-thin connectivity returns.</p>
 <h2>2. Why most clinical-AI submissions hand-wave model choice</h2>
-<p>Pick any clinical-AI demo on the internet and you will see "runs locally on
-Gemma / Qwen / Llama." Almost none of them say whether the model is actually
-accurate enough to be safe. A 3% hallucination rate on medication dosages is
-not a rounding error, it is a coroner's inquest. Before we picked Gemma 4 as
-ChartLite's on-device model, we built a benchmark.</p>
+<p>Most clinical-AI demos say "runs locally on Gemma / Qwen / Llama" without
+verifying accuracy. A 3% hallucination rate on medication dosages is a
+coroner's inquest, not a rounding error. So we built a benchmark first.</p>
 <h2>3. The benchmark headlines</h2>
 <p>We ran 12 models — 6 cloud (Claude Opus/Sonnet/Haiku 4.x, GPT-5.5/5.4/4.1)
 and 6 on-device (Qwen 3.5 in 0.8B/2B/9B, Gemma 4 e2b/e4b, MedGemma 1.5) —

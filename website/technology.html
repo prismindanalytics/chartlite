@@ -300,7 +300,7 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M6 10a2 2 0 0 0-2 2v1a2 2 0 0 0 4 0v-1a2 2 0 0 0-2-2z"/><path d="M18 10a2 2 0 0 0-2 2v1a2 2 0 0 0 4 0v-1a2 2 0 0 0-2-2z"/><path d="M12 16v4"/><path d="M8 20h8"/></svg>
           </div>
           <h3>On-Device AI Inference</h3>
-          <p>Unlike cloud-dependent EMRs, ChartLite executes entirely locally. sherpa-onnx powered ASR with 7 model tiers runs fully offline, including medASR for clinical vocabulary accuracy. Quantized Qwen 3.5 runs through llama.cpp for clinical extraction. An on-device RAG pipeline retrieves only the most relevant diagnoses and drugs per encounter.</p>
+          <p>Unlike cloud-dependent EMRs, ChartLite executes entirely locally. NVIDIA Parakeet TDT v3 and Meta Omnilingual ASR (1,600+ languages) handle speech recognition fully offline via sherpa-onnx. <strong>Gemma 4 (E2B / E4B)</strong> runs on-device through Google AI Edge MediaPipe LiteRT-LM for clinical extraction and multimodal artifact reading, with Qwen 3.5 0.8B via llama.cpp as the &lt; 4 GB fallback. An on-device RAG pipeline retrieves only the most relevant diagnoses and drugs per encounter.</p>
         </div>
 
         <div class="pillar-card">
@@ -375,8 +375,8 @@
             </tr>
             <tr>
               <td>NLP</td>
-              <td class="highlight-cell">llama.cpp (quantized Qwen 3.5) + 5 cloud fallbacks</td>
-              <td>6-strategy extraction: Gemini Nano &rarr; Qwen on-device &rarr; Claude &rarr; OpenAI &rarr; Gemini &rarr; Regex. Flash attention, Q8 KV cache</td>
+              <td class="highlight-cell">Gemma 4 via MediaPipe LiteRT-LM (+ Qwen 3.5 fallback, + cloud fallbacks)</td>
+              <td>6-strategy extraction: Gemma 4 on-device &rarr; Qwen 3.5 (&lt; 4 GB devices) &rarr; Claude &rarr; OpenAI &rarr; Gemini &rarr; Regex</td>
             </tr>
             <tr>
               <td>Encryption</td>
@@ -426,7 +426,7 @@
         <a href="ai-pipeline.html" class="link-card">
           <div class="card-label">AI Pipeline</div>
           <h3>On-device intelligence</h3>
-          <p>How sherpa-onnx ASR, Qwen 3.5, and retrieval-augmented extraction work together on a $100 phone.</p>
+          <p>How Gemma 4 on-device, Parakeet / Omnilingual ASR, and retrieval-augmented extraction work together on a mid-range Android phone.</p>
           <span class="card-arrow">Read more &rarr;</span>
         </a>
 

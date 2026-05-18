@@ -231,8 +231,28 @@ This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) fo
 
 ## Acknowledgments
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) - LLM inference engine, built from source for latest model support
-- [Meta Omnilingual ASR](https://huggingface.co/csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12) - 1600+ language speech recognition via sherpa-onnx ONNX export (Apache 2.0)
-- [ONNX Runtime](https://onnxruntime.ai/) - On-device speech recognition inference
-- [SQLCipher](https://www.zetetic.net/sqlcipher/) - Encrypted local database
-- South Africa National Department of Health - Standard Treatment Guidelines and Essential Medicines List
+**AI models**
+
+- [Google Gemma 4](https://ai.google.dev/gemma) — multimodal on-device LLM (Gemma license) used for clinical extraction, vision, and function calling
+- [NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — English speech recognition, 1.69% WER (CC-BY-4.0)
+- [Meta Omnilingual ASR](https://ai.meta.com/blog/omnilingual-asr-advancing-automatic-speech-recognition/) — 1,600+ language speech recognition (Apache 2.0)
+- [Moonshine](https://github.com/usefulsensors/moonshine) — smallest-footprint English ASR fallback (MIT)
+- [Qwen 3.5](https://github.com/QwenLM/Qwen3) — fallback on-device LLM for < 4 GB phones (Apache 2.0)
+- [Eka Care **BODHI**](https://www.eka.care/) — clinical knowledge graph (779 diagnoses, 1,186 drugs, 812 labs, 10,352 symptom→condition edges) used under CC BY-NC 4.0
+
+**Inference runtimes**
+
+- [Google AI Edge **MediaPipe LiteRT-LM**](https://github.com/google-ai-edge/LiteRT) (`litertlm-android 0.11.0`) — on-device Gemma 4 inference
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — built from source for latest model support, fallback path for Qwen
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — ONNX runtime for ASR models
+- [ONNX Runtime](https://onnxruntime.ai/) — on-device tensor execution
+
+**Clinical data sources**
+
+- WHO — primary-healthcare ICD-10 subset
+- AMA — CPT / HCPCS billing code mappings
+
+**Storage & security**
+
+- [SQLCipher](https://www.zetetic.net/sqlcipher/) — encrypted local database (AES-256)
+- [AndroidX Security](https://developer.android.com/jetpack/androidx/releases/security) — EncryptedSharedPreferences for credentials and API keys

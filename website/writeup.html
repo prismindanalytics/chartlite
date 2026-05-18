@@ -304,7 +304,9 @@ relay encrypts each visit with the algorithm online banking uses
 size, minimal quality loss) is ~1.6 GB on disk, runs on 2 GB-RAM phones.
 Gemma 4 e4b is ~3.1 GB, runs on 4 GB-RAM mid-range phones. Our dev hardware
 is a Galaxy Fold 7 (12 GB RAM, Gemma 4 e4b); reading a clinical photo and
-producing the structured record takes ~6 seconds.</p>
+producing the structured record plus the safety-tool trace takes
+30–50 seconds end-to-end — the model picks which BODHI checks to run,
+then runs them. The captured wall-clock in our demo video is honest, no speed-ramps.</p>
 <p><strong>Governance.</strong> BODHI is licensed by Eka Care under CC BY-NC 4.0 — free
 for non-commercial use, commercial deployment requires an Eka license.
 Benchmark and methodology are independent (Apache 2.0). ChartLite has not

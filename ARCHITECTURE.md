@@ -183,9 +183,9 @@ Each station creates an encounter linked to the same visit. Patient queues manag
 
 | Device | RAM | LLM Model | ASR Model |
 |--------|-----|-----------|-----------|
-| Galaxy A03 (baseline) | 2 GB | Qwen 3.5 0.8B Q4 (560 MB) | wav2vec2 small |
-| Galaxy A14 (mid) | 4 GB | Qwen 3.5 2B Q4 (1.5 GB) | wav2vec2 base |
-| Any device 6+ GB | 6+ GB | Qwen 3.5 2B Q4 (1.5 GB) | wav2vec2 base |
+| Galaxy A03 (baseline) | 2 GB | Qwen 3.5 0.8B Q4 (~533 MB, llama.cpp fallback) | Omnilingual ASR 300M int8 (365 MB) |
+| Galaxy A14 (mid) | 4 GB | Gemma 4 E2B INT4 (~1.6 GB, MediaPipe LiteRT-LM) | Parakeet TDT v3 (670 MB) / Omnilingual ASR |
+| Any device 6+ GB | 6+ GB | Gemma 4 E4B INT4 (~3.1 GB, MediaPipe LiteRT-LM) | Parakeet TDT v3 (670 MB) / Omnilingual ASR |
 
 ## Key Design Decisions
 

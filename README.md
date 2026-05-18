@@ -16,15 +16,15 @@ ChartLite's hackathon submission:
 - **Demo video** — see Kaggle Media Gallery
 - **APK download** — [v1.0.0-hackathon release](https://github.com/prismindanalytics/chartlite/releases/tag/v1.0.0-hackathon) (Android 8+, debug-signed, 330 MB)
 
-**Why Gemma 4:** On peer-reviewed ACI-Bench dialogue→SOAP (n=207×5 splits) Gemma 4 e4b scores **82.74**, essentially tying Claude Haiku 4.5 (82.72) — running entirely on-device. On Eka Care's 156 real clinician-annotated transcripts it lands within 5 points of Haiku (82.6 vs 87.0). Independent third-party validation: Sankalp Gulati at Eka Care confirmed the MedGemma-underperforms-generalist-Gemma and small-Qwen-fails-on-real-data findings on Eka's internal Indian clinical data.
+**Why Gemma 4:** On peer-reviewed ACI-Bench dialogue→SOAP (n=207×5 splits) Gemma 4 e4b scores **82.74**, essentially tying Claude Haiku 4.5 (82.72) — running entirely on-device. On 156 real clinician-annotated clinical transcripts it lands within 5 points of Haiku (82.6 vs 87.0). Full per-(model, case) results, scoring code, and methodology at [benchmark.chartlite.health](https://benchmark.chartlite.health).
 
 **Three-tier hardware-aware routing** ([`LlmModelManager.recommendedTierForRam`](app/src/main/kotlin/com/chartlite/app/extraction/LlmModelManager.kt)):
 
 | Device RAM | LLM | Runtime |
 |---|---|---|
-| ≥ 6 GB | Gemma 4 **E4B** (2.83 GB `.task`) | MediaPipe `tasks-genai 0.10.35` |
-| ≥ 4 GB | Gemma 4 **E2B** (~1.5 GB `.task`) | MediaPipe `tasks-genai 0.10.35` |
-| < 4 GB | Qwen 3.5 0.8B | MNN-LLM / llama.cpp |
+| ≥ 6 GB | Gemma 4 **E4B** (~3.1 GB `.litertlm`) | Google AI Edge MediaPipe LiteRT-LM (`litertlm-android 0.11.0`) |
+| ≥ 4 GB | Gemma 4 **E2B** (~1.6 GB `.litertlm`) | Google AI Edge MediaPipe LiteRT-LM (`litertlm-android 0.11.0`) |
+| < 4 GB | Qwen 3.5 0.8B (~533 MB) | llama.cpp (built from source, fallback) |
 
 **Gemma 4 native features used:** multimodal vision for 8 artifact types ([`extraction/VisionToolFlow.kt`](app/src/main/kotlin/com/chartlite/app/extraction/VisionToolFlow.kt)), native function calling for BODHI safety lookups ([`cdss/CdssToolRegistry.kt`](app/src/main/kotlin/com/chartlite/app/cdss/CdssToolRegistry.kt)), hardware-aware tier routing, INT4-quantized on-device inference via LiteRT.
 
@@ -41,7 +41,7 @@ git clone github.com/prismindanalytics/clinical-edge-bench                    # 
 - **Voice-to-Clinical Data** - Record encounters, get ICD-10 diagnoses, medications, vitals, and follow-up plans extracted automatically
 - **Ambient Scribing** - Capture full patient-doctor conversations and generate formatted clinical summaries with markdown rendering
 - **Omnilingual Offline ASR** - Meta Omnilingual ASR (1600+ languages) runs on-device via ONNX Runtime. Supports Zulu, Xhosa, Amharic, Chichewa, and all other target languages offline. 300M model (365 MB) for low-end devices, 1B model (1 GB) for higher accuracy
-- **On-Device LLM Extraction** - Qwen 3.5 runs entirely on-device via llama.cpp (built from source) with flash attention, Q8 KV cache, and on-device RAG retrieval; no internet required
+- **On-Device LLM Extraction** - Gemma 4 (E2B on ≥ 4 GB phones, E4B on ≥ 6 GB) runs on-device via Google AI Edge's MediaPipe LiteRT-LM with INT4 quantization; Qwen 3.5 0.8B fallback via llama.cpp for < 4 GB devices. No internet required.
 - **Smart Context Retrieval** - TF-IDF vector store indexes 300 ICD-10 codes and 515 formulary drugs, retrieves only relevant entries per transcript (80% context reduction)
 - **Battery-Aware Batched Inference** - Extraction queue processes multiple patient transcripts in a single model load; urgent cases (referrals/emergencies) bypass the queue for immediate processing
 - **Selectable Clinical Extraction** - Qwen 3.5 on-device or a selected Claude, OpenAI, or Gemini cloud model, with Regex fallback when model extraction is unavailable
@@ -75,8 +75,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
 ## Requirements
 
 - Android 8.0+ (SDK 26)
-- 3 GB RAM minimum (4 GB recommended for larger models)
-- ~365 MB storage for ASR model (Omnilingual 300M int8) + ~533 MB for on-device LLM (Qwen 3.5 0.8B Q4_K_M)
+- 3 GB RAM minimum (4 GB+ recommended for Gemma 4)
+- ~365 MB for ASR (Omnilingual 300M int8) + ~1.6 GB for default on-device LLM (Gemma 4 E2B INT4); 3.1 GB if using E4B on ≥ 6 GB devices, 533 MB for the Qwen 3.5 0.8B fallback on < 4 GB devices
 - Microphone permission for voice recording
 
 ## Quick Start
@@ -105,7 +105,7 @@ cd chartlite
 
 ### Configuration
 
-1. **On-Device LLM**: Download the appropriate Qwen 3.5 model during setup or in Settings (533 MB for devices with <4 GB RAM, 1.28 GB for 4+ GB RAM). The RAG vector store indexes automatically on first launch.
+1. **On-Device LLM**: First launch downloads the appropriate Gemma 4 bundle from Hugging Face — ~1.6 GB for E2B (≥ 4 GB RAM) or ~3.1 GB for E4B (≥ 6 GB RAM). Phones with < 4 GB RAM fall back to Qwen 3.5 0.8B (~533 MB) via llama.cpp. The RAG vector store indexes automatically on first launch.
 
 2. **Cloud Extraction (optional)**: In Settings, enter API keys for Claude, OpenAI, or Gemini to enable cloud-based extraction with automatic offline fallback.
 
@@ -197,11 +197,13 @@ See the [SMS Health Record documentation](https://chartlite.health) for a detail
 
 | Component | Model | Size | Purpose |
 |-----------|-------|------|---------|
-| ASR (low-end) | Omnilingual 300M int8 | 365 MB | 1600+ language speech recognition |
-| ASR (mid-range) | Omnilingual 1B int8 | 1.03 GB | Higher accuracy ASR |
-| ASR (English) | Moonshine Tiny/Base v2 | 43-140 MB | Lightweight English-specific |
-| LLM (low-end) | Qwen 3.5 0.8B Q4_K_M | 533 MB | Clinical extraction on 3 GB RAM |
-| LLM (mid-range) | Qwen 3.5 2B | 1.28 GB | Higher accuracy extraction |
+| LLM (≥ 6 GB RAM) | Gemma 4 E4B INT4 | ~3.1 GB | Default on-device LLM, multimodal vision |
+| LLM (≥ 4 GB RAM) | Gemma 4 E2B INT4 | ~1.6 GB | Default on-device LLM, multimodal vision |
+| LLM (< 4 GB RAM) | Qwen 3.5 0.8B Q4_K_M | ~533 MB | Fallback on-device LLM via llama.cpp |
+| ASR (English, recommended) | NVIDIA Parakeet TDT v3 | ~670 MB | 1.69% WER on English |
+| ASR (multilingual) | Meta Omnilingual ASR 300M int8 | ~365 MB | 1,600+ languages |
+| ASR (multilingual, higher accuracy) | Meta Omnilingual ASR 1B int8 | ~1.03 GB | Higher accuracy multilingual |
+| ASR (English, smallest) | Moonshine Tiny / Base v2 | 43–140 MB | Smallest English-only fallback |
 | RAG | TF-IDF vector store | In-memory | 300 ICD-10 + 515 drugs, cosine similarity retrieval |
 
 **Optimizations**: Flash attention, Q8_0 KV cache, configurable batch/generation threads, model auto-unload after 30s idle, batched inference queue (load model once for N patients).

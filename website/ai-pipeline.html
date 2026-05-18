@@ -425,7 +425,7 @@
         <div class="pipeline-arrow" aria-hidden="true">&rarr;</div>
         <div class="pipeline-node node-extract">
           <div class="node-label">Extraction</div>
-          <div class="node-title">Qwen 3.5 0.8B</div>
+          <div class="node-title">Gemma 4</div>
         </div>
         <div class="pipeline-arrow" aria-hidden="true">&rarr;</div>
         <div class="pipeline-node node-failsafe">
@@ -814,24 +814,31 @@
           </thead>
           <tbody>
             <tr>
-              <td>SMALL</td>
-              <td>Qwen 3.5 0.8B</td>
-              <td>Q4_K_M</td>
-              <td class="highlight-cell">533 MB</td>
-              <td>32,768 tokens</td>
+              <td>LARGE</td>
+              <td>Gemma 4 E4B</td>
+              <td>INT4</td>
+              <td class="highlight-cell">~3.1 GB</td>
+              <td>multimodal (text + image)</td>
             </tr>
             <tr>
-              <td>LARGE</td>
-              <td>Qwen 3.5 2B</td>
+              <td>MEDIUM</td>
+              <td>Gemma 4 E2B</td>
+              <td>INT4</td>
+              <td class="highlight-cell">~1.6 GB</td>
+              <td>multimodal (text + image)</td>
+            </tr>
+            <tr>
+              <td>FALLBACK</td>
+              <td>Qwen 3.5 0.8B</td>
               <td>Q4_K_M</td>
-              <td class="highlight-cell">1.28 GB</td>
-              <td>32,768 tokens</td>
+              <td class="highlight-cell">~533 MB</td>
+              <td>32,768 tokens (text)</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <p class="table-note">Hardware-aware selection: 0.8B for 2 GB devices, 2B for 4 GB+. Both run via llama.cpp built from source.</p>
+      <p class="table-note">Hardware-aware selection: E4B for ≥ 6 GB devices, E2B for ≥ 4 GB, Qwen 3.5 0.8B for &lt; 4 GB. Gemma 4 runs via Google AI Edge MediaPipe LiteRT-LM (litertlm-android 0.11.0); Qwen via llama.cpp built from source.</p>
     </section>
 
     <hr class="section-separator">
@@ -868,16 +875,16 @@
               <td>Galaxy A14</td>
               <td>4 GB</td>
               <td>Parakeet TDT (671 MB)</td>
-              <td>Qwen 3.5 2B (1.28 GB)</td>
-              <td class="highlight-cell">~1.95 GB</td>
+              <td>Gemma 4 E2B (~1.6 GB)</td>
+              <td class="highlight-cell">~2.3 GB</td>
             </tr>
             <tr>
               <td>High-end</td>
               <td>Galaxy A54</td>
               <td>6+ GB</td>
               <td>Parakeet TDT (671 MB)</td>
-              <td>Qwen 3.5 2B (1.28 GB)</td>
-              <td class="highlight-cell">~1.95 GB</td>
+              <td>Gemma 4 E4B (~3.1 GB)</td>
+              <td class="highlight-cell">~3.8 GB</td>
             </tr>
           </tbody>
         </table>

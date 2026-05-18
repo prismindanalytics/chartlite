@@ -51,6 +51,34 @@ class ExtractionPromptBuilder(
     fun noteSystemAndUser(transcript: String, compact: Boolean = false): Pair<String, String> =
         Pair(buildNoteSystemPrompt(compact), buildNoteUserPrompt(transcript, compact))
 
+    /**
+     * Combined inference (single LLM call producing markdown note + structured
+     * JSON in one JSON envelope). Replaces the legacy two-pass flow.
+     *
+     * Output schema (the model fills this in):
+     *   {
+     *     "note": "## Chief Complaint\n- Fever\n...",
+     *     "demographics": {...},
+     *     ... rest of BENCHMARK_JSON_SCHEMA ...
+     *   }
+     *
+     * The `note` field carries the markdown clinical note for display; the
+     * remaining fields are parsed by [LlmResponseParser] into the structured
+     * encounter. One inference instead of two.
+     */
+    fun combinedSystemAndUser(transcript: String): Pair<String, String> =
+        Pair(COMBINED_NOTE_AND_JSON_SYSTEM_PROMPT, buildCombinedUserPrompt(transcript))
+
+    private fun buildCombinedUserPrompt(transcript: String): String = buildString {
+        appendLine("Produce the JSON object for this clinician dictation.")
+        appendLine()
+        appendLine("CLINICIAN DICTATION:")
+        appendLine()
+        appendLine(transcript)
+        appendLine()
+        append("JSON:")
+    }
+
     // ── Note Generation Prompts (draft-note-first architecture) ──
 
     /** System prompt for generating a clinical note from transcript. */
@@ -59,26 +87,19 @@ class ExtractionPromptBuilder(
 
     /** User prompt for note generation (cloud LLM). */
     fun buildNoteUserPrompt(transcript: String, compact: Boolean = false): String = buildString {
-        appendLine("Summarize this dictation into a concise clinical note.")
-        appendLine("Include ONLY facts from the dictation. Omit empty sections.")
-        appendLine()
+        // Note: section guidance moved into the system prompt (see
+        // NOTE_SYSTEM_PROMPT). Listing section headers verbatim in the user
+        // prompt caused small open-weights models (Gemma 4 e4b at temp=0.1)
+        // to echo the list back as output instead of filling it in.
         if (compact) {
-            appendLine("Keep bullets short, but do not omit important clinical facts.")
-            appendLine("Always include any stated diagnosis, medication, immunization, treatment, counseling, and follow-up.")
+            appendLine("Write a concise clinical note from the dictation below.")
+            appendLine("Keep bullets short. Do not omit important diagnoses,")
+            appendLine("medications, immunizations, counseling, or follow-up.")
+        } else {
+            appendLine("Write a clinical note from the dictation below.")
         }
-        appendLine("Sections (include only if relevant):")
-        appendLine("## Chief Complaint")
-        appendLine("## History of Present Illness")
-        appendLine("## Examination Findings")
-        appendLine("## Vitals")
-        appendLine("## Investigations")
-        appendLine("## Assessment")
-        appendLine("## Plan (include all treatments, medications, immunizations given)")
-        appendLine("## Follow-up")
-        appendLine("## Allergies")
         appendLine()
-        appendLine("DICTATION:")
-        appendLine()
+        appendLine("Dictation:")
         appendLine(transcript)
     }
 
@@ -202,28 +223,109 @@ code and dose number. Only therapeutic drugs go in
         """.trimIndent()
 
         private val NOTE_SYSTEM_PROMPT = """
-You are a clinical scribe. Summarize a clinician's dictation into
-a concise, professional clinical note.
+You are a clinical scribe. Convert a clinician's dictation into a
+professional clinical note.
 
-Rules:
-- SUMMARIZE in third-person clinical prose. Never copy dialog.
-- Include ONLY facts explicitly stated. Do NOT infer or add anything.
-- Remove ALL repetition — each fact appears once.
-- Omit sections with no content. Do NOT write "None" or "Not mentioned".
+OUTPUT FORMAT (strict):
+- Every line is either a `## Section Header` line, a `- bullet item`
+  line, or a blank line between sections. No other lines are allowed.
+- Write the note exactly once. Do not produce a brief summary followed
+  by a detailed version, or vice versa.
+- Begin output with the first applicable section header. No preamble,
+  no greeting, no commentary, no closing remarks.
+
+CONTENT:
+- Use only facts explicitly stated in the dictation. Do not infer.
 - Use exact numbers, values, and medical terms as dictated.
-- Format: ## for headers, - for bullets, **bold** for key terms.
-- If diagnoses, medications, immunizations, procedures, counseling,
-  or follow-up are stated, include them in the note.
-- No disclaimers or commentary.
+- Each fact appears once across the whole note. No repetition.
+- Use these section names when applicable, in this order: Chief
+  Complaint, History of Present Illness, Examination Findings, Vitals,
+  Investigations, Assessment, Plan, Follow-up, Allergies. The Plan
+  section must include any stated treatments, medications,
+  immunizations, counseling, or follow-up actions.
+- Omit any section that has no content from the dictation. Never write
+  "None" or "Not mentioned".
         """.trimIndent()
 
         private val COMPACT_NOTE_SYSTEM_PROMPT = """
-You are a clinical scribe.
-Write a clinically useful note from the dictation.
-Use only stated facts. No repetition. Omit empty sections.
-Use ## headers and short bullets only, but do not drop important treatments,
-medications, diagnoses, counseling, or follow-up.
-Do not use bold text. Do not write paragraphs.
+You are a clinical scribe. Write one concise clinical note from the
+dictation.
+
+OUTPUT FORMAT (strict):
+- Every line is either a `## Section Header`, a `- bullet item`, or a
+  blank line. No other lines are allowed.
+- Write the note exactly once. No introductory summary, no closing
+  remarks, no preamble.
+
+CONTENT:
+- Use only facts stated in the dictation. No repetition. No inference.
+- Use these section names when applicable, in order: Chief Complaint,
+  History of Present Illness, Examination Findings, Vitals,
+  Investigations, Assessment, Plan, Follow-up, Allergies. Omit any
+  section that has no content.
+- Do not drop stated treatments, medications, immunizations, diagnoses,
+  counseling, or follow-up.
+        """.trimIndent()
+
+        /**
+         * Single-pass system prompt: model outputs ONE JSON object containing
+         * both the markdown clinical note (`note` field) and the structured
+         * clinical facts. Replaces the legacy two-pass flow (note → JSON).
+         * Cuts wall-clock inference time roughly in half because the model
+         * loads weights once and runs a single prefill+decode cycle.
+         */
+        private val COMBINED_NOTE_AND_JSON_SYSTEM_PROMPT = """
+You are a clinical scribe and data extractor.
+
+For each clinician dictation, output ONE JSON object that contains both
+a markdown clinical note and the structured clinical facts.
+
+OUTPUT FORMAT (strict):
+- Output exactly one valid JSON object. No markdown fences. No preamble,
+  no commentary, no closing remarks. The whole response is the JSON.
+- The JSON must include this top-level field "note" with a markdown
+  clinical note as a JSON string (use \n for line breaks inside the
+  string). All other top-level fields hold the structured facts.
+
+note FIELD CONTENT:
+- The note uses ## section headers and - bullets. Each line is either a
+  `## Section Header`, a `- bullet item`, or a blank line.
+- Section names in this order when applicable: Chief Complaint, History
+  of Present Illness, Examination Findings, Vitals, Investigations,
+  Assessment, Plan, Follow-up, Allergies. Plan must include any stated
+  treatments, medications, immunizations, counseling, or follow-up.
+- Omit any section that has no content from the dictation.
+- Write the note exactly once. No brief-then-detailed duplication.
+
+STRUCTURED FIELDS:
+- Use only facts explicitly stated. Do not infer.
+- Use exact numbers and values as dictated.
+- Use null for unmentioned scalar fields. Use [] for unmentioned list
+  fields.
+- Do not output placeholder values like "unknown" or "not stated".
+- No duplicate entries.
+- Vaccines and immunizations (PENTA, DTP, OPV, BCG, Measles, Hep B,
+  Rotavirus, PCV, HPV, Td, MMR, IPV, ...) belong in "immunizations",
+  never in "medications". Only therapeutic drugs go in "medications".
+- sms_summary: ≤19-character ASCII abbreviation of the reason for visit
+  only. No age, sex, vitals, drugs, vaccines.
+
+Schema (fill these top-level fields):
+{
+  "note": "## Chief Complaint\n- Fever\n...",
+  "demographics": {"age": "...", "sex": "M/F", "name": "..."},
+  "chief_complaint": "brief summary",
+  "vitals": [{"name": "...", "value": "...", "unit": "..."}],
+  "exam_findings": ["finding"],
+  "investigations": [{"test": "...", "result": "..."}],
+  "diagnoses": ["diagnosis"],
+  "medications": [{"name": "drug", "dose": "...", "context": "current/new"}],
+  "allergies": ["allergy or NKDA"],
+  "immunizations": [{"vaccine": "code", "dose_number": 1}],
+  "social_history": ["factor"],
+  "plan": ["action"],
+  "sms_summary": "≤19 char abbrev"
+}
         """.trimIndent()
 
         private val BENCHMARK_JSON_SCHEMA = """

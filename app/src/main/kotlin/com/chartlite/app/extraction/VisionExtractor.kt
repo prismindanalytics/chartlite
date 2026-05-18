@@ -2,8 +2,34 @@ package com.chartlite.app.extraction
 
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonSyntaxException
+
+/**
+ * Null-safe wrappers around Gson's `as*` accessors. Gson's defaults throw
+ * on `JsonNull` (the value the model emits for `"manufacturer": null`,
+ * `"referral": null`, etc.) and on type mismatches, which previously crashed
+ * the whole vision parser through the catch-all `Vision JSON parse error`
+ * path. That sent the result back to the weak text-fallback heuristics and
+ * mis-labelled prescriptions as vaccine cards. Returning null on JsonNull
+ * lets every "field is optional" downstream path keep working.
+ */
+private fun JsonElement.asStringSafe(): String? =
+    if (isJsonPrimitive) asString else null
+
+private fun JsonElement.asDoubleSafe(): Double? =
+    if (isJsonPrimitive) runCatching { asDouble }.getOrNull() else null
+
+private fun JsonElement.asIntSafe(): Int? =
+    if (isJsonPrimitive) runCatching { asInt }.getOrNull() else null
+
+private fun JsonObject.getObjectOrNull(name: String): JsonObject? =
+    this.get(name)?.takeIf { it.isJsonObject }?.asJsonObject
+
+private fun JsonObject.getArrayOrNull(name: String): JsonArray? =
+    this.get(name)?.takeIf { it.isJsonArray }?.asJsonArray
 
 /**
  * Orchestrates on-device vision extraction: image → VLM inference → structured clinical data.
@@ -147,9 +173,9 @@ class VisionExtractor(
                     }?.let { this.get(it) }
                 }
 
-            val rawContentType = obj.fuzzy("content_type", "category", "categories", "type")?.asString ?: ""
-            val rawText = obj.get("text")?.asString ?: ""
-            val rawData = obj.get("data")?.asString ?: ""
+            val rawContentType = obj.fuzzy("content_type", "category", "categories", "type")?.asStringSafe() ?: ""
+            val rawText = obj.get("text")?.asStringSafe() ?: ""
+            val rawData = obj.get("data")?.asStringSafe() ?: ""
             val combined = "$rawContentType $rawText $rawData".lowercase()
 
             // Infer content type from type/text/data fields. Eight artifact
@@ -181,45 +207,45 @@ class VisionExtractor(
             val confidence = obj.get("confidence")?.let {
                 runCatching { it.asDouble }.getOrNull()
             }
-            val itemName = obj.get("item_name")?.asString?.takeIf { it.isNotBlank() }
+            val itemName = obj.get("item_name")?.asStringSafe()?.takeIf { it.isNotBlank() }
 
-            val vitals = (obj.getAsJsonArray("vitals") ?: obj.getAsJsonArray("vital"))?.mapNotNull { elem ->
+            val vitals = (obj.getArrayOrNull("vitals") ?: obj.getArrayOrNull("vital"))?.mapNotNull { elem ->
                 if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
-                val name = o.get("name")?.asString ?: return@mapNotNull null
-                val value = o.get("value")?.asString ?: return@mapNotNull null
-                val unit = o.get("unit")?.asString ?: ""
+                val name = o.get("name")?.asStringSafe() ?: return@mapNotNull null
+                val value = o.get("value")?.asStringSafe() ?: return@mapNotNull null
+                val unit = o.get("unit")?.asStringSafe() ?: ""
                 VitalReading(name, value, unit)
             } ?: emptyList()
 
-            val investigations = (obj.getAsJsonArray("investigations") ?: obj.getAsJsonArray("investigation") ?: obj.getAsJsonArray("lab_results"))?.mapNotNull { elem ->
+            val investigations = (obj.getArrayOrNull("investigations") ?: obj.getArrayOrNull("investigation") ?: obj.getArrayOrNull("lab_results"))?.mapNotNull { elem ->
                 if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
-                val test = o.get("test")?.asString ?: return@mapNotNull null
-                val result = o.get("result")?.asString
-                    ?: o.get("value")?.asString
+                val test = o.get("test")?.asStringSafe() ?: return@mapNotNull null
+                val result = o.get("result")?.asStringSafe()
+                    ?: o.get("value")?.asStringSafe()
                     ?: return@mapNotNull null
                 LabResult(
                     test = test,
                     result = result,
-                    referenceRange = o.get("reference_range")?.asString ?: o.get("ref_range")?.asString,
-                    unit = o.get("unit")?.asString,
-                    flag = o.get("flag")?.asString?.takeIf { it.isNotBlank() && it != "null" },
+                    referenceRange = o.get("reference_range")?.asStringSafe() ?: o.get("ref_range")?.asStringSafe(),
+                    unit = o.get("unit")?.asStringSafe(),
+                    flag = o.get("flag")?.asStringSafe()?.takeIf { it.isNotBlank() && it != "null" },
                 )
             } ?: emptyList()
 
-            val rdt = obj.getAsJsonObject("rdt")?.let { r ->
-                val testType = r.get("test_type")?.asString ?: return@let null
-                val result = r.get("result")?.asString ?: return@let null
-                val rawDetails = r.get("details")?.asString
+            val rdt = obj.getObjectOrNull("rdt")?.let { r ->
+                val testType = r.get("test_type")?.asStringSafe() ?: return@let null
+                val result = r.get("result")?.asStringSafe() ?: return@let null
+                val rawDetails = r.get("details")?.asStringSafe()
                 // Discard if model dumped schema junk into details
                 val details = rawDetails?.takeIf { it.length < 200 && !it.contains("content_type") }
                 RdtResult(testType, result, details)
             } ?: run {
                 // Simple format: top-level "test"+"result" keys, or generic "data" field
-                val testName = obj.get("test")?.asString
-                val testResult = obj.get("result")?.asString
-                val lines = obj.get("lines")?.asString
+                val testName = obj.get("test")?.asStringSafe()
+                val testResult = obj.get("result")?.asStringSafe()
+                val lines = obj.get("lines")?.asStringSafe()
                 if (testName != null && testResult != null) {
                     RdtResult(testName, testResult, lines)
                 } else if (contentType == "rdt_cassette") {
@@ -229,65 +255,65 @@ class VisionExtractor(
                 } else null
             }
 
-            val medications = (obj.getAsJsonArray("medications") ?: obj.getAsJsonArray("mediications") ?: obj.getAsJsonArray("medication"))?.mapNotNull { elem ->
+            val medications = (obj.getArrayOrNull("medications") ?: obj.getArrayOrNull("mediications") ?: obj.getArrayOrNull("medication"))?.mapNotNull { elem ->
                 if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
-                val name = o.get("name")?.asString ?: return@mapNotNull null
+                val name = o.get("name")?.asStringSafe() ?: return@mapNotNull null
                 MedicationInfo(
                     name = name,
-                    dose = o.get("dose")?.asString,
-                    form = o.get("form")?.asString,
-                    expiry = o.get("expiry")?.asString,
-                    route = o.get("route")?.asString,
-                    freq = o.get("freq")?.asString ?: o.get("frequency")?.asString,
-                    duration = o.get("duration")?.asString,
-                    manufacturer = o.get("manufacturer")?.asString,
-                    batch = o.get("batch")?.asString,
+                    dose = o.get("dose")?.asStringSafe(),
+                    form = o.get("form")?.asStringSafe(),
+                    expiry = o.get("expiry")?.asStringSafe(),
+                    route = o.get("route")?.asStringSafe(),
+                    freq = o.get("freq")?.asStringSafe() ?: o.get("frequency")?.asStringSafe(),
+                    duration = o.get("duration")?.asStringSafe(),
+                    manufacturer = o.get("manufacturer")?.asStringSafe(),
+                    batch = o.get("batch")?.asStringSafe(),
                 )
             } ?: emptyList()
 
-            val referral = obj.getAsJsonObject("referral")?.let { r ->
+            val referral = obj.getObjectOrNull("referral")?.let { r ->
                 ReferralInfo(
-                    r.get("from_facility")?.asString,
-                    r.get("diagnosis")?.asString,
-                    r.get("reason")?.asString,
-                    r.get("urgency")?.asString
+                    r.get("from_facility")?.asStringSafe(),
+                    r.get("diagnosis")?.asStringSafe(),
+                    r.get("reason")?.asStringSafe(),
+                    r.get("urgency")?.asStringSafe()
                 )
             }
 
-            val immunizations = (obj.getAsJsonArray("immunizations") ?: obj.getAsJsonArray("immunization") ?: obj.getAsJsonArray("vaccines"))?.mapNotNull { elem ->
+            val immunizations = (obj.getArrayOrNull("immunizations") ?: obj.getArrayOrNull("immunization") ?: obj.getArrayOrNull("vaccines"))?.mapNotNull { elem ->
                 if (!elem.isJsonObject) return@mapNotNull null
                 val o = elem.asJsonObject
-                val vaccine = o.get("vaccine")?.asString ?: o.get("name")?.asString ?: return@mapNotNull null
+                val vaccine = o.get("vaccine")?.asStringSafe() ?: o.get("name")?.asStringSafe() ?: return@mapNotNull null
                 Immunization(
                     vaccine = vaccine,
-                    date = o.get("date")?.asString,
+                    date = o.get("date")?.asStringSafe(),
                     doseNumber = o.get("dose_number")?.let { n ->
                         runCatching { n.asInt }.getOrNull()
                     },
-                    batch = o.get("batch")?.asString,
-                    route = o.get("route")?.asString,
+                    batch = o.get("batch")?.asStringSafe(),
+                    route = o.get("route")?.asStringSafe(),
                 )
             } ?: emptyList()
 
-            val discharge = obj.getAsJsonObject("discharge")?.let { d ->
+            val discharge = obj.getObjectOrNull("discharge")?.let { d ->
                 fun JsonObject.stringList(field: String): List<String> =
-                    this.getAsJsonArray(field)?.mapNotNull { it.asString?.takeIf { s -> s.isNotBlank() } }
+                    this.getArrayOrNull(field)?.mapNotNull { it.asStringSafe()?.takeIf { s -> s.isNotBlank() } }
                         ?: emptyList()
                 DischargeInfo(
                     dx = d.stringList("dx"),
                     meds = d.stringList("meds"),
-                    followUp = d.get("follow_up")?.asString?.takeIf { it.isNotBlank() },
+                    followUp = d.get("follow_up")?.asStringSafe()?.takeIf { it.isNotBlank() },
                     alerts = d.stringList("alerts"),
                 )
             }
 
-            val warnings = obj.getAsJsonArray("warnings")?.mapNotNull {
-                it.asString?.takeIf { s -> s.isNotBlank() }
+            val warnings = obj.getArrayOrNull("warnings")?.mapNotNull {
+                it.asStringSafe()?.takeIf { s -> s.isNotBlank() }
             } ?: emptyList()
 
             // Use raw_text if present, otherwise fall back to generic text/data fields
-            val rawTextVal = obj.get("raw_text")?.asString
+            val rawTextVal = obj.get("raw_text")?.asStringSafe()
                 ?: rawData.takeIf { it.isNotBlank() }
                 ?: rawText.takeIf { it.isNotBlank() }
             val parsedRawText = rawTextVal?.takeIf { it.length < 300 && !it.contains("content_type") }

@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -192,6 +193,20 @@ fun EncounterRecordScreen(
     var draftNote by remember { mutableStateOf<String?>(null) }
     var noteStrategyUsed by rememberSaveable { mutableStateOf<String?>(null) }
     var isGeneratingNote by remember { mutableStateOf(false) }
+
+    // Keep the screen on for any active, scope-bound work: ASR listening,
+    // ASR preparing (model load), note generation, structured extraction,
+    // or vision scanning. On CPU the 4B Gemma takes 30-90s per pass; any
+    // screen-off / lock event tears down the Compose scope, cancelling the
+    // work and (worse) cancelling the active mic recording mid-dictation.
+    // Releasing the lock the moment everything is idle lets normal screen-
+    // timeout behaviour resume.
+    val view = LocalView.current
+    val keepScreenOn = isRecording || isPreparing || isGeneratingNote || isProcessing || isScanProcessing
+    DisposableEffect(keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
 
     // ── Snippet mode state ──
     var snippetTranscripts by remember { mutableStateOf<List<String>>(emptyList()) }

@@ -47,17 +47,13 @@ android {
 
 dependencies {
     // MediaPipe LLM Inference — on-device runtime for Gemma 3n .task bundles.
-    // Used by `GemmaBridge.kt`. Kotlin/Java SDK; no JNI needed at this layer
-    // because MediaPipe ships native libs inside the AAR.
+    // LiteRT-LM is Google's on-device LLM runtime that loads the modern `.task`
+    // bundles published by `litert-community` on Hugging Face (gemma-4 series).
+    // We migrated off the older `com.google.mediapipe:tasks-genai:0.10.35` on
+    // 2026-05-18 because that SDK's litert_lm/zip_utils could not open the
+    // current Gemma 4 .task format (error: "Unable to open zip archive"). The
+    // `litertlm-android` AAR ships its own native libs, so no JNI work here.
     //
-    // 0.10.20+ exposes vision modality on LlmInferenceSession
-    // (GraphOptions.setEnableVisionModality + addImage). Pinning to the latest
-    // stable (0.10.35, released April 2026) for the most reliable Gemma 3n
-    // vision path on mid-tier Android.
-    implementation("com.google.mediapipe:tasks-genai:0.10.35")
-
-    // tasks-vision ships the `com.google.mediapipe.framework.image` package
-    // (BitmapImageBuilder, MPImage) that we use to wrap a Bitmap before passing
-    // it to LlmInferenceSession.addImage(). Kept on the same minor as tasks-genai.
-    implementation("com.google.mediapipe:tasks-vision:0.10.35")
+    // Used by `GemmaBridge.kt` (text + vision generation).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }

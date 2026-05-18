@@ -1673,10 +1673,16 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val LARGE_MODEL_MAX_OUTPUT_TOKENS = 3072
         private const val ULTRA_LOW_RAM_EXTRACTION_OUTPUT_TOKENS = 512
         private const val LOW_RAM_EXTRACTION_OUTPUT_TOKENS = 640
-        private const val SMALL_MODEL_EXTRACTION_OUTPUT_TOKENS = 1024
-        private const val LARGE_MODEL_EXTRACTION_OUTPUT_TOKENS = 1536
-        private const val SMALL_MODEL_NOTE_OUTPUT_TOKENS = 640
-        private const val LARGE_MODEL_NOTE_OUTPUT_TOKENS = 1024
+        // Budget calibrated for Gemma 4 E4B on CPU (~7-8 tok/s on a Fold 7
+        // post-thermal-throttle). 384 note tokens × 8 = 48s of decode, plus
+        // ~12s prefill on a 1100-char system + dictation prompt, comfortably
+        // fits the 150s inference timeout. Real clinical notes from short
+        // dictations land in the 200-300 token range, so 384 is generous
+        // without burning the timeout budget.
+        private const val SMALL_MODEL_EXTRACTION_OUTPUT_TOKENS = 640
+        private const val LARGE_MODEL_EXTRACTION_OUTPUT_TOKENS = 1024
+        private const val SMALL_MODEL_NOTE_OUTPUT_TOKENS = 384
+        private const val LARGE_MODEL_NOTE_OUTPUT_TOKENS = 640
         private const val ULTRA_LOW_RAM_MAX_SNIPPET_OUTPUT_TOKENS = 256
         private const val SMALL_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 320
         private const val LARGE_MODEL_MAX_SNIPPET_OUTPUT_TOKENS = 448
@@ -1692,9 +1698,14 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
         private const val DEFAULT_MODEL_LOAD_TIMEOUT_MS = 45_000L
         // At ~2-3 tok/s on Cortex-A53, 512 tokens takes ~170-256s. Allow enough time
         // to complete rather than timing out mid-generation on slow eMMC phones.
-        private const val ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS = 120_000L
-        private const val LOW_RAM_INFERENCE_TIMEOUT_MS = 90_000L
-        private const val DEFAULT_INFERENCE_TIMEOUT_MS = 90_000L
+        // 90s was borderline for Gemma 4 E4B CPU inference at 640 tokens
+        // and would time out under thermal throttling. With the tighter
+        // note-token budget (384) the typical run completes in 50-70s, so
+        // 150s gives ~2× margin without leaving the user staring at a
+        // hung-looking screen for too long.
+        private const val ULTRA_LOW_RAM_INFERENCE_TIMEOUT_MS = 180_000L
+        private const val LOW_RAM_INFERENCE_TIMEOUT_MS = 150_000L
+        private const val DEFAULT_INFERENCE_TIMEOUT_MS = 150_000L
         private const val CANCEL_WAIT_TIMEOUT_MS = 5_000L
         private const val DEFERRED_CANCEL_CLEANUP_TIMEOUT_MS = 15_000L
 
@@ -1748,22 +1759,28 @@ class LlmModelManager(private val context: Context) : ComponentCallbacks2 {
                 sizeMb = 1205,
                 extractedArchive = true
             )
+            // .litertlm (Android-native) instead of -web.task (web/WASM). The
+            // litert-community repo publishes both; only the .litertlm bundle is
+            // loadable by litertlm-android. The .task suffix is the web variant
+            // and the native runtime cannot open it ("Unable to open zip archive").
+            // Empty SHA-256 → trust-on-first-download; computed digest is logged
+            // after install and can be pinned later.
             ModelTier.GEMMA_E2B -> BackendArtifact(
                 backend = InferenceBackend.MEDIAPIPE,
-                installDirName = "gemma4-e2b-mediapipe",
-                filename = "gemma-4-E2B-it-web.task",
-                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task",
-                sha256 = "2cbff161177a4d51c9d04360016185976f504517ba5758cd10c1564e5421c5a5",
-                sizeMb = 1910,
-                extractedArchive = false  // .task is a sealed bundle; no zip extraction
+                installDirName = "gemma4-e2b-litertlm",
+                filename = "gemma-4-E2B-it.litertlm",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+                sha256 = "",
+                sizeMb = 2468,  // 2,588,147,712 B per HF content-length
+                extractedArchive = false
             )
             ModelTier.GEMMA_E4B -> BackendArtifact(
                 backend = InferenceBackend.MEDIAPIPE,
-                installDirName = "gemma4-e4b-mediapipe",
-                filename = "gemma-4-E4B-it-web.task",
-                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task",
-                sha256 = "f3bd72fc27627be2a2cc6722199a333599590ed0962ee7047b516a506b7bf086",
-                sizeMb = 2827,
+                installDirName = "gemma4-e4b-litertlm",
+                filename = "gemma-4-E4B-it.litertlm",
+                downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
+                sha256 = "",
+                sizeMb = 3490,  // 3,659,530,240 B per HF content-length
                 extractedArchive = false
             )
         }

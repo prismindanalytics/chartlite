@@ -147,13 +147,21 @@ object EncounterMerger {
             )
         }
 
-        // Convert vision medications
-        val visionMeds = vision.medications.map {
+        // Convert vision medications. The model emits dose as a free-form
+        // string like "5 mL", "500 mg", "10 mg/mL" — split it into the
+        // numeric value (Medication.dose: Float) and the unit text
+        // (Medication.unit: String). Previously the merger called
+        // `it.dose?.toFloatOrNull()` which returned null for any dose that
+        // included a unit, dropping the dose entirely.
+        val visionMeds = vision.medications.map { m ->
+            val (doseValue, doseUnit) = parseDoseString(m.dose)
             Medication(
                 formularyCode = "",
-                name = it.name,
-                dose = it.dose?.toFloatOrNull(),
-                unit = it.form
+                name = m.name,
+                dose = doseValue,
+                unit = doseUnit ?: m.form,
+                frequency = m.freq,
+                route = m.route,
             )
         }
 
@@ -210,5 +218,23 @@ object EncounterMerger {
             respiratoryRate = snippet.respiratoryRate ?: base.respiratoryRate,
             oxygenSaturation = snippet.oxygenSaturation ?: base.oxygenSaturation
         )
+    }
+
+    /**
+     * Split a free-form dose string into (numeric, unit). Examples:
+     *   "5 mL"        -> (5.0,  "mL")
+     *   "500mg"       -> (500.0, "mg")
+     *   "10 mg/mL"    -> (10.0, "mg/mL")
+     *   "1 tablet"    -> (1.0,  "tablet")
+     *   "two puffs"   -> (null, "two puffs")  // letters-only words preserved as unit
+     *   "" or null    -> (null, null)
+     */
+    private fun parseDoseString(raw: String?): Pair<Float?, String?> {
+        val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null to null
+        val match = Regex("""^(\d+(?:[.,]\d+)?)\s*(.*)$""").find(trimmed)
+            ?: return null to trimmed
+        val numericStr = match.groupValues[1].replace(',', '.')
+        val unitStr = match.groupValues[2].trim().takeIf { it.isNotBlank() }
+        return numericStr.toFloatOrNull() to unitStr
     }
 }

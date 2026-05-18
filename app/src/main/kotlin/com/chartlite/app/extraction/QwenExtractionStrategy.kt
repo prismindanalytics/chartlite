@@ -2,6 +2,7 @@ package com.chartlite.app.extraction
 
 import android.util.Log
 import com.chartlite.app.model.StructuredEncounter
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -67,59 +68,13 @@ class QwenExtractionStrategy(
         patientId: String,
         providerId: String,
         facilityId: String
-    ): StructuredEncounter? = withContext(Dispatchers.Default) { // CPU-bound inference — Default, not IO
+    ): StructuredEncounter? = withContext(Dispatchers.Default) {
         try {
-            if (prepareForLowRamInference?.invoke() == false) {
-                Log.w(TAG, "Skipping Qwen extraction: ASR is active or still preparing")
-                return@withContext null
-            }
-            if (!modelManager.hasRuntimeHeadroom()) {
-                Log.w(TAG, "Skipping Qwen: not enough free memory for safe inference")
-                return@withContext null
-            }
-            val preparedTranscript = prepareTranscriptForInference(
-                transcript = transcript,
-                charBudget = modelManager.maxTranscriptChars()
-            )
-            if (preparedTranscript.text.isBlank()) {
-                Log.w(TAG, "Skipping Qwen: transcript is empty after preparation")
-                return@withContext null
-            }
-            if (modelManager.shouldSkipLongTranscript(preparedTranscript.preparedChars)) {
-                Log.w(TAG, "Skipping Qwen: transcript too long for stable on-device inference")
-                return@withContext null
-            }
+            val response = runCombinedInferenceCached(transcript) ?: return@withContext null
 
-            // Use structured system/user pair — MNN applies native chat template
-            // with proper special token IDs (not raw text <|im_start|> tags)
-            val (systemPrompt, userMessage) = promptBuilder.extractionSystemAndUser(preparedTranscript.text)
-
-            val maxOutputTokens = modelManager.recommendedExtractionOutputTokens()
-            Log.d(
-                TAG,
-                "Running Qwen inference (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, " +
-                    "transcript=${transcript.length}->${preparedTranscript.preparedChars}, " +
-                    "compacted=${preparedTranscript.compacted}, " +
-                    "filler_removed=${preparedTranscript.fillerSegmentsRemoved}, " +
-                    "duplicates_removed=${preparedTranscript.duplicateSegmentsRemoved}, " +
-                    "clipped=${preparedTranscript.clippedToBudget}, max_output_tokens=$maxOutputTokens)"
-            )
-
-            val responseText = runWithEmptyResponseRetry(
-                systemPrompt = systemPrompt,
-                userMessage = userMessage,
-                maxOutputTokens = maxOutputTokens
-            )
-
-            if (responseText.isNullOrBlank()) {
-                Log.w(TAG, "Qwen returned empty response")
-                return@withContext null
-            }
-
-            val normalizedResponseText = normalizeModelResponse(responseText)
-            Log.d(TAG, "Qwen response received (${normalizedResponseText.length} chars)")
+            val normalized = normalizeModelResponse(response)
             val parseReport = responseParser.parseDetailed(
-                responseText = normalizedResponseText,
+                responseText = normalized,
                 transcript = transcript,
                 patientId = patientId,
                 providerId = providerId,
@@ -129,11 +84,11 @@ class QwenExtractionStrategy(
             if (parseReport.encounter == null) {
                 val failureReason = parseReport.failureReason ?: "parser rejected output"
                 Log.w(TAG, "Qwen parser rejected output: $failureReason")
-                logRawOutputPreview(normalizedResponseText)
+                logRawOutputPreview(normalized)
                 throw QwenParseRejectedException(failureReason)
             }
 
-            Log.d(TAG, "Qwen parsed successfully via ${parseReport.format}")
+            Log.d(TAG, "Qwen extraction parsed successfully via ${parseReport.format}")
             parseReport.encounter
         } catch (e: QwenParseRejectedException) {
             throw e
@@ -143,11 +98,182 @@ class QwenExtractionStrategy(
         }
     }
 
+    /**
+     * Run the combined-output inference for this transcript, or return the
+     * cached raw response if we've already run it. Returns null if guardrails
+     * (RAM, ASR preflight, transcript too long, model emits empty) decline
+     * the run. Caller is responsible for parsing the response (note vs JSON).
+     */
+    private suspend fun runCombinedInferenceCached(transcript: String): String? {
+        val cacheKey = combinedCacheKey(transcript)
+        combinedResponseCache.get(cacheKey)?.let { cached ->
+            Log.i(TAG, "Reusing cached combined-inference response (${cached.length} chars) for transcript fingerprint")
+            return cached
+        }
+
+        if (prepareForLowRamInference?.invoke() == false) {
+            Log.w(TAG, "Skipping combined inference: ASR is active or still preparing")
+            return null
+        }
+        if (!modelManager.hasRuntimeHeadroom()) {
+            Log.w(TAG, "Skipping combined inference: not enough free memory")
+            return null
+        }
+        val prepared = prepareTranscriptForInference(
+            transcript = transcript,
+            charBudget = modelManager.maxTranscriptChars()
+        )
+        if (prepared.text.isBlank()) {
+            Log.w(TAG, "Skipping combined inference: transcript empty after preparation")
+            return null
+        }
+        if (modelManager.shouldSkipLongTranscript(prepared.preparedChars)) {
+            Log.w(TAG, "Skipping combined inference: transcript too long for stable on-device run")
+            return null
+        }
+
+        val (systemPrompt, userMessage) = promptBuilder.combinedSystemAndUser(prepared.text)
+        // Combined output carries both the note and the structured JSON, so
+        // it needs the bigger extraction budget rather than the note-only one.
+        val maxOutputTokens = modelManager.recommendedExtractionOutputTokens()
+
+        Log.d(
+            TAG,
+            "Running combined inference (system: ${systemPrompt.length} chars, " +
+                "user: ${userMessage.length} chars, transcript=${transcript.length}->${prepared.preparedChars}, " +
+                "max_output_tokens=$maxOutputTokens)"
+        )
+
+        val response = runWithEmptyResponseRetry(
+            systemPrompt = systemPrompt,
+            userMessage = userMessage,
+            maxOutputTokens = maxOutputTokens
+        )
+
+        if (response.isNullOrBlank()) {
+            Log.w(TAG, "Combined inference returned empty response")
+            return null
+        }
+
+        combinedResponseCache.put(cacheKey, response)
+        Log.i(TAG, "Combined inference produced ${response.length}-char response (cached for reuse)")
+        return response
+    }
+
     companion object {
         private const val TAG = "QwenExtraction"
         internal const val JSON_RESPONSE_PREFIX = "{"
         private const val CHAT_ASSISTANT_PREFIX = "<|im_start|>assistant"
         private const val CHAT_END_TOKEN = "<|im_end|>"
+
+        // ── Combined-inference cache ──
+        //
+        // The note-generation path and the structured-extraction path both
+        // hit this LRU. Same transcript → one LLM inference; the second
+        // call (whichever it is) returns instantly from cache. Bounded at
+        // 4 entries (≈4 encounters in flight) so memory stays predictable.
+        // Static so the two QwenExtractionStrategy instances built by App
+        // (noteGenerationOrchestrator + extractionServices) share state.
+        private const val COMBINED_CACHE_MAX_ENTRIES = 4
+
+        private val combinedResponseCache: MutableMap<String, String> = java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<String, String>(8, 0.75f, true) {
+                override fun removeEldestEntry(eldest: Map.Entry<String, String>): Boolean =
+                    size > COMBINED_CACHE_MAX_ENTRIES
+            }
+        )
+
+        /** Stable cache key for a transcript. Whitespace-normalised so trivial edits hit. */
+        internal fun combinedCacheKey(transcript: String): String {
+            val normalized = transcript.trim().replace(WHITESPACE_REGEX, " ")
+            return Integer.toHexString(normalized.hashCode()) + ":" + normalized.length
+        }
+
+        /**
+         * Build a markdown clinical note by rendering the structured JSON
+         * fields that the combined response *did* include. Used as the
+         * second-best fallback when the model forgot to write the `note`
+         * field. Returns null if the JSON itself can't be parsed or the
+         * resulting note would be too thin.
+         */
+        internal fun synthesizeNoteFromStructuredJson(rawResponse: String): String? {
+            val firstBrace = rawResponse.indexOf('{')
+            if (firstBrace < 0) return null
+            val lastBrace = rawResponse.lastIndexOf('}')
+            if (lastBrace <= firstBrace) return null
+            val jsonSlice = rawResponse.substring(firstBrace, lastBrace + 1)
+            return try {
+                val root = JsonParser.parseString(jsonSlice).asJsonObject
+
+                fun strList(name: String): List<String> = root.get(name)?.takeIf { it.isJsonArray }
+                    ?.asJsonArray
+                    ?.mapNotNull { el ->
+                        when {
+                            el.isJsonPrimitive -> el.asString.trim().takeIf { it.isNotEmpty() }
+                            el.isJsonObject -> {
+                                val obj = el.asJsonObject
+                                val parts = obj.entrySet()
+                                    .filter { it.value.isJsonPrimitive && !it.value.asString.isNullOrBlank() }
+                                    .joinToString(", ") { "${it.key}: ${it.value.asString}" }
+                                parts.takeIf { it.isNotEmpty() }
+                            }
+                            else -> null
+                        }
+                    } ?: emptyList()
+
+                fun scalar(name: String): String? =
+                    root.get(name)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotEmpty() }
+
+                val builder = StringBuilder()
+                fun appendSection(header: String, bullets: List<String>) {
+                    if (bullets.isEmpty()) return
+                    if (builder.isNotEmpty()) builder.append('\n')
+                    builder.append("## ").append(header).append('\n')
+                    for (b in bullets) builder.append("- ").append(b).append('\n')
+                }
+
+                scalar("chief_complaint")?.let { appendSection("Chief Complaint", listOf(it)) }
+                appendSection("Vitals", strList("vitals"))
+                appendSection("Examination Findings", strList("exam_findings"))
+                appendSection("Investigations", strList("investigations"))
+                appendSection("Assessment", strList("diagnoses"))
+                appendSection("Plan", strList("plan") + strList("medications") + strList("immunizations"))
+                appendSection("Allergies", strList("allergies"))
+
+                val result = builder.toString().trimEnd()
+                result.takeIf { looksLikeUsableNote(it) }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+        /**
+         * Extract the `note` field (markdown string) from the combined JSON
+         * response. Returns null if the response isn't valid JSON, lacks the
+         * field, or the field is empty. Falls through to the regular note
+         * normaliser (which strips chat tokens, thinking blocks, etc).
+         */
+        internal fun extractNoteField(rawResponse: String): String? {
+            val firstBrace = rawResponse.indexOf('{')
+            if (firstBrace < 0) return null
+            val lastBrace = rawResponse.lastIndexOf('}')
+            if (lastBrace <= firstBrace) return null
+            val jsonSlice = rawResponse.substring(firstBrace, lastBrace + 1)
+            return try {
+                val root = JsonParser.parseString(jsonSlice).asJsonObject
+                val noteElement = root.get("note") ?: return null
+                if (noteElement.isJsonNull) return null
+                val noteText = if (noteElement.isJsonPrimitive) {
+                    noteElement.asString
+                } else {
+                    noteElement.toString()
+                }
+                val stripped = stripNotePreamble(noteText.trim())
+                stripped.takeIf { looksLikeUsableNote(it) }
+            } catch (_: Throwable) {
+                null
+            }
+        }
         private val PRIMARY_GENERATION_CONFIG = LlmModelManager.GenerationConfig(
             temperature = 0.1f,
             topP = 0.95f,
@@ -211,6 +337,28 @@ class QwenExtractionStrategy(
         /** Regex to match <think>...</think> blocks (including multi-line). */
         private val THINK_TAG_REGEX = Regex("""<think>[\s\S]*?</think>""")
         private val WHITESPACE_REGEX = Regex("""\s+""")
+
+        /**
+         * Strip a "lead-in" before the first `## ` markdown section header.
+         *
+         * Gemma 4 e4b sometimes writes a brief inline summary (e.g.
+         * `Chief Complaint: Fever.` lines) before the proper structured note
+         * that begins with `## Chief Complaint`. The system prompt already
+         * forbids this, but small open-weights models occasionally slip;
+         * this is a deterministic backstop.
+         *
+         * Only strips when (a) a `## ` header exists, and (b) there is
+         * non-whitespace content before it. If no `## ` header is present
+         * at all, the response is left untouched so we never accidentally
+         * blank out a model that wrote without headers.
+         */
+        internal fun stripNotePreamble(text: String): String {
+            val firstHeaderIdx = Regex("(^|\\n)## ").find(text)?.range?.first ?: return text
+            val cutAt = if (text[firstHeaderIdx] == '\n') firstHeaderIdx + 1 else firstHeaderIdx
+            if (text.substring(0, cutAt).isBlank()) return text
+            Log.w(TAG, "Stripping ${cutAt} chars of pre-amble before first `## ` header")
+            return text.substring(cutAt)
+        }
 
         /**
          * Strip all thinking blocks from model output. Handles both:
@@ -437,65 +585,35 @@ class QwenExtractionStrategy(
     }
 
     /**
-     * Generate a draft clinical note from transcript via on-device Qwen inference.
-     * Returns plain text (not JSON) — the clinician reviews/edits this before extraction.
+     * Generate a draft clinical note from transcript via the combined
+     * single-pass inference. Returns the markdown `note` field extracted
+     * from the JSON envelope.
+     *
+     * The same inference output is cached by transcript, so the subsequent
+     * call to [extract] for the same transcript is an instant cache hit —
+     * a single LLM run produces both the note (for clinician review) and
+     * the structured fields (for the database, BODHI safety checks, etc).
      */
-    override suspend fun generateNote(transcript: String): String? = withContext(Dispatchers.Default) { // CPU-bound
+    override suspend fun generateNote(transcript: String): String? = withContext(Dispatchers.Default) {
         try {
-            if (prepareForLowRamInference?.invoke() == false) {
-                Log.w(TAG, "Skipping Qwen note generation: ASR is active or still preparing")
-                return@withContext null
-            }
-            if (!modelManager.hasRuntimeHeadroom()) {
-                Log.w(TAG, "Skipping Qwen note generation: not enough free memory")
-                return@withContext null
-            }
-            val prepared = prepareTranscriptForInference(
-                transcript = transcript,
-                charBudget = modelManager.maxTranscriptChars()
-            )
-            if (prepared.text.isBlank()) {
-                Log.w(TAG, "Skipping Qwen note generation: transcript empty after preparation")
-                return@withContext null
-            }
-            // Use structured system/user pair — MNN applies native chat template
-            val compact = false
-            val (systemPrompt, userMessage) = promptBuilder.noteSystemAndUser(prepared.text, compact = compact)
-            val maxOutputTokens = modelManager.recommendedNoteOutputTokens()
-            val config = NOTE_GENERATION_CONFIG
-
-            Log.d(TAG, "Running Qwen note generation (system: ${systemPrompt.length} chars, user: ${userMessage.length} chars, compact=$compact)")
-
-            val responseText = modelManager.runChatInference(
-                systemPrompt = systemPrompt,
-                userMessage = userMessage,
-                maxTokens = maxOutputTokens,
-                config = config
-            )
-            val primaryNote = normalizeGeneratedNote(responseText)
-            if (primaryNote != null) {
-                Log.d(TAG, "Qwen note generated (${primaryNote.length} chars)")
-                return@withContext primaryNote
-            }
-
-            Log.w(TAG, "Primary Qwen note output was empty or too weak; retrying with stronger note prompt")
-            val retryResponse = modelManager.runChatInference(
-                systemPrompt = promptBuilder.buildNoteSystemPrompt(compact = true),
-                userMessage = buildNoteRecoveryUserMessage(prepared.text),
-                maxTokens = maxOutputTokens,
-                config = if (modelManager.activeTier() == LlmModelManager.ModelTier.SMALL) {
-                    COMPACT_NOTE_GENERATION_CONFIG
-                } else {
-                    NOTE_RECOVERY_GENERATION_CONFIG
+            val response = runCombinedInferenceCached(transcript) ?: return@withContext null
+            logRawOutputPreview(response)
+            val note = extractNoteField(response)
+                ?: synthesizeNoteFromStructuredJson(response)
+                ?: run {
+                    Log.w(TAG, "Combined response had neither `note` field nor parseable structured fields; using normalized text")
+                    normalizeGeneratedNote(response)
                 }
-            )
-            val recoveredNote = normalizeGeneratedNote(retryResponse)
-            if (recoveredNote == null) {
-                Log.w(TAG, "Qwen note generation produced no usable note after retry")
+            if (note.isNullOrBlank()) {
+                Log.w(TAG, "Combined inference produced no usable note")
                 return@withContext null
             }
-            Log.d(TAG, "Qwen note generated after retry (${recoveredNote.length} chars)")
-            recoveredNote
+            // Dual-key the cache: when the user reviews / approves this note
+            // and the queue later calls extract(approvedNote), key(approvedNote)
+            // also resolves to the same combined response — no second inference.
+            combinedResponseCache.put(combinedCacheKey(note), response)
+            Log.d(TAG, "Note extracted from combined response (${note.length} chars)")
+            note
         } catch (e: Exception) {
             Log.e(TAG, "Qwen note generation failed", e)
             null
@@ -525,6 +643,7 @@ class QwenExtractionStrategy(
             .trimStart('\n', '\r')
             .removeSuffix(CHAT_END_TOKEN)
             .let { stripThinkingBlocks(it) }
+            .let { stripNotePreamble(it) }
 
         if (cleaned.isBlank()) {
             Log.w(TAG, "Qwen note was entirely a thinking block — no usable content")

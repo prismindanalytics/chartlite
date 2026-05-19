@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; frame-src https://benchmark.chartlite.health https://chartlite-bodhi-bench.pages.dev; connect-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinical-AI Edge Benchmark — 12 models &times; 6 tasks, audited — ChartLite</title>
+  <meta name="description" content="Independent benchmark of 12 LLMs across 6 clinical-AI tasks, with an honest audit of where the gains are real and where the scoring scaffolding is doing the work.">
+  <meta name="theme-color" content="#F9F8F6">
+  <link rel="canonical" href="https://chartlite.health/benchmark">
+  <meta property="og:title" content="Clinical-AI Edge Benchmark — 12 models &times; 6 tasks, audited">
+  <meta property="og:description" content="Independent benchmark of 12 LLMs across 6 clinical-AI tasks, with an honest audit of where the gains are real and where the scoring scaffolding is doing the work.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://chartlite.health/benchmark">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #F9F8F6; --text: #2b2b2b; --muted: #666;
+      --primary: #1A2E35; --accent: #A27B5C;
+      --surface: #FFFFFF; --border: #E5E0D8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, h4, .serif {
+      font-family: 'Playfair Display', serif;
+      color: var(--primary);
+      font-weight: 400;
+      line-height: 1.3;
+    }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+    nav { padding: 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+    .nav-inner { display: flex; justify-content: space-between; align-items: center; max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-size: 1.6rem; color: var(--primary); text-decoration: none; }
+    .nav-brand small { font-family: 'Inter', sans-serif; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; display: block; margin-top: 2px; }
+    .nav-back { font-size: 0.9rem; color: var(--primary); text-decoration: none; padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; transition: border-color 0.18s; }
+    .nav-back:hover { border-color: var(--accent); }
+
+    header.article-header { padding: 32px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+    .eyebrow { font-size: 0.75rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); font-weight: 500; margin-bottom: 14px; }
+    .article-title { font-size: 2.4rem; margin-bottom: 14px; }
+    .article-subtitle { color: var(--muted); font-size: 1.1rem; }
+
+    article.prose { padding-bottom: 80px; }
+    article.prose h1 { font-size: 1.9rem; margin: 48px 0 16px; }
+    article.prose h2 { font-size: 1.55rem; margin: 44px 0 14px; }
+    article.prose h3 { font-size: 1.25rem; margin: 36px 0 12px; }
+    article.prose h4 { font-size: 1.1rem; margin: 28px 0 10px; color: var(--accent); font-family: 'Inter', sans-serif; font-weight: 600; }
+    article.prose p { margin-bottom: 18px; }
+    article.prose strong { font-weight: 600; color: var(--primary); }
+    article.prose em { font-style: italic; }
+    article.prose a { color: var(--primary); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+    article.prose a:hover { color: var(--accent); }
+    article.prose ul, article.prose ol { margin: 0 0 18px 24px; }
+    article.prose li { margin-bottom: 8px; }
+    article.prose code {
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.92em;
+      background: rgba(162, 123, 92, 0.10);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    article.prose pre {
+      background: #1A2E35;
+      color: #E5E0D8;
+      padding: 20px 24px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 24px 0;
+      font-size: 0.86em;
+      line-height: 1.55;
+    }
+    article.prose pre code { background: transparent; padding: 0; color: inherit; font-size: 1em; }
+    article.prose blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 8px 0 8px 22px;
+      margin: 22px 0;
+      color: var(--muted);
+      font-style: italic;
+    }
+    article.prose table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 24px 0;
+      font-size: 0.95em;
+    }
+    article.prose table th, article.prose table td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+      vertical-align: top;
+    }
+    article.prose table th {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      color: var(--primary);
+      background: rgba(162, 123, 92, 0.06);
+    }
+    article.prose hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    /* Headline-number row */
+    .headline-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin: 32px 0;
+      padding: 28px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .headline-stats .stat {
+      text-align: center;
+    }
+    .headline-stats .stat-number {
+      font-family: 'Playfair Display', serif;
+      font-size: 2.4rem;
+      color: var(--primary);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .headline-stats .stat-label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+    .headline-stats .stat-sub {
+      font-size: 0.75rem;
+      color: var(--accent);
+      margin-top: 4px;
+    }
+
+    /* Finding cards */
+    .finding {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      padding: 22px 24px;
+      margin: 20px 0;
+    }
+    .finding-title {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 10px;
+    }
+    .finding-body { color: var(--text); }
+
+    /* Audit decomposition visual */
+    .audit-bar {
+      display: flex;
+      height: 36px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 18px 0 10px;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: white;
+    }
+    .audit-bar .seg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+    }
+    .audit-bar .seg-real { background: #2D6A4F; flex: 40; }
+    .audit-bar .seg-artifact { background: #A27B5C; flex: 60; }
+    .audit-legend {
+      display: flex;
+      gap: 18px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+    .audit-legend span { display: flex; align-items: center; gap: 6px; }
+    .audit-legend .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .audit-legend .dot-real { background: #2D6A4F; }
+    .audit-legend .dot-artifact { background: #A27B5C; }
+    .audit-legend .dot-fp { background: #C44; }
+
+    /* Dashboard iframe */
+    .dashboard-frame-wrapper {
+      margin: 28px 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .dashboard-frame-wrapper iframe {
+      width: 100%;
+      height: 800px;
+      border: 0;
+      display: block;
+    }
+    .dashboard-frame-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(162, 123, 92, 0.04);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .dashboard-frame-header strong { color: var(--primary); }
+    .dashboard-frame-header .open-link {
+      font-size: 0.88rem;
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      text-decoration: none;
+      color: var(--primary);
+    }
+    .dashboard-frame-header .open-link:hover { border-color: var(--accent); }
+
+    /* CTA row */
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .cta-row a {
+      padding: 10px 18px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      text-decoration: none;
+      color: var(--primary);
+      font-size: 0.95rem;
+      transition: all 0.18s;
+    }
+    .cta-row a:hover { border-color: var(--accent); background: rgba(162,123,92,0.04); }
+    .cta-row a.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    .cta-row a.primary:hover { background: #243f47; border-color: #243f47; }
+
+    footer { padding: 32px 0 64px; border-top: 1px solid var(--border); margin-top: 48px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+    footer a { color: var(--primary); text-decoration: none; margin: 0 6px; }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 640px) {
+      .article-title { font-size: 1.8rem; }
+      article.prose h1 { font-size: 1.5rem; }
+      article.prose h2 { font-size: 1.3rem; }
+      .headline-stats { grid-template-columns: 1fr; gap: 16px; padding: 20px 16px; }
+      .headline-stats .stat-number { font-size: 2rem; }
+      .dashboard-frame-wrapper iframe { height: 600px; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-brand">
+        ChartLite
+        <small>Voice-first clinical AI</small>
+      </a>
+      <a href="/" class="nav-back">← Home</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <header class="article-header">
+      <div class="eyebrow">Clinical-AI Edge Benchmark</div>
+      <h1 class="article-title">12 LLMs &times; 6 clinical tasks. Audited.</h1>
+      <p class="article-subtitle">Independent evaluation of what's actually deployable offline on consumer phones &mdash; with an honest accounting of where the gains are real and where the scoring scaffolding is doing the work.</p>
+    </header>
+
+    <article class="prose">
+
+<p>Most clinical-AI projects pick a model on vibes (&ldquo;Gemma feels strong&rdquo;, &ldquo;MedGemma is medical&rdquo;) and ship. That&rsquo;s how 3% hallucination rates on dosages become coroner&rsquo;s inquests. Before we shipped ChartLite, we built the benchmark first &mdash; 12 LLMs across 6 clinical-AI tasks, with a self-critical audit of every claim.</p>
+
+<div class="headline-stats">
+  <div class="stat">
+    <div class="stat-number">12</div>
+    <div class="stat-label">models tested</div>
+    <div class="stat-sub">6 cloud · 6 on-device</div>
+  </div>
+  <div class="stat">
+    <div class="stat-number">6</div>
+    <div class="stat-label">clinical-AI tasks</div>
+    <div class="stat-sub">~54K model-question evaluations</div>
+  </div>
+  <div class="stat">
+    <div class="stat-number">Apache 2.0</div>
+    <div class="stat-label">methodology + code + raw JSON</div>
+    <div class="stat-sub">every number disprovable</div>
+  </div>
+</div>
+
+<div class="cta-row">
+  <a href="https://benchmark.chartlite.health" class="primary">Open the live dashboard →</a>
+  <a href="https://github.com/prismindanalytics/clinical-edge-bench">Code repo (Apache 2.0)</a>
+  <a href="#dashboard">Skip to dashboard ↓</a>
+</div>
+
+<h2>Three findings that shaped what we shipped</h2>
+
+<div class="finding">
+  <div class="finding-title">1. Gemma 4 e4b is the first on-device model good enough to ship for clinical note generation.</div>
+  <div class="finding-body">
+    On peer-reviewed <strong>ACI-Bench</strong> (dialogue → SOAP note, n=207 &times; 5 splits) Gemma 4 e4b scores <strong>82.74</strong>, statistically tied with Claude Haiku 4.5 (82.72) and 6 points behind the GPT-5.5 leader. On 156 real clinician-annotated Eka transcripts it lands at 82.6 &mdash; within 5 points of Haiku. Zero API cost, runs entirely on the phone.
+  </div>
+</div>
+
+<div class="finding">
+  <div class="finding-title">2. MedGemma 1.5 underperforms generic Gemma 4 on every clinical task.</div>
+  <div class="finding-body">
+    &minus;34pp on ACI-Bench, &minus;20pp on Eka Medical Calculator, &minus;17pp on NFI Pharmacology MCQA, and a <strong>60% silent-failure rate</strong> on simple drug-pair extraction (returns un-parseable output). Same parameter class as Gemma 4 e4b, opposite results. The medical fine-tune appears to have eroded reasoning more than it improved recall. Counter-intuitive but cleanly reproducible.
+  </div>
+</div>
+
+<div class="finding">
+  <div class="finding-title">3. Adding a clinical knowledge graph (BODHI) lifts every model&rsquo;s safety detection &mdash; but the size of the lift needs auditing.</div>
+  <div class="finding-body">
+    Wiring Eka Care&rsquo;s BODHI knowledge graph in as a safety-rule layer lifts <em>raw</em> alert detection by <strong>26&ndash;63 percentage points</strong> across the 12 models. That number reads dramatic. We audited it. See below.
+  </div>
+</div>
+
+<h2>The honest BODHI audit</h2>
+
+<p>The raw <strong>+35pp average lift</strong> figure is what gets cited. The disaggregated picture is more interesting:</p>
+
+<div class="audit-bar">
+  <div class="seg seg-real">~40% real catch</div>
+  <div class="seg seg-artifact">~60% scoring artifact</div>
+</div>
+<div class="audit-legend">
+  <span><span class="dot dot-real"></span>real catch &mdash; the model would otherwise have missed this</span>
+  <span><span class="dot dot-artifact"></span>scoring artifact &mdash; the model said the right thing in different words; our text-match scorer didn&rsquo;t credit it</span>
+  <span><span class="dot dot-fp"></span>~20% of BODHI alerts themselves are false positives (fuzzy match firing the wrong rule)</span>
+</div>
+
+<p>Net of artifact and noise, value lands where it matters most &mdash; <strong>small on-device models that frontline clinics actually run</strong>:</p>
+
+<table>
+<thead><tr><th>Model</th><th>Arm 1 (LLM alone)</th><th>Arm 3 (LLM + BODHI)</th><th>Lift</th></tr></thead>
+<tbody>
+<tr><td>Qwen 3.5 0.8B</td><td>3%</td><td>66%</td><td><strong>+63pp</strong></td></tr>
+<tr><td>Gemma 4 e4b</td><td>30%</td><td>57%</td><td>+27pp</td></tr>
+<tr><td>Claude Opus 4.7</td><td>38%</td><td>80%</td><td>+42pp</td></tr>
+<tr><td>Claude Sonnet 4.6</td><td>52%</td><td>78%</td><td>+26pp</td></tr>
+</tbody>
+</table>
+
+<p>Top cloud models already near the ceiling gain least. The story isn&rsquo;t &ldquo;BODHI replaces the LLM&rsquo;s safety reasoning&rdquo; &mdash; it&rsquo;s &ldquo;BODHI is a deterministic safety net under clinician judgement, biggest impact at the small-model tier where it matters most for low-resource deployment.&rdquo;</p>
+
+<h2>The six benchmarks</h2>
+
+<table>
+<thead><tr><th>#</th><th>Benchmark</th><th>n</th><th>Source</th><th>License</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>Synthetic 100</strong> &mdash; extraction + 3-arm safety</td><td>100 encounters / 89 dangers</td><td>inlined</td><td>Apache 2.0</td></tr>
+<tr><td>2</td><td><strong>Eka real transcripts</strong> &mdash; clinician-annotated dialogue → note</td><td>156 cases</td><td>Eka Care</td><td>MIT</td></tr>
+<tr><td>3</td><td><strong>ACI-Bench</strong> &mdash; peer-reviewed dialogue → SOAP</td><td>207 &times; 5 splits</td><td>Yim et al., <em>Nature Scientific Data</em> 2023</td><td>CC BY 4.0</td></tr>
+<tr><td>4</td><td><strong>CRESCENDDI</strong> &mdash; drug-drug interaction safety</td><td>200 pairs</td><td>Lavertu et al., <em>Nature Sci Data</em> 2022</td><td>CC0</td></tr>
+<tr><td>5</td><td><strong>NFI Pharmacology MCQA</strong> &mdash; multiple-choice pharmacology exam</td><td>925 questions</td><td>Eka Care, May 2026</td><td>research-only</td></tr>
+<tr><td>6</td><td><strong>Medical Calculator Eval</strong> &mdash; clinical-math vignettes (incl. Hinglish)</td><td>1,066 vignettes, 26 specialties</td><td>Eka Care, May 2026</td><td>research-only</td></tr>
+</tbody>
+</table>
+
+<h2>How we measured</h2>
+
+<h3>Silver ground truth from a 3-frontier-model panel</h3>
+
+<p>For the extraction task, three frontier models (Opus 4.7, GPT-5.4, Gemini 3.1 Pro) each emit <code>{primary, accepts: [...]}</code> per ground-truth item. The merger unions accept lists across models when items share a synonym group or fuzzy similarity ≥ 0.6, and preserves single-model items. Output: 1,320 items across 100 encounters; 61% with full 3-model consensus, mean 13 accept forms per item.</p>
+
+<p>This captures clinical-language variation (full term + abbreviation + lay shorthand + brand/generic + spelling variants) better than single-annotator GT could. We acknowledge the trade-off explicitly: a panel of 3 LLMs can systematically miss the same things, biasing recall on the kinds of errors all three share.</p>
+
+<h3>Three-arm safety design</h3>
+
+<ul>
+<li><strong>Arm 1:</strong> dedicated LLM safety-review prompt &mdash; no rules, no knowledge graph.</li>
+<li><strong>Arm 2:</strong> structured extraction → rule engine (drug-allergy, drug-drug, dosage, vitals).</li>
+<li><strong>Arm 3:</strong> Arm 2 + BODHI knowledge graph (drug-condition, triage, lab recommendation, referral).</li>
+</ul>
+
+<p>The arms are computed independently per encounter and reported separately. Bootstrap CIs (500 resamples, paired encounter-level) are surfaced on the leaderboard as <code>[CI_low&ndash;CI_high]</code>.</p>
+
+<h3>Multi-axis miss adjudication</h3>
+
+<p>Unmatched extracted items are re-scored by a 3-stage pipeline (deterministic detectors + lexical retrieval + Opus-4.7 judge with cited transcript spans), classified on six independent axes. Result: <strong>~40&ndash;50% of frontier-model &ldquo;errors&rdquo; trace to scorer issues or incomplete silver GT</strong>, not the model itself. That&rsquo;s where the 60% scoring-artifact figure in the BODHI audit comes from.</p>
+
+<h2>Where we might be wrong</h2>
+
+<p>Every claim above has a corresponding caveat. The full list lives in <a href="https://github.com/prismindanalytics/clinical-edge-bench/blob/main/docs/METHODOLOGY.md">docs/METHODOLOGY.md</a>; the most important nine:</p>
+
+<ol>
+<li><strong>Silver-danger list is panel-generated.</strong> The 89 expected dangers per encounter were emitted by the same 3-model panel that built the silver extractions. If the panel missed a danger BODHI catches, BODHI gets no credit; if the panel over-listed a category BODHI handles trivially, BODHI looks better than it is. Fix in flight: clinician-adjudicated 30&ndash;50 encounter gold subset.</li>
+<li><strong>Silver GT shares two judges with the contestants.</strong> Opus 4.7 and GPT-5.4 are panel members and benchmark contestants. Their precision against silver GT inflates by their own contribution to the GT. Mitigated but not eliminated by the merger logic. Fix: swap one panel member out and regenerate.</li>
+<li><strong>Note-quality judge shares contestants too.</strong> Opus is judge and contestant on note quality; so is GPT-5.4. Inter-judge agreement (Krippendorff α / Cohen κ) is not currently reported. Fix on the list.</li>
+<li><strong>Single run per (model, mode, encounter).</strong> Earlier 5-run experiments on a small subset showed F1 σ ≈ 0.008 for cloud models; small-model variance was not measured. Leaderboard deltas under ~2 F1 should be treated as within-noise.</li>
+<li><strong>Bootstrap CIs only on safety arms.</strong> Extraction F1 deltas, note-quality deltas, and the &ldquo;tied group&rdquo; indicator have no CIs yet. The per-encounter data is collected; just needs the bootstrap pass.</li>
+<li><strong>Single-judge miss adjudication.</strong> The miss adjudicator uses Opus 4.7. Self-bias risk on Opus output. Fix: run a 10% sample with GPT-5.4 or Gemini and check agreement.</li>
+<li><strong>Synthetic encounter coverage.</strong> The 100 encounters are curated to exercise specific safety-rule triggers, not to reflect a real LMIC primary-care distribution. Fix: retrospective comparison against a sample of real PHC encounters.</li>
+<li><strong>No external cross-validation.</strong> The benchmark has not been compared to public medical NLP benchmarks (MedQA, PubMedQA, BioASQ, n2c2). Fix: run a 100-question MedQA subset through the top three and verify rough rank order.</li>
+<li><strong>BODHI lab-rec scoring is category-level.</strong> Strong LLMs sometimes recommend more specific labs than BODHI&rsquo;s category mapping covers, so they appear to fail when they actually did better. Affects 1&ndash;2% of total dangers.</li>
+</ol>
+
+<p>If any of these caveats invalidates a number you care about, the raw per-(model, case) JSON in <code>scripts/{bench}_raw/</code> is the canonical record. Aggregates can be regenerated from raw at any time.</p>
+
+<h2 id="dashboard">Dashboard &mdash; the interactive view</h2>
+
+<div class="dashboard-frame-wrapper">
+  <div class="dashboard-frame-header">
+    <strong>benchmark.chartlite.health</strong>
+    <a href="https://benchmark.chartlite.health" class="open-link" target="_blank" rel="noopener">Open in new tab →</a>
+  </div>
+  <iframe src="https://benchmark.chartlite.health" title="Clinical extraction benchmark dashboard" loading="lazy"></iframe>
+</div>
+
+<p>Tabs cover: Leaderboard, Eka real, ACI-Bench, CRESCENDDI, NFI Pharmacology, Calculators, per-Encounter explorer, per-Model explorer, Miss analysis, Methodology, and Prompts.</p>
+
+<h2>Reproduce any number</h2>
+
+<pre><code>git clone https://github.com/prismindanalytics/clinical-edge-bench
+cd clinical-edge-bench
+pip install -r scripts/requirements.txt
+export ANTHROPIC_API_KEY=sk-…
+python3 scripts/benchmark_pharmacology_mcqa.py --models claude-haiku --limit 5</code></pre>
+
+<p>Full reproduction recipe in <a href="https://github.com/prismindanalytics/clinical-edge-bench/blob/main/scripts/README.md">scripts/README.md</a>. Data is fetched on demand, not bundled. Run window for the May 2026 numbers: April 19 &ndash; May 7. Exact API model handles and Ollama tags in <a href="https://github.com/prismindanalytics/clinical-edge-bench/blob/main/docs/MODEL_VERSIONS.md">docs/MODEL_VERSIONS.md</a>.</p>
+
+<h2>Citation</h2>
+
+<blockquote>Clinical-AI Edge Benchmark. <em>An open benchmark of 12 LLMs across 6 clinical-AI tasks for offline on-device deployment in resource-constrained settings.</em> Run window April 19 &ndash; May 7, 2026. <a href="https://benchmark.chartlite.health">https://benchmark.chartlite.health</a> · <a href="https://github.com/prismindanalytics/clinical-edge-bench">github.com/prismindanalytics/clinical-edge-bench</a></blockquote>
+
+<hr />
+
+<p><em>Research / methodology benchmark, not clinical certification. Issues, methodology critiques, and pull requests welcome at <a href="https://github.com/prismindanalytics/clinical-edge-bench">github.com/prismindanalytics/clinical-edge-bench</a>. Apache 2.0; third-party datasets retain their original licenses.</em></p>
+
+    </article>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>ChartLite &middot; <a href="/">Home</a> &middot; <a href="/writeup">Submission writeup</a> &middot; <a href="/hackathon">Hackathon</a> &middot; <a href="https://github.com/prismindanalytics/chartlite">GitHub</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>

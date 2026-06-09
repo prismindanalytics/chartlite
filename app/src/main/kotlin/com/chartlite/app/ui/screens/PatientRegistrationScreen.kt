@@ -636,7 +636,7 @@ fun PatientRegistrationScreen(
                 if (phoneNumber.isNotBlank()) {
                     OutlinedTextField(
                         value = pin,
-                        onValueChange = { if (it.length <= 4) pin = it },
+                        onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) pin = it },
                         label = { Text(stringResource(R.string.optional_pin)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,

@@ -268,7 +268,7 @@ fun SMSDecryptScreen(
             if (showPinField) {
                 OutlinedTextField(
                     value = pin,
-                    onValueChange = { if (it.length <= 4) pin = it },
+                    onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) pin = it },
                     label = { Text(stringResource(R.string.optional_pin_4digits)) },
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = { Icon(Icons.Default.Lock, "PIN") },

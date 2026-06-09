@@ -261,9 +261,14 @@ class ClaudeExtractionStrategy(
                 return@withContext null
             }
             val body = resp.body?.string() ?: return@withContext null
-            val json = gson.fromJson(body, JsonObject::class.java)
-            val text = json.getAsJsonArray("content")?.firstOrNull()?.asJsonObject
-                ?.get("text")?.asString
+            val text = try {
+                val json = gson.fromJson(body, JsonObject::class.java)
+                json.getAsJsonArray("content")?.firstOrNull()?.asJsonObject
+                    ?.get("text")?.asString
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse Claude vision response", e)
+                null
+            }
 
             Log.d(TAG, "Claude vision response (${text?.length ?: 0} chars)")
             text

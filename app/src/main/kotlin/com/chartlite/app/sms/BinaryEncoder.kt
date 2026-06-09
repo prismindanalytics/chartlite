@@ -143,12 +143,7 @@ object BinaryEncoder {
         buffer.put(allergyByte.toByte())
 
         // Byte 27: Follow-up (1 byte, fixed position)
-        val followUpValue = when (followUpType) {
-            1 -> encounter.followUp?.days ?: 0
-            2 -> (encounter.followUp?.days ?: 0) / 7
-            3 -> (encounter.followUp?.days ?: 0) / 30
-            else -> 0
-        }
+        val followUpValue = encodeFollowUpValue(encounter.followUp?.days, followUpType)
         buffer.put(followUpValue.coerceIn(0, 255).toByte())
 
         // Bytes 28-90: Free-text note (63 bytes, truncated ASCII, zero-padded)
@@ -403,12 +398,7 @@ object BinaryEncoder {
         }
         buffer.put(allergyByte.toByte())
 
-        val followUpValue = when (followUpType) {
-            1 -> encounter.followUp?.days ?: 0
-            2 -> (encounter.followUp?.days ?: 0) / 7
-            3 -> (encounter.followUp?.days ?: 0) / 30
-            else -> 0
-        }
+        val followUpValue = encodeFollowUpValue(encounter.followUp?.days, followUpType)
         buffer.put(followUpValue.coerceIn(0, 255).toByte())
     }
 
@@ -602,12 +592,7 @@ object BinaryEncoder {
         buffer.put(allergyByte.toByte())
 
         // Byte 27: Follow-up
-        val followUpValue = when (followUpType) {
-            1 -> encounter.followUp?.days ?: 0
-            2 -> (encounter.followUp?.days ?: 0) / 7
-            3 -> (encounter.followUp?.days ?: 0) / 30
-            else -> 0
-        }
+        val followUpValue = encodeFollowUpValue(encounter.followUp?.days, followUpType)
         buffer.put(followUpValue.coerceIn(0, 255).toByte())
     }
 
@@ -655,6 +640,21 @@ object BinaryEncoder {
 
     // ── RR Coding Table (3 bits) ──
     // 0=unknown, 1=<12, 2=12-15, 3=16-19, 4=20-24(normal), 5=25-29, 6=30-39, 7=≥40
+    /**
+     * Encode follow-up days into the 1-byte follow-up value for the given
+     * followUpType (1 = days, 2 = weeks, 3 = months). Weeks/months use
+     * round-to-nearest, not truncation — 48 days encodes as 7 weeks (49 d,
+     * error 1 d) instead of truncating to 6 weeks (42 d, error 6 d).
+     * Decoders multiply back by 7/30, so this halves the worst-case
+     * round-trip error without changing the wire format.
+     */
+    private fun encodeFollowUpValue(days: Int?, followUpType: Int): Int = when (followUpType) {
+        1 -> days ?: 0
+        2 -> ((days ?: 0) + 3) / 7
+        3 -> ((days ?: 0) + 15) / 30
+        else -> 0
+    }
+
     private fun encodeRR(rr: Int?): Int = when {
         rr == null -> 0
         rr < 12 -> 1
@@ -792,12 +792,7 @@ object BinaryEncoder {
         buffer.put(allergyByte.toByte())
 
         // Byte 33: Follow-up value
-        val followUpValue = when (followUpType) {
-            1 -> encounter.followUp?.days ?: 0
-            2 -> (encounter.followUp?.days ?: 0) / 7
-            3 -> (encounter.followUp?.days ?: 0) / 30
-            else -> 0
-        }
+        val followUpValue = encodeFollowUpValue(encounter.followUp?.days, followUpType)
         buffer.put(followUpValue.coerceIn(0, 255).toByte())
 
         // ═══ HEALTH HISTORY (bytes 34-71) ═══

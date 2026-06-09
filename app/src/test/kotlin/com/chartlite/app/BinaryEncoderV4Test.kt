@@ -110,6 +110,32 @@ class BinaryEncoderV4Test {
     }
 
     @Test
+    fun `V4 follow-up in days round-trips exactly`() {
+        val enc = buildEncounter(followUp = FollowUp(14, "review"))
+        val summary = buildSummary(listOf(enc))
+        val decoded = BinaryEncoder.decodeV4(BinaryEncoder.encodeV4(enc, enc.patientId, summary))
+        assertEquals(14, decoded.encounter.followUpDays)
+    }
+
+    @Test
+    fun `V4 follow-up in weeks rounds to nearest week not down`() {
+        // 48 days → 7 weeks (49 d, error 1) — truncation gave 6 weeks (42 d, error 6)
+        val enc = buildEncounter(followUp = FollowUp(48, "review"))
+        val summary = buildSummary(listOf(enc))
+        val decoded = BinaryEncoder.decodeV4(BinaryEncoder.encodeV4(enc, enc.patientId, summary))
+        assertEquals(49, decoded.encounter.followUpDays)
+    }
+
+    @Test
+    fun `V4 follow-up in months rounds to nearest month`() {
+        // 350 days → 12 months (360 d, error 10) — truncation gave 11 months (330 d, error 20)
+        val enc = buildEncounter(followUp = FollowUp(350, "review"))
+        val summary = buildSummary(listOf(enc))
+        val decoded = BinaryEncoder.decodeV4(BinaryEncoder.encodeV4(enc, enc.patientId, summary))
+        assertEquals(360, decoded.encounter.followUpDays)
+    }
+
+    @Test
     fun `V4 round-trip preserves vitals`() {
         val enc = buildEncounter()
         val summary = buildSummary(listOf(enc))

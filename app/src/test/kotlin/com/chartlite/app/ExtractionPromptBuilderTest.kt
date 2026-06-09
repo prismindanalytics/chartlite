@@ -96,12 +96,19 @@ class ExtractionPromptBuilderTest {
 
     @Test
     fun `compact note prompt still asks for full clinical sections`() {
-        val prompt = builder.buildNoteUserPrompt("fever and cough for three days", compact = true)
+        // Section guidance lives in the system prompt (listing headers in the
+        // user prompt made small models echo the list back as output).
+        val systemPrompt = builder.buildNoteSystemPrompt(compact = true)
 
-        assertTrue(prompt.contains("## Chief Complaint"))
-        assertTrue(prompt.contains("## History of Present Illness"))
-        assertTrue(prompt.contains("## Assessment"))
-        assertTrue(prompt.contains("## Plan"))
-        assertFalse(prompt.contains("about 60 words total"))
+        assertTrue(systemPrompt.contains("Chief Complaint"))
+        assertTrue(systemPrompt.contains("History of Present Illness"))
+        assertTrue(systemPrompt.contains("Assessment"))
+        assertTrue(systemPrompt.contains("Plan"))
+        assertFalse(systemPrompt.contains("about 60 words total"))
+
+        val userPrompt = builder.buildNoteUserPrompt("fever and cough for three days", compact = true)
+        // Headers must NOT leak into the user prompt (echo bug on small models)
+        assertFalse(userPrompt.contains("## Chief Complaint"))
+        assertTrue(userPrompt.contains("fever and cough for three days"))
     }
 }

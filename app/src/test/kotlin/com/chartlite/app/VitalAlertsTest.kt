@@ -193,6 +193,73 @@ class VitalAlertsTest {
         assertEquals(AlertSeverity.WARNING, alerts[0].severity)
     }
 
+    // -- Pediatric (age-aware) --
+
+    @Test
+    fun `normal toddler vitals produce no alerts with age provided`() {
+        // HR 130 + RR 30 are normal for an 18-month-old; under adult thresholds
+        // both fired warnings (the bug this guards against).
+        val vitals = VitalSigns(pulse = 130, respiratoryRate = 30, systolicBP = 95)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 18)
+        assertTrue("Normal toddler vitals should not alert: $alerts", alerts.isEmpty())
+    }
+
+    @Test
+    fun `normal infant vitals produce no alerts with age provided`() {
+        val vitals = VitalSigns(pulse = 145, respiratoryRate = 45, systolicBP = 85)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 6)
+        assertTrue("Normal infant vitals should not alert: $alerts", alerts.isEmpty())
+    }
+
+    @Test
+    fun `pediatric hypotension is critical`() {
+        // PALS: hypotension for a 4-year-old is SBP < 70 + 2×4 = 78
+        val vitals = VitalSigns(systolicBP = 75)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 48)
+        assertTrue(alerts.isNotEmpty())
+        assertEquals(AlertSeverity.CRITICAL, alerts[0].severity)
+    }
+
+    @Test
+    fun `infant bradycardia is critical`() {
+        val vitals = VitalSigns(pulse = 70)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 4)
+        assertTrue(alerts.isNotEmpty())
+        assertEquals(AlertSeverity.CRITICAL, alerts[0].severity)
+    }
+
+    @Test
+    fun `school-age tachycardia warns at pediatric threshold`() {
+        val vitals = VitalSigns(pulse = 130)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 96) // 8 y
+        assertTrue(alerts.isNotEmpty())
+        assertEquals(AlertSeverity.WARNING, alerts[0].severity)
+    }
+
+    @Test
+    fun `low infant diastolic does not alert`() {
+        // DBP 40 is normal for an infant — adult rule would have fired CRITICAL
+        val vitals = VitalSigns(diastolicBP = 40)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 6)
+        assertTrue(alerts.isEmpty())
+    }
+
+    @Test
+    fun `age 12 and up uses adult thresholds`() {
+        val vitals = VitalSigns(pulse = 130)
+        val alerts = vitalAlerts.check(vitals, ageMonths = 150) // 12.5 y
+        assertTrue(alerts.isNotEmpty())
+        assertEquals(AlertSeverity.WARNING, alerts[0].severity)
+    }
+
+    @Test
+    fun `null age preserves historical adult behavior`() {
+        val vitals = VitalSigns(pulse = 130)
+        val alerts = vitalAlerts.check(vitals, ageMonths = null)
+        assertTrue(alerts.isNotEmpty())
+        assertEquals(AlertSeverity.WARNING, alerts[0].severity)
+    }
+
     // -- Combined --
 
     @Test

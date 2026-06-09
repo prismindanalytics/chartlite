@@ -48,7 +48,10 @@ object EncounterSaveCoordinator {
         } ?: emptyList()
 
         val allAllergies = (patientAllergies + encounter.allergies).distinct()
-        val alerts: List<CDSSAlert> = app.cdss.evaluate(encounter, allAllergies)
+        val alerts: List<CDSSAlert> = app.cdss.evaluate(
+            encounter, allAllergies,
+            patientAgeMonths = patient?.let { computeAgeMonths(it) }
+        )
         val savedId = app.encounterRepository.save(encounter, alerts, stationType = station?.name)
 
         encounter.referral.normalizedOrNull()?.let { referral ->
@@ -476,7 +479,7 @@ object EncounterSaveCoordinator {
     }
 
     /** Compute age in months from PatientEntity's dateOfBirth or ageYears. */
-    private fun computeAgeMonths(patient: com.chartlite.app.database.entity.PatientEntity): Int? {
+    fun computeAgeMonths(patient: com.chartlite.app.database.entity.PatientEntity): Int? {
         // Prefer exact DOB
         patient.dateOfBirth?.let { dob ->
             try {

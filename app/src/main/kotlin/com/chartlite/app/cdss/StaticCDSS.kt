@@ -72,8 +72,15 @@ class StaticCDSS(
     /**
      * Evaluate all CDSS rules for an encounter.
      * Returns list of alerts sorted by severity (critical first).
+     *
+     * @param patientAgeMonths used for age-appropriate vital-sign thresholds
+     *   (pediatric pulse/RR/BP ranges); null falls back to adult thresholds.
      */
-    fun evaluate(encounter: StructuredEncounter, patientAllergies: List<String>): List<CDSSAlert> {
+    fun evaluate(
+        encounter: StructuredEncounter,
+        patientAllergies: List<String>,
+        patientAgeMonths: Int? = null
+    ): List<CDSSAlert> {
         ensureRulesLoaded()
         val alerts = mutableListOf<CDSSAlert>()
 
@@ -86,8 +93,8 @@ class StaticCDSS(
         // 3. Dosage range checks
         alerts.addAll(dosageChecker.check(encounter.medications))
 
-        // 4. Vital sign alerts
-        encounter.vitals?.let { alerts.addAll(vitalAlerts.check(it)) }
+        // 4. Vital sign alerts (age-aware when patient age is known)
+        encounter.vitals?.let { alerts.addAll(vitalAlerts.check(it, patientAgeMonths)) }
 
         // 5-8. BODHI knowledge graph checks (optional — graceful if BODHI not loaded)
         val allDiagnoses = encounter.diagnoses + encounter.suggestedDiagnoses

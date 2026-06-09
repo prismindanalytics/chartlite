@@ -32,6 +32,7 @@ import com.chartlite.app.database.entity.PatientEntity
 import com.chartlite.app.database.entity.VisitEntity
 import com.chartlite.app.model.ClinicStation
 import com.chartlite.app.cdss.VitalAlerts
+import com.chartlite.app.extraction.EncounterSaveCoordinator
 import com.chartlite.app.model.*
 import com.chartlite.app.ui.components.EncounterCard
 import com.chartlite.app.ui.components.BatchProcessingStatusCard
@@ -563,7 +564,10 @@ fun HomeScreen(
                                                 extractionConfidence = 1.0f
                                             )
 
-                                            val alerts = VitalAlerts().check(vitals)
+                                            val alerts = VitalAlerts().check(
+                                                vitals,
+                                                ageMonths = EncounterSaveCoordinator.computeAgeMonths(patient)
+                                            )
 
                                             withContext(Dispatchers.IO) {
                                                 val encId = app.encounterRepository.save(encounter, alerts, "TRIAGE")

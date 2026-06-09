@@ -291,6 +291,9 @@ async function proxyGemini(request: Request, env: Env): Promise<Response> {
   } catch {
     return errorResponse("Invalid JSON body", 400);
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return errorResponse("Invalid JSON body", 400);
+  }
 
   const { audio_data, mime_type = "audio/wav", language = "en-US" } = parsed;
   if (!audio_data) return errorResponse("Missing audio_data", 400);
@@ -439,6 +442,9 @@ async function proxyClaudeMessages(request: Request, env: Env): Promise<Response
   } catch {
     return errorResponse("Invalid JSON body", 400);
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return errorResponse("Invalid JSON body", 400);
+  }
 
   // Enforce allowed model
   const model = String(parsed.model || "");
@@ -506,6 +512,9 @@ async function proxyGeminiExtract(request: Request, env: Env): Promise<Response>
 
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(rawBody); } catch { return errorResponse("Invalid JSON body", 400); }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return errorResponse("Invalid JSON body", 400);
+  }
 
   // Validate model if provided, otherwise use server default
   const clientModel = String(parsed.model || "");
@@ -560,6 +569,9 @@ async function proxyOpenAIExtract(request: Request, env: Env): Promise<Response>
 
   let parsed: Record<string, unknown>;
   try { parsed = JSON.parse(rawBody); } catch { return errorResponse("Invalid JSON body", 400); }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return errorResponse("Invalid JSON body", 400);
+  }
 
   const model = String(parsed.model || "");
   if (!ALLOWED_OPENAI_EXTRACT_MODELS.has(model)) {

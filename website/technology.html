@@ -265,6 +265,7 @@
         <a href="connectivity.html">Connectivity</a>
         <a href="privacy.html">Privacy</a>
         <a href="ai-pipeline.html">AI Pipeline</a>
+        <a href="benchmark.html">Benchmark</a>
         <a href="index.html#download" class="nav-cta">Get Started</a>
       </div>
       <button class="hamburger" onclick="toggleMenu()" aria-label="Menu" aria-expanded="false" aria-controls="mobileMenu">
@@ -280,6 +281,7 @@
     <a href="connectivity.html">Connectivity</a>
     <a href="privacy.html">Privacy</a>
     <a href="ai-pipeline.html">AI Pipeline</a>
+    <a href="benchmark.html">Benchmark</a>
     <a href="index.html#download">Get Started</a>
   </div>
 
@@ -300,7 +302,7 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M6 10a2 2 0 0 0-2 2v1a2 2 0 0 0 4 0v-1a2 2 0 0 0-2-2z"/><path d="M18 10a2 2 0 0 0-2 2v1a2 2 0 0 0 4 0v-1a2 2 0 0 0-2-2z"/><path d="M12 16v4"/><path d="M8 20h8"/></svg>
           </div>
           <h3>On-Device AI Inference</h3>
-          <p>Unlike cloud-dependent EMRs, ChartLite executes entirely locally. NVIDIA Parakeet TDT v3 and Meta Omnilingual ASR (1,600+ languages) handle speech recognition fully offline via sherpa-onnx. <strong>Gemma 4 (E2B / E4B)</strong> runs on-device through Google AI Edge MediaPipe LiteRT-LM for clinical extraction and multimodal artifact reading, with Qwen 3.5 0.8B via llama.cpp as the &lt; 4 GB fallback. An on-device RAG pipeline retrieves only the most relevant diagnoses and drugs per encounter.</p>
+          <p>Unlike cloud-dependent EMRs, ChartLite executes entirely locally. NVIDIA Parakeet TDT v3 and Meta Omnilingual ASR (1,600+ languages) handle speech recognition fully offline via sherpa-onnx. <strong>Gemma 4 (E2B / E4B)</strong> runs on-device through Google AI Edge MediaPipe LiteRT-LM for clinical extraction and multimodal artifact reading, with Qwen 3.5 0.8B via llama.cpp as the &lt; 4 GB fallback. An on-device RAG pipeline retrieves only the most relevant diagnoses and drugs per encounter. <a href="/benchmark" style="color: var(--accent); border-bottom: 1px dotted currentColor; text-decoration: none;">See the benchmark</a> for measured quality vs cloud frontier across 12 models &times; 6 clinical tasks.</p>
         </div>
 
         <div class="pillar-card">

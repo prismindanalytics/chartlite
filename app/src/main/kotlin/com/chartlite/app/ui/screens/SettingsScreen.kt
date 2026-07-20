@@ -1499,21 +1499,32 @@ fun SettingsScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = {
-                                    config.twilioAccountSid = twilioSid
-                                    config.twilioAuthToken = twilioToken
-                                    config.twilioFromNumber = twilioFrom
-
-                                    if (twilioSid.isNotBlank() && twilioToken.isNotBlank()) {
+                                    if (
+                                        twilioSid.isNotBlank() &&
+                                        twilioToken.isNotBlank() &&
+                                        twilioFrom.isNotBlank()
+                                    ) {
                                         twilioVerifying = true
                                         twilioStatus = null
                                         scope.launch {
                                             val provider = TwilioSMSProvider(twilioSid, twilioToken, twilioFrom)
                                             val valid = provider.verifyCredentials()
+                                            if (valid) {
+                                                // Persist credentials only after the provider
+                                                // accepts them; invalid secrets should not linger
+                                                // on a clinical device or break native fallback.
+                                                config.twilioAccountSid = twilioSid.trim()
+                                                config.twilioAuthToken = twilioToken
+                                                config.twilioFromNumber = twilioFrom.trim()
+                                            }
                                             twilioStatus = if (valid) "✓ $twilioVerifiedStr"
-                                                           else "✗ $twilioInvalidStr"
+                                                else "✗ $twilioInvalidStr"
                                             twilioVerifying = false
                                         }
                                     } else {
+                                        config.twilioAccountSid = ""
+                                        config.twilioAuthToken = ""
+                                        config.twilioFromNumber = ""
                                         twilioStatus = "✓ $twilioSavedNativeStr"
                                     }
                                 },

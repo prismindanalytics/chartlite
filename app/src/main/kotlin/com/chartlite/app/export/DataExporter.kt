@@ -2,7 +2,6 @@ package com.chartlite.app.export
 
 import android.content.Context
 import android.content.Intent
-import android.os.Environment
 import androidx.core.content.FileProvider
 import com.chartlite.app.database.EncounterRepository
 import com.chartlite.app.database.entity.EncounterEntity
@@ -82,23 +81,50 @@ class DataExporter(
                 "${it.name} ${it.dose ?: ""}${it.unit ?: ""} ${it.frequency ?: ""}"
             }
             sb.appendLine(
-                "$date,${enc.patientId},\"$dx\",\"$meds\"," +
-                "${enc.vitals?.systolicBP ?: ""},${enc.vitals?.diastolicBP ?: ""}," +
-                "${enc.vitals?.temperature ?: ""},${enc.vitals?.pulse ?: ""}," +
-                "${enc.vitals?.weight ?: ""},${enc.vitals?.oxygenSaturation ?: ""}," +
-                "${enc.followUp?.days ?: ""}"
+                listOf(
+                    date,
+                    enc.patientId,
+                    dx,
+                    meds,
+                    enc.vitals?.systolicBP,
+                    enc.vitals?.diastolicBP,
+                    enc.vitals?.temperature,
+                    enc.vitals?.pulse,
+                    enc.vitals?.weight,
+                    enc.vitals?.oxygenSaturation,
+                    enc.followUp?.days
+                ).joinToString(",") { csvCell(it?.toString().orEmpty()) }
             )
         }
         return sb.toString()
+    }
+
+    private fun csvCell(raw: String): String {
+        val singleLine = raw.replace('\r', ' ').replace('\n', ' ')
+        val formulaSafe = if (singleLine.firstOrNull() in setOf('=', '+', '-', '@')) {
+            "'$singleLine"
+        } else {
+            singleLine
+        }
+        return "\"${formulaSafe.replace("\"", "\"\"")}\""
     }
 
     /**
      * Save export string to file and return share intent.
      */
     fun saveAndShare(content: String, filename: String, mimeType: String): Intent {
-        val exportDir = File(context.filesDir, "exports")
+        // Exports are deliberately transient plaintext. Keep them in cache so
+        // Android may reclaim them and remove legacy persistent export remnants.
+        File(context.filesDir, "exports").deleteRecursively()
+        val exportDir = File(context.cacheDir, "exports")
         exportDir.mkdirs()
-        val file = File(exportDir, filename)
+        exportDir.listFiles()
+            ?.filter { System.currentTimeMillis() - it.lastModified() > EXPORT_TTL_MS }
+            ?.forEach { it.delete() }
+
+        // Strip any caller-provided path components so an export can never escape
+        // the FileProvider's dedicated cache directory.
+        val file = File(exportDir, File(filename).name)
         file.writeText(content)
 
         val uri = FileProvider.getUriForFile(
@@ -112,6 +138,10 @@ class DataExporter(
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+    }
+
+    private companion object {
+        const val EXPORT_TTL_MS = 24L * 60L * 60L * 1000L
     }
 
     private fun buildFHIRBundle(encounter: StructuredEncounter, patient: PatientEntity): Map<String, Any> {

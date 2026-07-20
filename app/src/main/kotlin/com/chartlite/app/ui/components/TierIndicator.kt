@@ -6,10 +6,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -23,14 +20,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.chartlite.app.ui.theme.*
-import kotlinx.coroutines.delay
 
 /**
  * Three-tier connectivity indicator.
  *
  * - RED: Offline — Tier 1 Active (on-device only) — always visible
- * - AMBER: Bluetooth Available — Tier 2 Ready (peer sync) — shows briefly on change
- * - GREEN: Connected — Tier 3 Active — shows briefly on change
+ * - AMBER: Bluetooth Available — Tier 2 Ready (peer sync)
+ * - GREEN: Connected — Tier 3 Active
  *
  * Uses ConnectivityManager.NetworkCallback for event-driven updates instead of polling.
  * Checks NET_CAPABILITY_VALIDATED to avoid false positives on captive portals.
@@ -39,7 +35,6 @@ import kotlinx.coroutines.delay
 fun TierIndicator() {
     val context = LocalContext.current
     var tier by remember { mutableStateOf(detectTier(context)) }
-    var visible by remember { mutableStateOf(tier == ConnectivityTier.OFFLINE) }
 
     // Event-driven connectivity monitoring via NetworkCallback
     DisposableEffect(Unit) {
@@ -65,15 +60,6 @@ fun TierIndicator() {
         }
     }
 
-    // Auto-hide logic: always visible when OFFLINE, briefly visible on state change
-    LaunchedEffect(tier) {
-        visible = true
-        if (tier != ConnectivityTier.OFFLINE) {
-            delay(4000)
-            visible = false
-        }
-    }
-
     val (dotColor, label) = when (tier) {
         ConnectivityTier.OFFLINE -> AlertRed to "Offline. Local only"
         ConnectivityTier.BLUETOOTH -> WarningAmber to "Bluetooth available"
@@ -82,33 +68,27 @@ fun TierIndicator() {
 
     val animatedColor by animateColorAsState(targetValue = dotColor, label = "tier_dot")
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically { -it },
-        exit = slideOutVertically { -it }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Neutral100)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .background(Neutral100)
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(animatedColor)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Medium,
-                color = Neutral700
-            )
-        }
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(animatedColor)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = Neutral700
+        )
     }
 }
 

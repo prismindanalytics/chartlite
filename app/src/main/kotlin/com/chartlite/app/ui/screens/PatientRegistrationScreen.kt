@@ -61,9 +61,13 @@ fun PatientRegistrationScreen(
                 == PackageManager.PERMISSION_GRANTED
         )
     }
+    var startVoiceAfterPermission by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        if (!granted) startVoiceAfterPermission = false
+    }
 
     // ── Link Existing vs Register New mode ──
     var isLinkExistingMode by rememberSaveable { mutableStateOf(prefillPatientId != null) }
@@ -95,6 +99,24 @@ fun PatientRegistrationScreen(
     var voiceFilledFields by remember { mutableStateOf(setOf<String>()) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var preparingVoiceModel by remember { mutableStateOf(false) }
+
+    LaunchedEffect(hasPermission, startVoiceAfterPermission) {
+        if (hasPermission && startVoiceAfterPermission) {
+            startVoiceAfterPermission = false
+            voiceError = null
+            voiceFilledFields = emptySet()
+            preparingVoiceModel = true
+            try {
+                app.startAsrCaptureWithLowMemoryHandoff(
+                    language = app.appConfig.language,
+                    onError = { msg -> voiceError = msg },
+                    disableSilenceAutoStop = true
+                )
+            } finally {
+                preparingVoiceModel = false
+            }
+        }
+    }
 
     // Optional-section disclosure state. Hidden by default to keep the form
     // short — most LMIC PHC visits only need name + age + gender + allergies.
@@ -413,6 +435,7 @@ fun PatientRegistrationScreen(
                         FilledTonalButton(
                             onClick = {
                                 if (!hasPermission) {
+                                    startVoiceAfterPermission = true
                                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     return@FilledTonalButton
                                 }

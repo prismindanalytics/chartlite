@@ -167,7 +167,7 @@ class ExtractionQueue(
             isUrgent = urgent,
             deferredReview = deferredReview
         )
-        Log.d(TAG, "Enqueued transcript for patient ${patientId.take(4)}*** (urgent=$urgent, deferred=$deferredReview, hasNote=${approvedNote != null})")
+        Log.d(TAG, "Enqueued transcript (urgent=$urgent, deferred=$deferredReview, hasNote=${approvedNote != null})")
 
         // Urgent encounters get immediate processing
         if (urgent) {
@@ -230,7 +230,7 @@ class ExtractionQueue(
                         repository.retry(entry.id)
                         throw e
                     } catch (e: Exception) {
-                        Log.e(TAG, "Failed to process transcript for patient ${entry.patientId.take(4)}***", e)
+                        Log.e(TAG, "Failed to process queued transcript (${e::class.simpleName})")
                         repository.markFailed(entry.id, e.message)
                     }
                 }
@@ -269,12 +269,12 @@ class ExtractionQueue(
                 repository.getItem(entry.id)
                     ?: return
             )
-            Log.d(TAG, "Urgent processing complete: patient ${entry.patientId.take(4)}*** via ${result.result.strategyUsed}")
+            Log.d(TAG, "Urgent processing complete via ${result.result.strategyUsed}")
         } catch (e: CancellationException) {
             repository.retry(entry.id)
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Urgent processing failed for patient ${entry.patientId.take(4)}***", e)
+            Log.e(TAG, "Urgent processing failed (${e::class.simpleName})")
             repository.markFailed(entry.id, e.message)
         } finally {
             // On ≤4GB devices, releaseLlmForLowMemoryHandoff() unloads the model so
@@ -305,7 +305,7 @@ class ExtractionQueue(
             repository.retry(queueEntryId)
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Single-item processing failed for ${item.patientId.take(4)}***", e)
+            Log.e(TAG, "Single-item processing failed (${e::class.simpleName})")
             repository.markFailed(queueEntryId, e.message)
             null
         } finally {
@@ -487,7 +487,7 @@ class ExtractionQueue(
         skipNoteGeneration: Boolean = false
     ): QueuedResult {
         val startedAt = System.currentTimeMillis()
-        Log.d(TAG, "Processing transcript for patient ${item.patientId.take(4)}*** (skipNote=$skipNoteGeneration)")
+        Log.d(TAG, "Processing queued transcript (skipNote=$skipNoteGeneration)")
         repository.markProcessing(item.id)
         _processingStep.value = ProcessingStep.LOADING_MODEL
 
@@ -499,7 +499,7 @@ class ExtractionQueue(
 
         if (existingNote != null) {
             // Note was pre-approved — skip redundant LLM note generation
-            Log.d(TAG, "Using pre-approved note for ${item.patientId.take(4)}*** (${existingNote.length} chars)")
+            Log.d(TAG, "Using pre-approved note (${existingNote.length} chars)")
             noteResult = ExtractionOrchestrator.NoteGenerationResult(
                 note = existingNote,
                 strategyUsed = item.noteStrategyUsed ?: "pre-approved",
@@ -508,7 +508,7 @@ class ExtractionQueue(
             extractionInput = existingNote
         } else if (skipNoteGeneration) {
             // Batch mode — skip note generation to save an entire LLM round trip
-            Log.d(TAG, "Batch mode: skipping note generation for ${item.patientId.take(4)}***")
+            Log.d(TAG, "Batch mode: skipping note generation")
             noteResult = null
             extractionInput = item.transcript
         } else {
@@ -521,10 +521,10 @@ class ExtractionQueue(
                 repository.markNoteGenerated(item.id, generated.note, generated.strategyUsed)
                 noteResult = generated
                 extractionInput = generated.note
-                Log.d(TAG, "Draft note generated for ${item.patientId.take(4)}*** via ${generated.strategyUsed}")
+                Log.d(TAG, "Draft note generated via ${generated.strategyUsed}")
             } else {
                 // Fallback: if note generation fails (no LLM available), extract directly from transcript
-                Log.w(TAG, "Note generation unavailable for ${item.patientId.take(4)}***, extracting from raw transcript")
+                Log.w(TAG, "Note generation unavailable; extracting from raw transcript")
                 noteResult = null
                 extractionInput = item.transcript
             }
@@ -540,7 +540,7 @@ class ExtractionQueue(
         )
         Log.d(
             TAG,
-            "Structured extraction finished for ${item.patientId.take(4)}*** in " +
+            "Structured extraction finished in " +
                 "${System.currentTimeMillis() - extractionStartedAt}ms via ${result.strategyUsed}"
         )
 
@@ -553,9 +553,9 @@ class ExtractionQueue(
                     processor(item.patientId, mergedEncounter)
                 }
             } catch (_: TimeoutCancellationException) {
-                Log.w(TAG, "Photo processing timed out for ${item.patientId.take(4)}***")
+                Log.w(TAG, "Photo processing timed out")
             } catch (e: Exception) {
-                Log.w(TAG, "Photo processing failed for ${item.patientId.take(4)}***: ${e.message}")
+                Log.w(TAG, "Photo processing failed (${e::class.simpleName})")
             }
         }
 

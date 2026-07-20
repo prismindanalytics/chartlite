@@ -30,6 +30,7 @@ import com.chartlite.app.sms.DecodedEncounterV3
 import com.chartlite.app.sms.DecodedEncounterV4
 import com.chartlite.app.sms.BinaryDecodeLookup
 import com.chartlite.app.sms.SMSEncryption
+import com.chartlite.app.sms.PendingSmsStore
 import com.chartlite.app.sms.DecodedChronicCondition
 import com.chartlite.app.sms.DecodedAbnormalVital
 import androidx.compose.material.icons.filled.PersonAdd
@@ -616,8 +617,7 @@ private data class HistoryDisplayData(
 
 /** Load pending SMS stored by SMSReceiver. */
 private fun loadPendingSMS(context: Context): List<PendingSMS> {
-    val prefs = context.getSharedPreferences("pending_sms", Context.MODE_PRIVATE)
-    val messages = prefs.getStringSet("messages", emptySet()) ?: emptySet()
+    val messages = PendingSmsStore.getMessages(context)
 
     return messages.mapNotNull { entry ->
         val parts = entry.split("|", limit = 3)

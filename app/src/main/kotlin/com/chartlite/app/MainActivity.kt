@@ -172,7 +172,16 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         AuthState.AUTHENTICATED -> {
-                            Column(modifier = Modifier.fillMaxSize()) {
+                            // Consume the status-bar inset once at the app shell. The
+                            // connectivity row now has a stable height, so it cannot
+                            // move a button out from under the clinician's finger.
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .windowInsetsPadding(
+                                        WindowInsets.statusBars.only(WindowInsetsSides.Top)
+                                    )
+                            ) {
                                 TierIndicator()
                                 val navController = rememberNavController()
                                 AppNavigation(
@@ -277,4 +286,3 @@ private fun BiometricLockScreen(onRetry: () -> Unit, showRetry: Boolean) {
         }
     }
 }
-

@@ -22,6 +22,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.chartlite.app.ui.theme.BrandGreen
 import com.chartlite.app.ui.theme.BrandGreenLight
@@ -86,6 +92,12 @@ fun RecordButton(
 
     // Amplitude-driven scale
     val effectiveScale = if (isRecording && !isPreparing) 1f + amplitude.coerceIn(0f, 1f) * 0.15f else 1f
+    val accessibilityLabel = when {
+        isPreparing -> "Preparing voice recorder"
+        isHolding -> "Release to capture"
+        isRecording -> "Stop recording"
+        else -> "Start recording"
+    }
 
     Box(
         modifier = modifier.size(160.dp),
@@ -123,6 +135,19 @@ fun RecordButton(
                 )
                 .clip(CircleShape)
                 .background(buttonGradient)
+                .semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    contentDescription = accessibilityLabel
+                    if (!enabled) disabled()
+                    onClick(label = accessibilityLabel) {
+                        if (enabled && !isPreparing) {
+                            onClick()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
                 .pointerInput(enabled, isRecording) {
                     if (!enabled) return@pointerInput
                     detectTapGestures(
@@ -160,11 +185,7 @@ fun RecordButton(
             } else {
                 Icon(
                     imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = when {
-                        isHolding -> "Release to capture"
-                        isRecording -> "Stop recording"
-                        else -> "Tap to record"
-                    },
+                    contentDescription = null,
                     modifier = Modifier.size(40.dp),
                     tint = Color.White
                 )

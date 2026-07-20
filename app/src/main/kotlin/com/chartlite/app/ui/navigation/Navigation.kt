@@ -571,6 +571,9 @@ fun AppNavigation(
                 return@composable
             }
             AppointmentScreen(
+                onPatientSelected = { patientId ->
+                    navController.navigate(Screen.PatientTimeline.createRoute(patientId))
+                },
                 onBack = navigateBackOrMainMenu
             )
         }

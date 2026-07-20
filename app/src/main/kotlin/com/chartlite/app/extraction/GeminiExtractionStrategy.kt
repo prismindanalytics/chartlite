@@ -128,7 +128,10 @@ class GeminiExtractionStrategy(
             )
         )
         val request = Request.Builder()
-            .url("$DIRECT_API_BASE/$MODEL:generateContent?key=$apiKey")
+            // Keep credentials out of URLs: exception messages, proxies, and
+            // network diagnostics commonly retain full request URLs.
+            .url("$DIRECT_API_BASE/$MODEL:generateContent")
+            .addHeader("x-goog-api-key", apiKey)
             .addHeader("content-type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()
@@ -150,8 +153,10 @@ class GeminiExtractionStrategy(
 
         return response.use { resp ->
             if (!resp.isSuccessful) {
-                val errBody = resp.body?.string()?.take(500).orEmpty()
-                Log.e(TAG, "Gemini $purpose error ${resp.code}: $errBody")
+                // Provider error bodies can echo request content. Never place them
+                // in logcat because clinical prompts contain patient information.
+                resp.body?.close()
+                Log.e(TAG, "Gemini $purpose error ${resp.code}")
                 return@use null
             }
             val body = resp.body?.string() ?: return@use null

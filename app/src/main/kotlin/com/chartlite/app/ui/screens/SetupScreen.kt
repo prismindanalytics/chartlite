@@ -346,6 +346,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding)
                 .imePadding()
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.Top,

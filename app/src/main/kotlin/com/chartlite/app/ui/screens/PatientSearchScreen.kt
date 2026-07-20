@@ -57,9 +57,25 @@ fun PatientSearchScreen(
                 == PackageManager.PERMISSION_GRANTED
         )
     }
+    var startSearchAfterPermission by remember { mutableStateOf(false) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasMicPermission = granted }
+    ) { granted ->
+        hasMicPermission = granted
+        if (!granted) startSearchAfterPermission = false
+    }
+
+    LaunchedEffect(hasMicPermission, startSearchAfterPermission) {
+        if (hasMicPermission && startSearchAfterPermission) {
+            startSearchAfterPermission = false
+            app.startAsrCaptureWithLowMemoryHandoff(
+                language = app.appConfig.language,
+                onError = { /* The text field remains available as fallback. */ },
+                maxRecordingMinutes = 1,
+                disableSilenceAutoStop = true,
+            )
+        }
+    }
 
     // Auto-update the search query as the ASR transcript fills in — feels
     // immediate even before the user taps Stop.
@@ -143,6 +159,7 @@ fun PatientSearchScreen(
                                     if (text.isNotBlank()) query = text
                                 }
                             } else if (!hasMicPermission) {
+                                startSearchAfterPermission = true
                                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             } else {
                                 scope.launch {

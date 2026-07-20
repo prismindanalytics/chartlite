@@ -186,7 +186,7 @@ class ClaudeExtractionStrategy(
 
         val file = File(imagePath)
         if (!file.exists()) {
-            Log.e(TAG, "Vision image not found: $imagePath")
+            Log.e(TAG, "Vision image not found")
             return@withContext null
         }
 

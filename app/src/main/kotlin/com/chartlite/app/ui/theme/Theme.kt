@@ -65,7 +65,9 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Neutral900,
     surfaceVariant = Neutral100,
     onSurfaceVariant = Neutral600,
-    outline = Neutral300,
+    // Secondary text throughout the app uses the Material outline role. Keep it
+    // dark enough to remain readable on white and lightly tinted card surfaces.
+    outline = Neutral500,
     outlineVariant = Neutral200
 )
 

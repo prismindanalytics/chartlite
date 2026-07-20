@@ -183,7 +183,10 @@ class SMSSender(private val context: Context, private val appConfig: AppConfig) 
                     val sentIntents = ArrayList(parts.map { sentIntent })
                     smsManager.sendMultipartTextMessage(to, null, parts, sentIntents, null)
                 }
-                Log.d("SMSSender", "Native SMS queued to $to (${body.length} chars, ${parts.size} part(s))")
+                Log.d(
+                    "SMSSender",
+                    "Native SMS queued (${body.length} chars, ${parts.size} part(s))"
+                )
             } catch (e: Exception) {
                 runCatching { context.unregisterReceiver(receiver) }
                 cont.resume(SendResult(SMSStatus.FAILED, "SMS send error: ${e.message}"))

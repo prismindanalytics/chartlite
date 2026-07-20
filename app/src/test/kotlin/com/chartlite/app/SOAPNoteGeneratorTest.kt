@@ -53,6 +53,20 @@ class SOAPNoteGeneratorTest {
     }
 
     @Test
+    fun `chief complaint excludes medication and diagnosis suggestion sections`() {
+        val enc = TestFixtures.buildEncounterEntity(
+            freeTextNote = "Chief concern: Fever and productive cough. Medications: amoxicillin. Suggested diagnoses: J18.9 Pneumonia."
+        )
+
+        val note = generate(encounter = enc)
+        val quotedSection = note.subjective.substringAfter("\"").substringBefore("\"")
+
+        assertEquals("Fever and productive cough.", quotedSection)
+        assertFalse(quotedSection.contains("amoxicillin", ignoreCase = true))
+        assertFalse(quotedSection.contains("J18.9"))
+    }
+
+    @Test
     fun `subjective contains HPI header`() {
         val note = generate()
         assertTrue(note.subjective.contains("History of Present Illness"))

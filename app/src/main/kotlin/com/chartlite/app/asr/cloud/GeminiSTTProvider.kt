@@ -102,9 +102,10 @@ class GeminiSTTProvider(
             )
         ))
 
-        val url = "$API_BASE/$GEMINI_MODEL:generateContent?key=$apiKey"
+        val url = "$API_BASE/$GEMINI_MODEL:generateContent"
         val request = Request.Builder()
             .url(url)
+            .addHeader("x-goog-api-key", apiKey)
             .addHeader("Content-Type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()

@@ -30,6 +30,9 @@ interface ReferralDao {
     @Query("SELECT * FROM referrals WHERE visitId = :visitId")
     suspend fun getByVisitId(visitId: String): List<ReferralEntity>
 
+    @Query("UPDATE referrals SET smsText = :smsText, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSmsText(id: String, smsText: String, updatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM referrals WHERE status = 'PENDING' AND fromFacilityId = :facilityId")
     suspend fun getPendingCount(facilityId: String): Int
 }

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import android.util.Log
 
 /**
  * Receives incoming SMS messages and checks if they're encrypted clinical records.
@@ -18,25 +19,19 @@ class SMSReceiver : BroadcastReceiver() {
         for (message in messages) {
             val body = message.messageBody ?: continue
             if (SMSEncryption.looksLikeClinicalSMS(body)) {
-                // Store for later decryption
-                // In a full implementation, this would save to a pending-SMS table
-                val prefs = context.getSharedPreferences("pending_sms", Context.MODE_PRIVATE)
-                val existing = prefs.getStringSet("messages", mutableSetOf()) ?: mutableSetOf()
-                val updated = existing.toMutableSet()
-                updated.add("${message.originatingAddress}|${System.currentTimeMillis()}|$body")
-                // Cap retained messages so the set can't grow without bound —
-                // drop oldest first (entries embed an epoch-ms timestamp).
-                val capped = if (updated.size > MAX_PENDING) {
-                    updated.sortedByDescending { it.split("|").getOrNull(1)?.toLongOrNull() ?: 0L }
-                        .take(MAX_PENDING)
-                        .toSet()
-                } else updated
-                prefs.edit().putStringSet("messages", capped).apply()
+                try {
+                    PendingSmsStore.addMessage(
+                        context = context,
+                        sender = message.originatingAddress,
+                        timestamp = System.currentTimeMillis(),
+                        body = body
+                    )
+                } catch (e: Exception) {
+                    // Never fall back to plaintext storage. Log only the failure
+                    // class — not sender, timestamp, or clinical payload.
+                    Log.e("SMSReceiver", "Unable to store clinical SMS securely", e)
+                }
             }
         }
-    }
-
-    companion object {
-        private const val MAX_PENDING = 50
     }
 }

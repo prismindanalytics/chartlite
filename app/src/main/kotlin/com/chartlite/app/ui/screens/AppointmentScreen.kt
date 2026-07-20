@@ -7,10 +7,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppointmentScreen(
+    onPatientSelected: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -41,6 +43,7 @@ fun AppointmentScreen(
 
     var selectedDate by remember { mutableStateOf(todayStartMillis()) }
     var appointments by remember { mutableStateOf<List<AppointmentEntity>>(emptyList()) }
+    var patientNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isLoading by remember { mutableStateOf(true) }
     var showCreateDialog by remember { mutableStateOf(false) }
 
@@ -49,7 +52,13 @@ fun AppointmentScreen(
     fun loadAppointments() {
         scope.launch {
             isLoading = true
-            appointments = app.appointmentRepository.getByDate(facilityId, selectedDate)
+            val loaded = app.appointmentRepository.getByDate(facilityId, selectedDate)
+            appointments = loaded
+            patientNames = loaded.mapNotNull { appointment ->
+                app.patientRepository.getById(appointment.patientId)?.let { patient ->
+                    appointment.patientId to "${patient.firstName} ${patient.lastName}".trim()
+                }
+            }.toMap()
             isLoading = false
         }
     }
@@ -90,7 +99,7 @@ fun AppointmentScreen(
                         val cal = Calendar.getInstance().apply { timeInMillis = selectedDate; add(Calendar.DAY_OF_MONTH, -1) }
                         selectedDate = cal.timeInMillis
                     }) {
-                        Icon(Icons.Default.NavigateBefore, stringResource(R.string.previous_day))
+                        Icon(Icons.AutoMirrored.Filled.NavigateBefore, stringResource(R.string.previous_day))
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
@@ -107,7 +116,7 @@ fun AppointmentScreen(
                         val cal = Calendar.getInstance().apply { timeInMillis = selectedDate; add(Calendar.DAY_OF_MONTH, 1) }
                         selectedDate = cal.timeInMillis
                     }) {
-                        Icon(Icons.Default.NavigateNext, stringResource(R.string.next_day))
+                        Icon(Icons.AutoMirrored.Filled.NavigateNext, stringResource(R.string.next_day))
                     }
                 }
             }
@@ -143,6 +152,8 @@ fun AppointmentScreen(
                     items(appointments, key = { it.id }) { appt ->
                         AppointmentCard(
                             appointment = appt,
+                            patientName = patientNames[appt.patientId],
+                            onOpenPatient = { onPatientSelected(appt.patientId) },
                             onStatusUpdate = { newStatus ->
                                 scope.launch {
                                     when (newStatus) {
@@ -210,6 +221,8 @@ fun AppointmentScreen(
 @Composable
 private fun AppointmentCard(
     appointment: AppointmentEntity,
+    patientName: String?,
+    onOpenPatient: () -> Unit,
     onStatusUpdate: (String) -> Unit
 ) {
     val statusColor = when (appointment.status) {
@@ -257,8 +270,11 @@ private fun AppointmentCard(
             }
 
             Spacer(Modifier.height(4.dp))
+            patientName?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.titleSmall)
+            }
             Text(
-                stringResource(R.string.patient_short_format, appointment.patientId.take(8)),
+                stringResource(R.string.patient_short_format, appointment.patientId),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
@@ -267,6 +283,15 @@ private fun AppointmentCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
+
+            TextButton(
+                onClick = onOpenPatient,
+                contentPadding = PaddingValues(horizontal = 0.dp)
+            ) {
+                Icon(Icons.Default.Person, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.patient_summary))
+            }
 
             appointment.notes?.let {
                 Spacer(Modifier.height(4.dp))
@@ -337,7 +362,7 @@ private fun CreateAppointmentDialog(
                 OutlinedTextField(
                     value = patientId,
                     onValueChange = { patientId = it },
-                    label = { Text(stringResource(R.string.patient_id)) },
+                    label = { Text(stringResource(R.string.patient_id_label)) },
                     modifier = Modifier.fillMaxWidth(),
                     isError = showErrors && patientId.isBlank(),
                     supportingText = if (showErrors && patientId.isBlank()) {{ Text(stringResource(R.string.required)) }} else null

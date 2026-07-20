@@ -48,6 +48,19 @@ class ReferralRepositoryTest {
     }
 
     @Test
+    fun `markSmsSent records text only after delivery confirmation`() = runBlocking {
+        val referral = repo.createReferral(
+            "v1", "p1", "prov1", "fac1", "Hospital", "URGENT", "Reason",
+            smsText = null
+        )
+        assertNull(fakeDao.getById(referral.id)!!.smsText)
+
+        repo.markSmsSent(referral.id, "Referral instructions")
+
+        assertEquals("Referral instructions", fakeDao.getById(referral.id)!!.smsText)
+    }
+
+    @Test
     fun `updateStatus fails for non-existent referral`() = runBlocking {
         val result = repo.updateStatus("nonexistent", ReferralStatus.ACCEPTED.name)
         assertFalse(result)
@@ -131,6 +144,9 @@ class ReferralRepositoryTest {
         override suspend fun getPending(facilityId: String) = referrals.values.filter { it.status == ReferralStatus.PENDING.name && it.fromFacilityId == facilityId }
         override suspend fun getByFacility(facilityId: String, limit: Int) = referrals.values.filter { it.fromFacilityId == facilityId }.take(limit)
         override suspend fun getByVisitId(visitId: String) = referrals.values.filter { it.visitId == visitId }
+        override suspend fun updateSmsText(id: String, smsText: String, updatedAt: Long) {
+            referrals[id]?.let { referrals[id] = it.copy(smsText = smsText, updatedAt = updatedAt) }
+        }
         override suspend fun getPendingCount(facilityId: String) = getPending(facilityId).size
         override fun observePending(facilityId: String): Flow<List<ReferralEntity>> = flowOf(emptyList())
     }

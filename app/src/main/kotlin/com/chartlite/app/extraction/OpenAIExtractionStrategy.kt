@@ -140,8 +140,8 @@ class OpenAIExtractionStrategy(
 
         return response.use { resp ->
             if (!resp.isSuccessful) {
-                val errBody = resp.body?.string()?.take(500).orEmpty()
-                Log.e(TAG, "OpenAI $model $purpose error ${resp.code}: $errBody")
+                resp.body?.close()
+                Log.e(TAG, "OpenAI $model $purpose error ${resp.code}")
                 return@use null
             }
             val body = resp.body?.string() ?: return@use null

@@ -71,6 +71,8 @@ class ReferralRepository(private val referralDao: ReferralDao) {
     suspend fun getPending(facilityId: String) = referralDao.getPending(facilityId).filter { it.hasMeaningfulDestination() }
     suspend fun getByFacility(facilityId: String) = referralDao.getByFacility(facilityId).filter { it.hasMeaningfulDestination() }
     suspend fun getByVisitId(visitId: String) = referralDao.getByVisitId(visitId)
+    suspend fun markSmsSent(referralId: String, smsText: String) =
+        referralDao.updateSmsText(referralId, smsText, System.currentTimeMillis())
     suspend fun getPendingCount(facilityId: String) = getPending(facilityId).size
     fun observePending(facilityId: String) =
         referralDao.observePending(facilityId).map { referrals ->

@@ -1,7 +1,6 @@
 package com.chartlite.app.database
 
 import android.content.Context
-import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -91,8 +90,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun clinicalPhotoDao(): ClinicalPhotoDao
 
     companion object {
-        private const val TAG = "AppDatabase"
-
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -127,13 +124,6 @@ abstract class AppDatabase : RoomDatabase() {
                     MigrationHelper.MIGRATION_14_15,
                     MigrationHelper.MIGRATION_15_16
                 )
-                .fallbackToDestructiveMigrationOnDowngrade()
-                .addCallback(object : Callback() {
-                    override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
-                        super.onDestructiveMigration(db)
-                        Log.e(TAG, "DESTRUCTIVE MIGRATION occurred — patient data was lost!")
-                    }
-                })
                 .build()
         }
 

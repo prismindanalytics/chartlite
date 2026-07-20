@@ -130,26 +130,38 @@ fun PatientTimelineScreen(
                 }
             )
         },
-        floatingActionButton = {
-            if (onCheckIn != null) {
-                ExtendedFloatingActionButton(
-                    onClick = { if (!alreadyCheckedIn) onCheckIn(patientId) },
-                    icon = { Icon(
-                        if (alreadyCheckedIn) Icons.Default.CheckCircle else Icons.Default.PersonAdd,
-                        contentDescription = if (alreadyCheckedIn) stringResource(R.string.already_checked_in) else stringResource(R.string.check_in)
-                    ) },
-                    text = { Text(if (alreadyCheckedIn) stringResource(R.string.already_checked_in) else stringResource(R.string.check_in)) },
-                    containerColor = if (alreadyCheckedIn)
-                        MaterialTheme.colorScheme.surfaceVariant
-                    else
-                        MaterialTheme.colorScheme.primaryContainer
-                )
-            } else {
-                ExtendedFloatingActionButton(
-                    onClick = onNewEncounter,
-                    icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.new_encounter)) },
-                    text = { Text(stringResource(R.string.new_encounter)) }
-                )
+        bottomBar = {
+            // Reserve real layout space for the primary action instead of floating
+            // it over vitals and medication cards.
+            Surface(tonalElevation = 2.dp) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    if (onCheckIn != null) {
+                        ExtendedFloatingActionButton(
+                            onClick = { if (!alreadyCheckedIn) onCheckIn(patientId) },
+                            icon = { Icon(
+                                if (alreadyCheckedIn) Icons.Default.CheckCircle else Icons.Default.PersonAdd,
+                                contentDescription = if (alreadyCheckedIn) stringResource(R.string.already_checked_in) else stringResource(R.string.check_in)
+                            ) },
+                            text = { Text(if (alreadyCheckedIn) stringResource(R.string.already_checked_in) else stringResource(R.string.check_in)) },
+                            containerColor = if (alreadyCheckedIn)
+                                MaterialTheme.colorScheme.surfaceVariant
+                            else
+                                MaterialTheme.colorScheme.primaryContainer
+                        )
+                    } else {
+                        ExtendedFloatingActionButton(
+                            onClick = onNewEncounter,
+                            icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.new_encounter)) },
+                            text = { Text(stringResource(R.string.new_encounter)) }
+                        )
+                    }
+                }
             }
         }
     ) { padding ->
@@ -182,14 +194,31 @@ fun PatientTimelineScreen(
                 .take(5)
         }
 
-        // CDSS alerts from latest encounter
+        // Keep the latest encounter's alerts plus any still-unacknowledged
+        // critical alert from older encounters. Otherwise a harmless follow-up
+        // visit could make a serious drug-allergy conflict disappear.
         val latestCdssAlerts = remember(encounters) {
-            encounters.firstOrNull()?.cdssAlerts?.let { json ->
-                try {
-                    gson.fromJson<List<CDSSAlert>>(json, object : TypeToken<List<CDSSAlert>>() {}.type)
-                        ?.filter { !(encounters.firstOrNull()?.cdssAcknowledged ?: false) }
-                } catch (_: Exception) { null }
-            } ?: emptyList()
+            fun parseAlerts(encounter: EncounterEntity): List<CDSSAlert> = try {
+                gson.fromJson<List<CDSSAlert>>(
+                    encounter.cdssAlerts,
+                    object : TypeToken<List<CDSSAlert>>() {}.type
+                ) ?: emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+
+            val latest = encounters.firstOrNull()
+                ?.takeUnless { it.cdssAcknowledged }
+                ?.let(::parseAlerts)
+                .orEmpty()
+            val priorCritical = encounters.drop(1)
+                .asSequence()
+                .filterNot { it.cdssAcknowledged }
+                .flatMap { parseAlerts(it).asSequence() }
+                .filter { it.severity.name == "CRITICAL" }
+                .toList()
+
+            (latest + priorCritical).distinctBy { "${it.severity}|${it.category}|${it.message}" }
         }
 
         // Split diagnoses into chronic (≥2 encounters) and acute
@@ -471,7 +500,9 @@ fun PatientTimelineScreen(
                         Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = WarningAmber.copy(alpha = 0.08f)
+                            containerColor = if (latestCdssAlerts.any { it.severity.name == "CRITICAL" })
+                                AlertRed.copy(alpha = 0.08f)
+                            else WarningAmber.copy(alpha = 0.08f)
                         )
                     ) {
                         Column(Modifier.padding(16.dp)) {
@@ -484,8 +515,8 @@ fun PatientTimelineScreen(
                                         Icons.Default.Warning,
                                         contentDescription = null,
                                         tint = when (alert.severity.name) {
-                                            "HIGH" -> AlertRed
-                                            "MEDIUM" -> WarningAmber
+                                            "CRITICAL" -> AlertRed
+                                            "WARNING" -> WarningAmber
                                             else -> InfoBlue
                                         },
                                         modifier = Modifier.size(16.dp)
@@ -903,8 +934,6 @@ fun PatientTimelineScreen(
                 )
             }
 
-            // Bottom spacing for FAB
-            item(key = "bottom_spacer") { Spacer(Modifier.height(80.dp)) }
         }
     }
 

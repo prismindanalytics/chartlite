@@ -7,6 +7,7 @@ import com.chartlite.app.model.ClinicStation
 import com.chartlite.app.model.Diagnosis
 import com.chartlite.app.model.FollowUp
 import com.chartlite.app.model.Medication
+import com.chartlite.app.model.SMSStatus
 import com.chartlite.app.model.StructuredEncounter
 import com.chartlite.app.model.VitalSigns
 import com.chartlite.app.model.destinationLabel
@@ -24,6 +25,35 @@ import java.util.UUID
 
 object EncounterSaveCoordinator {
     private val gson = Gson() // Reuse across calls — avoids ~2ms TypeAdapter rebuild each time
+
+    /**
+     * Run the same patient-aware safety evaluation used during persistence without
+     * writing anything. Review screens call this before offering SMS or save actions
+     * so a contraindication cannot first appear after the prescription is committed.
+     */
+    suspend fun evaluateSafety(
+        app: App,
+        encounter: StructuredEncounter,
+        patientId: String
+    ): List<CDSSAlert> {
+        val patient = app.patientRepository.getById(patientId)
+        val patientAllergies = patient?.let {
+            try {
+                gson.fromJson<List<String>>(
+                    it.allergies,
+                    object : TypeToken<List<String>>() {}.type
+                )
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } ?: emptyList()
+
+        return app.cdss.evaluate(
+            encounter,
+            (patientAllergies + encounter.allergies).distinct(),
+            patientAgeMonths = patient?.let { computeAgeMonths(it) }
+        )
+    }
 
     suspend fun saveEncounter(
         app: App,
@@ -47,9 +77,9 @@ object EncounterSaveCoordinator {
             }
         } ?: emptyList()
 
-        val allAllergies = (patientAllergies + encounter.allergies).distinct()
         val alerts: List<CDSSAlert> = app.cdss.evaluate(
-            encounter, allAllergies,
+            encounter,
+            (patientAllergies + encounter.allergies).distinct(),
             patientAgeMonths = patient?.let { computeAgeMonths(it) }
         )
         val savedId = app.encounterRepository.save(encounter, alerts, stationType = station?.name)
@@ -99,7 +129,9 @@ object EncounterSaveCoordinator {
                     clinicalNotes = encounter.freeTextNote.take(500),
                     patientInstructions = instructions,
                     timeframeDays = timeframe,
-                    smsText = smsText
+                    // smsText doubles as the UI's delivery marker. Populate it
+                    // only after the provider confirms a successful send below.
+                    smsText = null
                 )
 
                 // Send plain-text referral SMS to patient (non-blocking)
@@ -108,7 +140,16 @@ object EncounterSaveCoordinator {
                     app.appScope.launch(Dispatchers.IO) {
                         try {
                             val refResult = app.smsSender.sendPlainSMS(phone, smsText)
-                            Log.d("EncounterSave", "Referral SMS sent to ${phone.takeLast(4)}")
+                            if (
+                                refResult.status == SMSStatus.SENT ||
+                                refResult.status == SMSStatus.DELIVERED
+                            ) {
+                                app.referralRepository.markSmsSent(entity.id, smsText)
+                            }
+                            Log.d(
+                                "EncounterSave",
+                                "Referral SMS ${refResult.status.name.lowercase()} for ***${phone.takeLast(4)}"
+                            )
                             try {
                                 app.smsLogRepository.log(
                                     patientId = patientId,
@@ -270,7 +311,7 @@ object EncounterSaveCoordinator {
                             )
                         } catch (_: Exception) { /* logging failure is non-critical */ }
                     } catch (e: Exception) {
-                        Log.w("EncounterSave", "SMS sending failed for patient ${patientId.take(4)}***", e)
+                        Log.w("EncounterSave", "SMS sending failed (${e::class.simpleName})")
                         try {
                             app.encounterRepository.updateSmsStatus(savedId, com.chartlite.app.model.SMSStatus.FAILED)
                             app.smsLogRepository.log(
@@ -424,7 +465,10 @@ object EncounterSaveCoordinator {
 
         // Save the synthetic encounter
         val savedId = app.encounterRepository.save(encounter, cdssAlerts = emptyList(), stationType = null)
-        Log.i("EncounterSave", "Imported SMS baseline encounter $savedId for patient $patientId")
+        Log.i(
+            "EncounterSave",
+            "Imported SMS baseline encounter ${savedId.take(4)}*** for patient ${patientId.take(4)}***"
+        )
 
         // Save immunizations from decoded SMS
         val providerId = "SMS_IMPORT"

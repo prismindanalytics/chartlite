@@ -92,7 +92,8 @@ class GoogleCloudSTTProvider(
         ))
 
         val request = Request.Builder()
-            .url("$API_URL?key=$apiKey")
+            .url(API_URL)
+            .addHeader("x-goog-api-key", apiKey)
             .addHeader("Content-Type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
             .build()

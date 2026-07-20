@@ -900,7 +900,7 @@ class App : Application() {
                             photoDao.insert(photo.copy(contentType = result.contentType, extractedJson = result.rawJson))
                         }
                     } catch (e: Exception) {
-                        android.util.Log.w(TAG, "Vision failed for photo ${photo.id}: ${e.message}")
+                        android.util.Log.w(TAG, "Vision failed for pending photo (${e::class.simpleName})")
                     }
                 }
                 merged

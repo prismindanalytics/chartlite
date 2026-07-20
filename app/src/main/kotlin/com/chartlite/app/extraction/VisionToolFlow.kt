@@ -60,7 +60,7 @@ class VisionToolFlow(
         onStage?.invoke(Stage.READING_IMAGE)
         val visionResult = visionExtractor.extract(imagePath)
         if (visionResult == null) {
-            Log.w(TAG, "Vision extraction returned null for $imagePath")
+            Log.w(TAG, "Vision extraction returned null")
             onStage?.invoke(Stage.DONE)
             return SafetyOutcome(visionResult = null, visionFailed = true)
         }
@@ -70,8 +70,7 @@ class VisionToolFlow(
         Log.i(
             TAG,
             "Tool-decision context: artifact=${visionResult.contentType}, " +
-                "patient_allergies=${patientAllergies}, " +
-                "patient_prior_dxs=${patientPriorDiagnoses}"
+                "allergy_count=${patientAllergies.size}, prior_dx_count=${patientPriorDiagnoses.size}"
         )
         val (system, user) = toolRegistry.buildToolDecisionPrompt(
             extractedArtifactJson = artifactJson,
@@ -84,8 +83,7 @@ class VisionToolFlow(
         Log.i(
             TAG,
             "Gemma 4 chose ${gemmaCalls.size} tool call(s) for ${visionResult.contentType}: " +
-                gemmaCalls.joinToString(", ") { it.name } +
-                " | model response: ${response.take(240).replace('\n', ' ')}"
+                gemmaCalls.joinToString(", ") { it.name }
         )
 
         // Deterministic safety floor. Gemma 4 e4b at temp=0.1 sometimes

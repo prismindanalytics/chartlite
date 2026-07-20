@@ -101,9 +101,24 @@ fun VoiceTriageCard(
                 == PackageManager.PERMISSION_GRANTED
         )
     }
+    var startTriageAfterPermission by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        if (!granted) startTriageAfterPermission = false
+    }
+
+    LaunchedEffect(hasPermission, startTriageAfterPermission) {
+        if (hasPermission && startTriageAfterPermission) {
+            startTriageAfterPermission = false
+            asrError = null
+            app.startAsrCaptureWithLowMemoryHandoff(
+                language = app.appConfig.language,
+                onError = { msg -> asrError = msg }
+            )
+        }
+    }
 
     // Stop ASR if recording when the card leaves composition (e.g., navigation away)
     DisposableEffect(Unit) {
@@ -210,6 +225,7 @@ fun VoiceTriageCard(
                         hasPermission = hasPermission,
                         errorMessage = asrError,
                         onRequestPermission = {
+                            startTriageAfterPermission = true
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
                         onStartRecording = {

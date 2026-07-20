@@ -118,7 +118,8 @@ class VisionExtractor(
         val user = promptBuilder.visionUserPrompt(isLargeModel = isLargeModel, additionalContext = additionalContext)
         val maxOutputTokens = modelManager.recommendedSnippetOutputTokens()
 
-        Log.d(TAG, "Running vision extraction on: $imagePath (maxTokens=$maxOutputTokens)")
+        // The absolute path includes the patient ID in its directory name.
+        Log.d(TAG, "Running vision extraction (maxTokens=$maxOutputTokens)")
 
         val raw = modelManager.runVisionInference(
             systemPrompt = system,
@@ -139,8 +140,6 @@ class VisionExtractor(
         }
 
         Log.d(TAG, "Vision response: ${raw.length} chars")
-        // Log first 500 chars for debugging model output format
-        Log.d(TAG, "Vision raw (first 500): ${raw.take(500)}")
         return parseVisionJson(raw)
     }
 

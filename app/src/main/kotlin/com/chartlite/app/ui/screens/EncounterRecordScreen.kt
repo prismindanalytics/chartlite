@@ -45,6 +45,9 @@ import com.chartlite.app.R
 import com.chartlite.app.extraction.EncounterSaveCoordinator
 import com.chartlite.app.extraction.EncounterMerger
 import com.chartlite.app.model.ClinicStation
+import com.chartlite.app.model.AlertSeverity
+import com.chartlite.app.model.CDSSAlert
+import com.chartlite.app.model.Diagnosis
 import com.chartlite.app.model.FollowUp
 import com.chartlite.app.model.Investigation
 import com.chartlite.app.model.Medication
@@ -78,6 +81,9 @@ fun EncounterRecordScreen(
     val context = LocalContext.current
     val app = context.applicationContext as App
     val scope = rememberCoroutineScope()
+    val scanAnalyzingMessage = stringResource(R.string.scan_analyzing)
+    val scanChoosingToolsMessage = stringResource(R.string.scan_stage_choosing_tools)
+    val scanRunningToolsMessage = stringResource(R.string.scan_stage_running_tools)
     val asr = app.asr
     val providerId = app.sessionManager.currentSession?.userId ?: app.appConfig.providerId
 
@@ -188,6 +194,7 @@ fun EncounterRecordScreen(
     var extractionError by remember { mutableStateOf<String?>(null) }
     var extractionStrategyUsed by remember { mutableStateOf<String?>(null) }
     var extractionFallbacks by remember { mutableStateOf<List<String>>(emptyList()) }
+    val screenScrollState = rememberScrollState()
 
     // ── Draft note state (note-first architecture) ──
     var draftNote by remember { mutableStateOf<String?>(null) }
@@ -670,7 +677,7 @@ fun EncounterRecordScreen(
                 .padding(padding)
                 .imePadding()
                 .padding(horizontal = 24.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(screenScrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // ── Patient Context Banner — show known history before recording ──
@@ -1307,6 +1314,24 @@ fun EncounterRecordScreen(
 
                 // ── Editable state — initialized from extracted encounter ──
                 var editSummary by remember(enc) { mutableStateOf(enc.freeTextNote) }
+                val diagnosisCandidates = remember(enc) {
+                    (enc.diagnoses + enc.suggestedDiagnoses)
+                        .distinctBy { "${it.icd10Code.uppercase()}|${it.description.lowercase()}" }
+                }
+                var selectedDiagnosisKeys by remember(enc) {
+                    mutableStateOf(
+                        diagnosisCandidates
+                            .filter { it.source.equals("clinician", ignoreCase = true) }
+                            .map { "${it.icd10Code.uppercase()}|${it.description.lowercase()}" }
+                            .toSet()
+                    )
+                }
+                val needsDiagnosisReview = diagnosisCandidates.any {
+                    !it.source.equals("clinician", ignoreCase = true)
+                }
+                var diagnosisReviewComplete by remember(enc) {
+                    mutableStateOf(!needsDiagnosisReview)
+                }
                 var editExamFindings by remember(enc) { mutableStateOf(enc.examFindings.joinToString("\n")) }
                 var editInvestigations by remember(enc) {
                     mutableStateOf(enc.investigations.joinToString("\n") { inv ->
@@ -1363,6 +1388,9 @@ fun EncounterRecordScreen(
                 var editingSection by remember { mutableStateOf<String?>(null) }
                 var pendingSmsEncounter by remember { mutableStateOf<StructuredEncounter?>(null) }
                 var pendingSmsPhone by remember { mutableStateOf<String?>(null) }
+                var pendingSafetyEncounter by remember { mutableStateOf<StructuredEncounter?>(null) }
+                var pendingSafetyPhone by remember { mutableStateOf<String?>(null) }
+                var pendingSafetyAlerts by remember { mutableStateOf<List<CDSSAlert>>(emptyList()) }
 
                 // Build edited encounter for saving
                 fun buildEditedEncounter(): StructuredEncounter {
@@ -1437,6 +1465,17 @@ fun EncounterRecordScreen(
                         }
                     }
 
+                    val confirmedDiagnoses = diagnosisCandidates
+                        .filter { candidate ->
+                            "${candidate.icd10Code.uppercase()}|${candidate.description.lowercase()}" in selectedDiagnosisKeys
+                        }
+                        .mapIndexed { index, diagnosis ->
+                            diagnosis.copy(
+                                isPrimary = index == 0,
+                                source = "clinician"
+                            )
+                        }
+
                     return enc.copy(
                         freeTextNote = editSummary,
                         examFindings = editExamFindings.lines().map { it.trim() }.filter { it.isNotBlank() },
@@ -1445,6 +1484,8 @@ fun EncounterRecordScreen(
                             Investigation(test = parts[0].trim(), result = parts.getOrNull(1)?.trim()?.ifBlank { null })
                         },
                         medications = parsedMeds,
+                        diagnoses = confirmedDiagnoses,
+                        suggestedDiagnoses = emptyList(),
                         vitals = parsedVitals,
                         followUp = parsedFollowUp,
                         referral = parsedReferral,
@@ -1491,6 +1532,103 @@ fun EncounterRecordScreen(
                             isSaving = false
                         }
                     }
+                }
+
+                fun continueAfterSafetyCheck(editedEnc: StructuredEncounter, phone: String?) {
+                    if (!phone.isNullOrBlank()) {
+                        pendingSmsEncounter = editedEnc
+                        pendingSmsPhone = phone
+                    } else {
+                        saveEditedEncounter(editedEnc, sendPatientSms = false)
+                    }
+                }
+
+                pendingSafetyEncounter?.let { pendingEncounter ->
+                    val criticalCount = pendingSafetyAlerts.count { it.severity == AlertSeverity.CRITICAL }
+                    val warningCount = pendingSafetyAlerts.count { it.severity == AlertSeverity.WARNING }
+                    AlertDialog(
+                        onDismissRequest = { /* An explicit choice is required for clinical safety. */ },
+                        icon = {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (criticalCount > 0) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.tertiary
+                            )
+                        },
+                        title = {
+                            Text(
+                                if (criticalCount > 0) "Safety check — $criticalCount critical"
+                                else "Safety check — $warningCount warning${if (warningCount == 1) "" else "s"}"
+                            )
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier
+                                    .heightIn(max = 360.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                pendingSafetyAlerts.forEach { alert ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = when (alert.severity) {
+                                                AlertSeverity.CRITICAL -> MaterialTheme.colorScheme.error
+                                                AlertSeverity.WARNING -> MaterialTheme.colorScheme.tertiary
+                                                AlertSeverity.INFO -> MaterialTheme.colorScheme.primary
+                                            },
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                alert.message,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                alert.category,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    "Nothing has been saved yet. Review the encounter, or explicitly acknowledge these alerts to continue.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = {
+                                pendingSafetyEncounter = null
+                                pendingSafetyPhone = null
+                                pendingSafetyAlerts = emptyList()
+                                editingSection = if (criticalCount > 0) "medications" else null
+                                scope.launch { screenScrollState.animateScrollTo(0) }
+                            }) {
+                                Text("Review encounter")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                val phone = pendingSafetyPhone
+                                pendingSafetyEncounter = null
+                                pendingSafetyPhone = null
+                                pendingSafetyAlerts = emptyList()
+                                continueAfterSafetyCheck(pendingEncounter, phone)
+                            }) {
+                                Text("Acknowledge and continue")
+                            }
+                        }
+                    )
                 }
 
                 pendingSmsEncounter?.let { pendingEncounter ->
@@ -1633,6 +1771,73 @@ fun EncounterRecordScreen(
                             initiallyCollapsed = true
                         )
 
+                        if (diagnosisCandidates.isNotEmpty()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            Text(
+                                "Diagnoses — clinician review",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (diagnosisReviewComplete) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.tertiary
+                            )
+                            Text(
+                                "Select only diagnoses you confirm. Unselected suggestions will not enter the patient record.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            diagnosisCandidates.forEach { diagnosis ->
+                                val key = "${diagnosis.icd10Code.uppercase()}|${diagnosis.description.lowercase()}"
+                                val selected = key in selectedDiagnosisKeys
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedDiagnosisKeys = if (selected) {
+                                                selectedDiagnosisKeys - key
+                                            } else {
+                                                selectedDiagnosisKeys + key
+                                            }
+                                            if (needsDiagnosisReview) diagnosisReviewComplete = false
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = selected,
+                                        onCheckedChange = { checked ->
+                                            selectedDiagnosisKeys = if (checked) {
+                                                selectedDiagnosisKeys + key
+                                            } else {
+                                                selectedDiagnosisKeys - key
+                                            }
+                                            if (needsDiagnosisReview) diagnosisReviewComplete = false
+                                        }
+                                    )
+                                    Text(
+                                        "${diagnosis.icd10Code} — ${diagnosis.description}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                            if (needsDiagnosisReview) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { diagnosisReviewComplete = !diagnosisReviewComplete },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = diagnosisReviewComplete,
+                                        onCheckedChange = { diagnosisReviewComplete = it }
+                                    )
+                                    Text(
+                                        "I reviewed these diagnosis suggestions",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+
                         // Exam Findings
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         EditableSection(
@@ -1760,78 +1965,6 @@ fun EncounterRecordScreen(
                             )
                         }
 
-                        // Suggested Diagnoses (read-only with confidence badges)
-                        val visibleSuggested = enc.suggestedDiagnoses.filter { it.confidence > 0f }
-                        if (visibleSuggested.isNotEmpty()) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                            Text(
-                                stringResource(R.string.suggested_diagnoses),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            visibleSuggested.forEach { dx ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        "${dx.icd10Code} — ${dx.description}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                        shape = MaterialTheme.shapes.extraSmall
-                                    ) {
-                                        Text(
-                                            "${"%.0f".format(dx.confidence * 100)}%",
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Confirmed Diagnoses (read-only with confidence badges)
-                        val visibleConfirmed = enc.diagnoses.filter { it.confidence > 0f }
-                        if (visibleConfirmed.isNotEmpty()) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                            Text(
-                                stringResource(R.string.confirmed_diagnoses),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            visibleConfirmed.forEach { dx ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        "${dx.icd10Code} — ${dx.description}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        shape = MaterialTheme.shapes.extraSmall
-                                    ) {
-                                        Text(
-                                            "${"%.0f".format(dx.confidence * 100)}%",
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -1888,11 +2021,17 @@ fun EncounterRecordScreen(
                             try {
                                 val patient = app.patientRepository.getById(patientId)
                                 val phone = patient?.phoneNumber
-                                if (!phone.isNullOrBlank()) {
-                                    pendingSmsEncounter = editedEnc
-                                    pendingSmsPhone = phone
+                                val alerts = EncounterSaveCoordinator.evaluateSafety(
+                                    app = app,
+                                    encounter = editedEnc,
+                                    patientId = patientId
+                                )
+                                if (alerts.isNotEmpty()) {
+                                    pendingSafetyEncounter = editedEnc
+                                    pendingSafetyPhone = phone
+                                    pendingSafetyAlerts = alerts
                                 } else {
-                                    saveEditedEncounter(editedEnc, sendPatientSms = false)
+                                    continueAfterSafetyCheck(editedEnc, phone)
                                 }
                             } catch (e: CancellationException) {
                                 throw e
@@ -1901,7 +2040,7 @@ fun EncounterRecordScreen(
                             }
                         }
                     },
-                    enabled = !isSaving,
+                    enabled = !isSaving && diagnosisReviewComplete,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
@@ -1919,6 +2058,15 @@ fun EncounterRecordScreen(
                             else -> stringResource(R.string.save_and_review)
                         }, style = MaterialTheme.typography.titleMedium)
                     }
+                }
+
+                if (!diagnosisReviewComplete) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Review the diagnosis suggestions above before saving.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -2063,10 +2211,10 @@ fun EncounterRecordScreen(
                     // tool calls. On a 3GB device ASR is released first so the
                     // vision model has RAM headroom.
                     isScanProcessing = true
-                    scanStageMessage = context.getString(R.string.scan_analyzing)
-                    val readingMsg = context.getString(R.string.scan_analyzing)
-                    val choosingMsg = context.getString(R.string.scan_stage_choosing_tools)
-                    val runningMsg = context.getString(R.string.scan_stage_running_tools)
+                    scanStageMessage = scanAnalyzingMessage
+                    val readingMsg = scanAnalyzingMessage
+                    val choosingMsg = scanChoosingToolsMessage
+                    val runningMsg = scanRunningToolsMessage
                     scope.launch {
                         asr.unloadOfflineModelAndWait()
                         val outcome = withContext(Dispatchers.Default) {

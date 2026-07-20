@@ -108,11 +108,17 @@ object SOAPNoteGenerator {
             val transcript = encounter.freeTextNote.ifBlank { encounter.transcript }
             if (transcript.isNotBlank()) {
                 appendLine("Chief Complaint:")
-                // Take first 2 sentences or first 200 chars as chief complaint
-                val cc = transcript.take(300).let {
-                    val end = it.indexOf('.', 100)
-                    if (end > 0) it.take(end + 1) else it
-                }
+                // Keep the chief complaint to the first clinical sentence. The old
+                // minimum index of 100 skipped short first sentences and leaked
+                // medications/diagnosis suggestions into this quoted field.
+                val clinicalText = transcript
+                    .substringBefore("Suggested diagnoses:", transcript)
+                    .trim()
+                    .removePrefix("Chief concern:")
+                    .trim()
+                val end = clinicalText.indexOfFirst { it == '.' || it == '!' || it == '?' }
+                val cc = (if (end >= 0) clinicalText.take(end + 1) else clinicalText)
+                    .take(200)
                 appendLine("  \"$cc\"")
                 appendLine()
             }
